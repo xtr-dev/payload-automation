@@ -1,0 +1,133 @@
+{
+  "name": "@xtr-dev/payload-automation",
+  "version": "0.0.1",
+  "description": "PayloadCMS Automation Plugin - Comprehensive workflow automation system with visual workflow building, execution tracking, and step types",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "import": "./dist/exports/client.js",
+      "types": "./dist/exports/client.d.ts",
+      "default": "./dist/exports/client.js"
+    },
+    "./rsc": {
+      "import": "./dist/exports/rsc.js",
+      "types": "./dist/exports/rsc.d.ts",
+      "default": "./dist/exports/rsc.js"
+    },
+    "./fields": {
+      "import": "./dist/exports/fields.js",
+      "types": "./dist/exports/fields.d.ts",
+      "default": "./dist/exports/fields.js"
+    },
+    "./views": {
+      "import": "./dist/exports/views.js",
+      "types": "./dist/exports/views.d.ts",
+      "default": "./dist/exports/views.js"
+    },
+    "./steps": {
+      "import": "./dist/steps/index.js",
+      "types": "./dist/steps/index.d.ts",
+      "default": "./dist/steps/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm copyfiles && pnpm build:types && pnpm build:swc",
+    "build:swc": "swc ./src -d ./dist --config-file .swcrc --strip-leading-paths",
+    "build:types": "tsc --outDir dist --rootDir ./src",
+    "clean": "rimraf {dist,*.tsbuildinfo}",
+    "copyfiles": "copyfiles -u 1 \"src/**/*.{html,css,scss,ttf,woff,woff2,eot,svg,jpg,png,json}\" dist/",
+    "dev": "next dev dev --turbo",
+    "dev:generate-importmap": "pnpm dev:payload generate:importmap",
+    "dev:generate-types": "pnpm dev:payload generate:types",
+    "dev:payload": "cross-env PAYLOAD_CONFIG_PATH=./dev/payload.config.ts payload",
+    "generate:importmap": "pnpm dev:generate-importmap",
+    "generate:types": "pnpm dev:generate-types",
+    "lint": "eslint",
+    "lint:fix": "eslint ./src --fix",
+    "prepublishOnly": "pnpm clean && pnpm build",
+    "test": "pnpm test:int && pnpm test:e2e",
+    "test:e2e": "playwright test",
+    "test:int": "vitest"
+  },
+  "devDependencies": {
+    "@payloadcms/db-mongodb": "3.45.0",
+    "@payloadcms/db-postgres": "3.45.0",
+    "@payloadcms/db-sqlite": "3.45.0",
+    "@payloadcms/eslint-config": "3.9.0",
+    "@payloadcms/next": "3.45.0",
+    "@payloadcms/richtext-lexical": "3.45.0",
+    "@payloadcms/ui": "3.45.0",
+    "@playwright/test": "^1.52.0",
+    "@swc/cli": "0.6.0",
+    "@types/node": "^22.5.4",
+    "@types/node-cron": "^3.0.11",
+    "@types/react": "19.1.8",
+    "@types/react-dom": "19.1.6",
+    "copyfiles": "2.4.1",
+    "cross-env": "^7.0.3",
+    "eslint": "^9.23.0",
+    "graphql": "^16.8.1",
+    "mongodb-memory-server": "10.1.4",
+    "next": "15.4.4",
+    "payload": "3.45.0",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "rimraf": "3.0.2",
+    "sharp": "0.34.2",
+    "typescript": "5.7.3",
+    "vitest": "^3.1.2"
+  },
+  "peerDependencies": {
+    "payload": "^3.45.0"
+  },
+  "engines": {
+    "node": "^18.20.2 || >=20.9.0",
+    "pnpm": "^9 || ^10"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "import": "./dist/exports/client.js",
+        "types": "./dist/exports/client.d.ts",
+        "default": "./dist/exports/client.js"
+      },
+      "./rsc": {
+        "import": "./dist/exports/rsc.js",
+        "types": "./dist/exports/rsc.d.ts",
+        "default": "./dist/exports/rsc.js"
+      }
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "sharp",
+      "esbuild",
+      "unrs-resolver"
+    ]
+  },
+  "registry": "https://registry.npmjs.org/",
+  "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184",
+  "dependencies": {
+    "jsonpath-plus": "^10.3.0",
+    "node-cron": "^4.2.1",
+    "pino": "^9.9.0"
+  }
+}
