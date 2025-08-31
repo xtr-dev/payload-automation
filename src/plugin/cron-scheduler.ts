@@ -1,6 +1,6 @@
 import type {Config, Payload, TaskConfig} from 'payload'
 
-import * as cron from 'node-cron'
+import cron from 'node-cron'
 
 import {type Workflow, WorkflowExecutor} from '../core/workflow-executor.js'
 import {getConfigLogger} from './logger.js'

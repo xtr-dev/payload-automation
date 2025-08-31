@@ -1,0 +1,74 @@
+name: Publish to NPM
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test:int
+
+      - name: Build
+        run: pnpm build
+
+      - name: Check if version changed
+        id: version-check
+        run: |
+          # Get current version from package.json
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+          
+          # Get previous commit's version
+          git show HEAD~1:package.json > prev-package.json 2>/dev/null || echo '{"version":"0.0.0"}' > prev-package.json
+          PREVIOUS_VERSION=$(node -p "require('./prev-package.json').version")
+          
+          echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "previous=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
+          
+          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version unchanged: $CURRENT_VERSION"
+          fi
+
+      - name: Publish to NPM
+        if: steps.version-check.outputs.changed == 'true'
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        if: steps.version-check.outputs.changed == 'true'
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.version-check.outputs.current }}
+          release_name: Release v${{ steps.version-check.outputs.current }}
+          draft: false
+          prerelease: false
