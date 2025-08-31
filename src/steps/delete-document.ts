@@ -7,7 +7,7 @@ export const DeleteDocumentStepTask = {
   handler: deleteDocumentHandler,
   inputSchema: [
     {
-      name: 'collection',
+      name: 'collectionSlug',
       type: 'text',
       admin: {
         description: 'The collection slug to delete from'

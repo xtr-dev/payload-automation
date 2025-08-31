@@ -5,9 +5,9 @@ export const deleteDocumentHandler: TaskHandler<'delete-document'> = async ({ in
     throw new Error('No input provided')
   }
 
-  const { id, collection, where } = input
+  const { id, collectionSlug, where } = input
 
-  if (!collection || typeof collection !== 'string') {
+  if (!collectionSlug || typeof collectionSlug !== 'string') {
     throw new Error('Collection slug is required')
   }
 
@@ -16,7 +16,7 @@ export const deleteDocumentHandler: TaskHandler<'delete-document'> = async ({ in
     if (id) {
       const result = await req.payload.delete({
         id: id.toString(),
-        collection,
+        collection: collectionSlug,
         req
       })
 
@@ -38,7 +38,7 @@ export const deleteDocumentHandler: TaskHandler<'delete-document'> = async ({ in
 
     // First find the documents to delete
     const toDelete = await req.payload.find({
-      collection,
+      collection: collectionSlug,
       limit: 1000, // Set a reasonable limit
       req,
       where: parsedWhere
@@ -49,7 +49,7 @@ export const deleteDocumentHandler: TaskHandler<'delete-document'> = async ({ in
     for (const doc of toDelete.docs) {
       const result = await req.payload.delete({
         id: doc.id,
-        collection,
+        collection: collectionSlug,
         req
       })
       deleted.push(result)

@@ -5,10 +5,21 @@ import type { WorkflowExecutor } from "../core/workflow-executor.js"
 import type {CollectionTriggerConfigCrud, WorkflowsPluginConfig} from "./config-types.js"
 
 export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPluginConfig<T>, payload: Payload, logger: Payload['logger'], executor: WorkflowExecutor) {
+  
+  if (!pluginOptions.collectionTriggers || Object.keys(pluginOptions.collectionTriggers).length === 0) {
+    logger.warn('No collection triggers configured in plugin options')
+    return
+  }
+
+  logger.info({
+    configuredCollections: Object.keys(pluginOptions.collectionTriggers),
+    availableCollections: Object.keys(payload.collections)
+  }, 'Starting collection hook registration')
 
   // Add hooks to configured collections
   for (const [collectionSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
     if (!triggerConfig) {
+      logger.debug({collectionSlug}, 'Skipping collection with falsy trigger config')
       continue
     }
 
@@ -29,7 +40,7 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
       collection.config.hooks.afterChange.push(async (change) => {
         const operation = change.operation as 'create' | 'update'
         logger.debug({
-          collection: change.collection.slug,
+          slug: change.collection.slug,
           operation,
         }, 'Collection hook triggered')
 
@@ -48,7 +59,7 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
       collection.config.hooks.afterRead = collection.config.hooks.afterRead || []
       collection.config.hooks.afterRead.push(async (change) => {
         logger.debug({
-          collection: change.collection.slug,
+          slug: change.collection.slug,
           operation: 'read',
         }, 'Collection hook triggered')
 
@@ -67,7 +78,7 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
       collection.config.hooks.afterDelete = collection.config.hooks.afterDelete || []
       collection.config.hooks.afterDelete.push(async (change) => {
         logger.debug({
-          collection: change.collection.slug,
+          slug: change.collection.slug,
           operation: 'delete',
         }, 'Collection hook triggered')
 
@@ -83,9 +94,19 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
     }
 
     if (collection) {
-      logger.info({collectionSlug}, 'Collection hooks registered')
+      logger.info({
+        collectionSlug,
+        hooksRegistered: {
+          afterChange: crud.update || crud.create,
+          afterRead: crud.read,
+          afterDelete: crud.delete
+        }
+      }, 'Collection hooks registered successfully')
     } else {
-      logger.warn({collectionSlug}, 'Collection not found for trigger configuration')
+      logger.error({
+        collectionSlug,
+        availableCollections: Object.keys(payload.collections)
+      }, 'Collection not found for trigger configuration - check collection slug spelling')
     }
   }
 }

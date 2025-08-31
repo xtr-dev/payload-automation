@@ -1,25 +1,27 @@
 import type { Payload } from 'payload'
 
 // Global logger instance - use Payload's logger type
-let pluginLogger: Payload['logger'] | null = null
+let pluginLogger: null | Payload['logger'] = null
 
 /**
  * Simple config-time logger for use during plugin configuration
  * Uses console with plugin prefix since Payload logger isn't available yet
  */
 const configLogger = {
-  debug: (message: string, ...args: any[]) => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`[payload-automation] ${message}`, ...args)
-    }
-  },
-  error: (message: string, ...args: any[]) => {
-    console.error(`[payload-automation] ${message}`, ...args)
-  },
-  info: (message: string, ...args: any[]) => {
+  debug: <T>(message: string, ...args: T[]) => {
+    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
     console.log(`[payload-automation] ${message}`, ...args)
   },
-  warn: (message: string, ...args: any[]) => {
+  error: <T>(message: string, ...args: T[]) => {
+    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
+    console.error(`[payload-automation] ${message}`, ...args)
+  },
+  info: <T>(message: string, ...args: T[]) => {
+    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
+    console.log(`[payload-automation] ${message}`, ...args)
+  },
+  warn: <T>(message: string, ...args: T[]) => {
+    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
     console.warn(`[payload-automation] ${message}`, ...args)
   }
 }
@@ -38,6 +40,7 @@ export function getConfigLogger() {
 export function initializeLogger(payload: Payload): Payload['logger'] {
   // Create a child logger with plugin identification
   pluginLogger = payload.logger.child({
+    level: process.env.PAYLOAD_AUTOMATION_LOGGING || 'silent',
     plugin: '@xtr-dev/payload-automation'
   })
   return pluginLogger

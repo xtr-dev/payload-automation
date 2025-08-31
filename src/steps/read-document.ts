@@ -7,7 +7,7 @@ export const ReadDocumentStepTask = {
   handler: readDocumentHandler,
   inputSchema: [
     {
-      name: 'collection',
+      name: 'collectionSlug',
       type: 'text',
       admin: {
         description: 'The collection slug to read from'

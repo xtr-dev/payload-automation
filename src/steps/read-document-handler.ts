@@ -5,9 +5,9 @@ export const readDocumentHandler: TaskHandler<'read-document'> = async ({ input,
     throw new Error('No input provided')
   }
 
-  const { id, collection, depth, limit, locale, sort, where } = input
+  const { id, collectionSlug, depth, limit, locale, sort, where } = input
 
-  if (!collection || typeof collection !== 'string') {
+  if (!collectionSlug || typeof collectionSlug !== 'string') {
     throw new Error('Collection slug is required')
   }
 
@@ -16,7 +16,7 @@ export const readDocumentHandler: TaskHandler<'read-document'> = async ({ input,
     if (id) {
       const result = await req.payload.findByID({
         id: id.toString(),
-        collection,
+        collection: collectionSlug,
         depth: typeof depth === 'number' ? depth : undefined,
         locale: locale || undefined,
         req
@@ -35,7 +35,7 @@ export const readDocumentHandler: TaskHandler<'read-document'> = async ({ input,
     const parsedWhere = where ? (typeof where === 'string' ? JSON.parse(where) : where) : {}
 
     const result = await req.payload.find({
-      collection,
+      collection: collectionSlug,
       depth: typeof depth === 'number' ? depth : undefined,
       limit: typeof limit === 'number' ? limit : 10,
       locale: locale || undefined,

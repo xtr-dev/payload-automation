@@ -52,7 +52,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           ]
         },
         {
-          name: 'collection',
+          name: 'collectionSlug',
           type: 'select',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'collection-trigger',

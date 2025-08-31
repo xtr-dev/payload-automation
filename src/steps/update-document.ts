@@ -7,7 +7,7 @@ export const UpdateDocumentStepTask = {
   handler: updateDocumentHandler,
   inputSchema: [
     {
-      name: 'collection',
+      name: 'collectionSlug',
       type: 'text',
       admin: {
         description: 'The collection slug to update a document in'

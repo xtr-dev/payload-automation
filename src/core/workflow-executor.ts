@@ -87,12 +87,29 @@ export class WorkflowExecutor {
 
     // Check step condition if present
     if (step.condition) {
+      this.logger.debug({
+        condition: step.condition,
+        stepName,
+        availableSteps: Object.keys(context.steps),
+        completedSteps: Object.entries(context.steps)
+          .filter(([_, s]) => s.state === 'succeeded')
+          .map(([name]) => name),
+        triggerType: context.trigger?.type
+      }, 'Evaluating step condition')
+
       const conditionMet = this.evaluateStepCondition(step.condition, context)
 
       if (!conditionMet) {
         this.logger.info({
           condition: step.condition,
-          stepName
+          stepName,
+          contextSnapshot: JSON.stringify({
+            stepOutputs: Object.entries(context.steps).reduce((acc, [name, step]) => {
+              acc[name] = { state: step.state, hasOutput: !!step.output }
+              return acc
+            }, {} as Record<string, any>),
+            triggerData: context.trigger?.data ? 'present' : 'absent'
+          })
         }, 'Step condition not met, skipping')
 
         // Mark step as completed but skipped
@@ -113,7 +130,14 @@ export class WorkflowExecutor {
 
       this.logger.info({
         condition: step.condition,
-        stepName
+        stepName,
+        contextSnapshot: JSON.stringify({
+          stepOutputs: Object.entries(context.steps).reduce((acc, [name, step]) => {
+            acc[name] = { state: step.state, hasOutput: !!step.output }
+            return acc
+          }, {} as Record<string, any>),
+          triggerData: context.trigger?.data ? 'present' : 'absent'
+        })
       }, 'Step condition met, proceeding with execution')
     }
 
@@ -311,32 +335,65 @@ export class WorkflowExecutor {
   private resolveStepInput(config: Record<string, unknown>, context: ExecutionContext): Record<string, unknown> {
     const resolved: Record<string, unknown> = {}
 
+    this.logger.debug({
+      configKeys: Object.keys(config),
+      contextSteps: Object.keys(context.steps),
+      triggerType: context.trigger?.type
+    }, 'Starting step input resolution')
+
     for (const [key, value] of Object.entries(config)) {
       if (typeof value === 'string' && value.startsWith('$')) {
         // This is a JSONPath expression
+        this.logger.debug({
+          key,
+          jsonPath: value,
+          availableSteps: Object.keys(context.steps),
+          hasTriggerData: !!context.trigger?.data,
+          hasTriggerDoc: !!context.trigger?.doc
+        }, 'Resolving JSONPath expression')
+
         try {
           const result = JSONPath({
             json: context,
             path: value,
             wrap: false
           })
+          
+          this.logger.debug({
+            key,
+            jsonPath: value,
+            result: JSON.stringify(result).substring(0, 200),
+            resultType: Array.isArray(result) ? 'array' : typeof result
+          }, 'JSONPath resolved successfully')
+          
           resolved[key] = result
         } catch (error) {
           this.logger.warn({
             error: error instanceof Error ? error.message : 'Unknown error',
             key,
-            path: value
+            path: value,
+            contextSnapshot: JSON.stringify(context).substring(0, 500)
           }, 'Failed to resolve JSONPath')
           resolved[key] = value // Keep original value if resolution fails
         }
       } else if (typeof value === 'object' && value !== null) {
         // Recursively resolve nested objects
+        this.logger.debug({
+          key,
+          nestedKeys: Object.keys(value as Record<string, unknown>)
+        }, 'Recursively resolving nested object')
+        
         resolved[key] = this.resolveStepInput(value as Record<string, unknown>, context)
       } else {
         // Keep literal values as-is
         resolved[key] = value
       }
     }
+
+    this.logger.debug({
+      resolvedKeys: Object.keys(resolved),
+      originalKeys: Object.keys(config)
+    }, 'Step input resolution completed')
 
     return resolved
   }
@@ -377,6 +434,14 @@ export class WorkflowExecutor {
    * Evaluate a condition using JSONPath
    */
   public evaluateCondition(condition: string, context: ExecutionContext): boolean {
+    this.logger.debug({
+      condition,
+      contextKeys: Object.keys(context),
+      triggerType: context.trigger?.type,
+      triggerData: context.trigger?.data,
+      triggerDoc: context.trigger?.doc ? 'present' : 'absent'
+    }, 'Starting condition evaluation')
+
     try {
       const result = JSONPath({
         json: context,
@@ -384,16 +449,33 @@ export class WorkflowExecutor {
         wrap: false
       })
 
+      this.logger.debug({
+        condition,
+        result,
+        resultType: Array.isArray(result) ? 'array' : typeof result,
+        resultLength: Array.isArray(result) ? result.length : undefined
+      }, 'JSONPath evaluation result')
+
       // Handle different result types
+      let finalResult: boolean
       if (Array.isArray(result)) {
-        return result.length > 0 && Boolean(result[0])
+        finalResult = result.length > 0 && Boolean(result[0])
+      } else {
+        finalResult = Boolean(result)
       }
 
-      return Boolean(result)
+      this.logger.debug({
+        condition,
+        finalResult,
+        originalResult: result
+      }, 'Condition evaluation completed')
+
+      return finalResult
     } catch (error) {
       this.logger.warn({
         condition,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined
       }, 'Failed to evaluate condition')
 
       // If condition evaluation fails, assume false
@@ -564,6 +646,17 @@ export class WorkflowExecutor {
 
           // Check trigger condition if present
           if (trigger.condition) {
+            this.logger.debug({
+              collection,
+              operation,
+              condition: trigger.condition,
+              docId: (doc as any)?.id,
+              docFields: doc ? Object.keys(doc) : [],
+              previousDocId: (previousDoc as any)?.id,
+              workflowId: workflow.id,
+              workflowName: workflow.name
+            }, 'Evaluating collection trigger condition')
+
             const conditionMet = this.evaluateCondition(trigger.condition, context)
 
             if (!conditionMet) {
@@ -572,7 +665,8 @@ export class WorkflowExecutor {
                 condition: trigger.condition,
                 operation,
                 workflowId: workflow.id,
-                workflowName: workflow.name
+                workflowName: workflow.name,
+                docSnapshot: JSON.stringify(doc).substring(0, 200)
               }, 'Trigger condition not met, skipping workflow')
               continue
             }
@@ -582,7 +676,8 @@ export class WorkflowExecutor {
               condition: trigger.condition,
               operation,
               workflowId: workflow.id,
-              workflowName: workflow.name
+              workflowName: workflow.name,
+              docSnapshot: JSON.stringify(doc).substring(0, 200)
             }, 'Trigger condition met')
           }
 

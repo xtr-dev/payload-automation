@@ -7,7 +7,7 @@ export const CreateDocumentStepTask = {
   handler: createDocumentHandler,
   inputSchema: [
     {
-      name: 'collection',
+      name: 'collectionSlug',
       type: 'text',
       admin: {
         description: 'The collection slug to create a document in'

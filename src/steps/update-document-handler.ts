@@ -5,9 +5,9 @@ export const updateDocumentHandler: TaskHandler<'update-document'> = async ({ in
     throw new Error('No input provided')
   }
 
-  const { id, collection, data, draft, locale } = input
+  const { id, collectionSlug, data, draft, locale } = input
 
-  if (!collection || typeof collection !== 'string') {
+  if (!collectionSlug || typeof collectionSlug !== 'string') {
     throw new Error('Collection slug is required')
   }
 
@@ -24,7 +24,7 @@ export const updateDocumentHandler: TaskHandler<'update-document'> = async ({ in
 
     const result = await req.payload.update({
       id: id.toString(),
-      collection,
+      collection: collectionSlug,
       data: parsedData,
       draft: draft || false,
       locale: locale || undefined,

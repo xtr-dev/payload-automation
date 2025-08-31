@@ -5,9 +5,9 @@ export const createDocumentHandler: TaskHandler<'create-document'> = async ({ in
     throw new Error('No input provided')
   }
 
-  const { collection, data, draft, locale } = input
+  const { collectionSlug, data, draft, locale } = input
 
-  if (!collection || typeof collection !== 'string') {
+  if (!collectionSlug || typeof collectionSlug !== 'string') {
     throw new Error('Collection slug is required')
   }
 
@@ -19,7 +19,7 @@ export const createDocumentHandler: TaskHandler<'create-document'> = async ({ in
     const parsedData = typeof data === 'string' ? JSON.parse(data) : data
 
     const result = await req.payload.create({
-      collection,
+      collection: collectionSlug,
       data: parsedData,
       draft: draft || false,
       locale: locale || undefined,

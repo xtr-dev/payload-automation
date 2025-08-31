@@ -45,7 +45,7 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
           )
         }
 
-        // Create workflow executor for this request
+        // Create a workflow executor for this request
         const logger = initializeLogger(req.payload)
         const executor = new WorkflowExecutor(req.payload, logger)
 
@@ -77,22 +77,33 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
 
             // Check trigger condition if present
             if (matchingTrigger?.condition) {
+              logger.debug({
+                condition: matchingTrigger.condition,
+                path,
+                webhookData: JSON.stringify(webhookData).substring(0, 200),
+                headers: Object.keys(context.trigger.headers || {}),
+                workflowId: workflow.id,
+                workflowName: workflow.name
+              }, 'Evaluating webhook trigger condition')
+
               const conditionMet = executor.evaluateCondition(matchingTrigger.condition, context)
-              
+
               if (!conditionMet) {
                 logger.info({
                   condition: matchingTrigger.condition,
                   path,
+                  webhookDataSnapshot: JSON.stringify(webhookData).substring(0, 200),
                   workflowId: workflow.id,
                   workflowName: workflow.name
                 }, 'Webhook trigger condition not met, skipping workflow')
-                
-                return { status: 'skipped', workflowId: workflow.id, reason: 'Condition not met' }
+
+                return { reason: 'Condition not met', status: 'skipped', workflowId: workflow.id }
               }
-              
+
               logger.info({
                 condition: matchingTrigger.condition,
                 path,
+                webhookDataSnapshot: JSON.stringify(webhookData).substring(0, 200),
                 workflowId: workflow.id,
                 workflowName: workflow.name
               }, 'Webhook trigger condition met')
@@ -149,11 +160,11 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
     path: `${normalizedPrefix}/:path`
   }
 
-  // Check if webhook endpoint already exists to avoid duplicates
-  const existingEndpoint = config.endpoints?.find(endpoint => 
+  // Check if the webhook endpoint already exists to avoid duplicates
+  const existingEndpoint = config.endpoints?.find(endpoint =>
     endpoint.path === webhookEndpoint.path && endpoint.method === webhookEndpoint.method
   )
-  
+
   if (!existingEndpoint) {
     // Combine existing endpoints with the webhook endpoint
     config.endpoints = [...(config.endpoints || []), webhookEndpoint]
