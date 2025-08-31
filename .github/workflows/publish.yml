@@ -44,7 +44,7 @@ jobs:
           
           # Check if this is a version bump commit (created by npm version)
           COMMIT_MSG=$(git log -1 --pretty=%B)
-          if echo "$COMMIT_MSG" | grep -q "^v[0-9]"; then
+          if echo "$COMMIT_MSG" | grep -q "^Release v[0-9]\|^v[0-9]"; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "Version bump commit detected: $COMMIT_MSG"
           # Or check if package.json was modified in this commit
