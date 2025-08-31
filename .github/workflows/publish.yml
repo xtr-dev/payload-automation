@@ -35,25 +35,34 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Check if version changed
+      - name: Check if should publish
         id: version-check
         run: |
           # Get current version from package.json
           CURRENT_VERSION=$(node -p "require('./package.json').version")
-          
-          # Get previous commit's version
-          git show HEAD~1:package.json > prev-package.json 2>/dev/null || echo '{"version":"0.0.0"}' > prev-package.json
-          PREVIOUS_VERSION=$(node -p "require('./prev-package.json').version")
-          
           echo "current=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-          echo "previous=$PREVIOUS_VERSION" >> $GITHUB_OUTPUT
           
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          # Check if this is a version bump commit (created by npm version)
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if echo "$COMMIT_MSG" | grep -q "^v[0-9]"; then
             echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+            echo "Version bump commit detected: $COMMIT_MSG"
+          # Or check if package.json was modified in this commit
+          elif git diff --name-only HEAD~1 HEAD | grep -q "package.json"; then
+            # Check if the version actually changed
+            git show HEAD~1:package.json > prev-package.json 2>/dev/null || echo '{"version":"0.0.0"}' > prev-package.json
+            PREVIOUS_VERSION=$(node -p "require('./prev-package.json').version")
+            
+            if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+              echo "changed=true" >> $GITHUB_OUTPUT
+              echo "Version changed from $PREVIOUS_VERSION to $CURRENT_VERSION"
+            else
+              echo "changed=false" >> $GITHUB_OUTPUT
+              echo "package.json modified but version unchanged: $CURRENT_VERSION"
+            fi
           else
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version unchanged: $CURRENT_VERSION"
+            echo "No version change detected"
           fi
 
       - name: Publish to NPM
