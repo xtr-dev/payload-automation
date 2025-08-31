@@ -1,19 +1,15 @@
-export { triggerCustomWorkflow, triggerWorkflowById } from './core/trigger-custom-workflow.js'
+// Main export contains only types and client-safe utilities
+// Server-side functions are exported via '@xtr-dev/payload-automation/server'
+
+// Types only - safe for client bundling
 export type { CustomTriggerOptions, TriggerResult } from './core/trigger-custom-workflow.js'
-export { WorkflowExecutor } from './core/workflow-executor.js'
 export type { ExecutionContext, Workflow, WorkflowStep, WorkflowTrigger } from './core/workflow-executor.js'
 export type { WorkflowsPluginConfig } from './plugin/config-types.js'
-export { workflowsPlugin } from './plugin/index.js'
 
-// Export all step tasks
-export {
-  CreateDocumentStepTask,
-  DeleteDocumentStepTask,
-  HttpRequestStepTask,
-  ReadDocumentStepTask,
-  SendEmailStepTask,
-  UpdateDocumentStepTask
-} from './steps/index.js'
+// Server-side functions are NOT re-exported here to avoid bundling issues
+// Import server-side functions from the /server export instead
 
-// UI components are exported via separate client export to avoid CSS import issues during type generation
-// Use: import { TriggerWorkflowButton } from '@xtr-dev/payload-automation/client'
+// Server functions and plugin should be imported from '/server':
+// import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
+// UI components should be imported from '/client':
+// import { TriggerWorkflowButton } from '@xtr-dev/payload-automation/client'

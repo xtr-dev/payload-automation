@@ -30,10 +30,10 @@
       "types": "./dist/exports/views.d.ts",
       "default": "./dist/exports/views.js"
     },
-    "./steps": {
-      "import": "./dist/steps/index.js",
-      "types": "./dist/steps/index.d.ts",
-      "default": "./dist/steps/index.js"
+    "./server": {
+      "import": "./dist/exports/server.js",
+      "types": "./dist/exports/server.d.ts",
+      "default": "./dist/exports/server.js"
     }
   },
   "main": "dist/index.js",

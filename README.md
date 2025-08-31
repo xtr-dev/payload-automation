@@ -27,18 +27,38 @@ yarn add @xtr-dev/payload-automation
 
 ```typescript
 import { buildConfig } from 'payload'
-import { payloadAutomation } from '@xtr-dev/payload-automation'
+import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
 
 export default buildConfig({
   // ... your config
   plugins: [
-    payloadAutomation({
-      collections: ['posts', 'users'], // Collections to monitor
-      globals: ['settings'],           // Globals to monitor
+    workflowsPlugin({
+      collectionTriggers: {
+        posts: true,    // Enable all CRUD triggers for posts
+        users: { 
+          create: true, // Only enable create trigger for users
+          update: true
+        }
+      },
       enabled: true,
     }),
   ],
 })
+```
+
+## Import Structure
+
+The plugin uses separate exports to avoid bundling server-side code in client bundles:
+
+```typescript
+// Server-side plugin and functions
+import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
+
+// Client-side components  
+import { TriggerWorkflowButton } from '@xtr-dev/payload-automation/client'
+
+// Types only (safe for both server and client)
+import type { WorkflowsPluginConfig } from '@xtr-dev/payload-automation'
 ```
 
 ## Step Types
