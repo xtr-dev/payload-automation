@@ -39,19 +39,37 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
       collection.config.hooks.afterChange = collection.config.hooks.afterChange || []
       collection.config.hooks.afterChange.push(async (change) => {
         const operation = change.operation as 'create' | 'update'
-        logger.debug({
+        logger.info({
           slug: change.collection.slug,
           operation,
-        }, 'Collection hook triggered')
+          docId: change.doc?.id,
+          previousDocId: change.previousDoc?.id,
+        }, 'AUTOMATION PLUGIN: Collection hook triggered')
 
-        // Execute workflows for this trigger
-        await executor.executeTriggeredWorkflows(
-          change.collection.slug,
-          operation,
-          change.doc,
-          change.previousDoc,
-          change.req
-        )
+        try {
+          // Execute workflows for this trigger
+          await executor.executeTriggeredWorkflows(
+            change.collection.slug,
+            operation,
+            change.doc,
+            change.previousDoc,
+            change.req
+          )
+          logger.info({
+            slug: change.collection.slug,
+            operation,
+            docId: change.doc?.id
+          }, 'AUTOMATION PLUGIN: executeTriggeredWorkflows completed successfully')
+        } catch (error) {
+          logger.error({
+            slug: change.collection.slug,
+            operation,
+            docId: change.doc?.id,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined
+          }, 'AUTOMATION PLUGIN: executeTriggeredWorkflows failed')
+          // Don't re-throw to avoid breaking other hooks
+        }
       })
     }
 

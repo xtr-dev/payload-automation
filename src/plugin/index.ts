@@ -27,8 +27,6 @@ const applyCollectionsConfig = <T extends string>(pluginOptions: WorkflowsPlugin
   )
 }
 
-// Track if hooks have been initialized to prevent double registration
-let hooksInitialized = false
 
 export const workflowsPlugin =
   <TSlug extends string>(pluginOptions: WorkflowsPluginConfig<TSlug>) =>
@@ -65,13 +63,7 @@ export const workflowsPlugin =
       // Set up onInit to register collection hooks and initialize features
       const incomingOnInit = config.onInit
       config.onInit = async (payload) => {
-        configLogger.info(`onInit called - hooks already initialized: ${hooksInitialized}, collections: ${Object.keys(payload.collections).length}`)
-        
-        // Prevent double initialization in dev mode
-        if (hooksInitialized) {
-          configLogger.warn('Hooks already initialized, skipping to prevent duplicate registration')
-          return
-        }
+        configLogger.info(`onInit called - collections: ${Object.keys(payload.collections).length}`)
         
         // Execute any existing onInit functions first
         if (incomingOnInit) {
@@ -107,7 +99,6 @@ export const workflowsPlugin =
         await registerCronJobs(payload, logger)
 
         logger.info('Plugin initialized successfully - all hooks registered')
-        hooksInitialized = true
       }
 
       return config
