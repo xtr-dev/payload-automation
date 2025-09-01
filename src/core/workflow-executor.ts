@@ -606,6 +606,12 @@ export class WorkflowExecutor {
     previousDoc: unknown,
     req: PayloadRequest
   ): Promise<void> {
+    this.logger.info({
+      collection,
+      operation,
+      docId: (doc as any)?.id
+    }, 'executeTriggeredWorkflows called')
+    
     try {
       // Find workflows with matching triggers
       const workflows = await this.payload.find({
@@ -614,21 +620,46 @@ export class WorkflowExecutor {
         limit: 100,
         req
       })
+      
+      this.logger.info({
+        workflowCount: workflows.docs.length
+      }, 'Found workflows to check')
 
       for (const workflow of workflows.docs) {
         // Check if this workflow has a matching trigger
         const triggers = workflow.triggers as Array<{
-          collection: string
+          collection?: string
+          collectionSlug?: string
           condition?: string
           operation: string
           type: string
         }>
+        
+        this.logger.debug({
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          triggerCount: triggers?.length || 0,
+          triggers: triggers?.map(t => ({
+            type: t.type,
+            collection: t.collection,
+            collectionSlug: t.collectionSlug,
+            operation: t.operation
+          }))
+        }, 'Checking workflow triggers')
 
         const matchingTriggers = triggers?.filter(trigger =>
           trigger.type === 'collection-trigger' &&
-          trigger.collection === collection &&
+          (trigger.collection === collection || trigger.collectionSlug === collection) &&
           trigger.operation === operation
         ) || []
+        
+        this.logger.info({
+          workflowId: workflow.id,
+          workflowName: workflow.name,
+          matchingTriggerCount: matchingTriggers.length,
+          targetCollection: collection,
+          targetOperation: operation
+        }, 'Matching triggers found')
 
         for (const trigger of matchingTriggers) {
           // Create execution context for condition evaluation
