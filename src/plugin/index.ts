@@ -1,6 +1,6 @@
 import type {Config} from 'payload'
 
-import type {WorkflowsPluginConfig} from "./config-types.js"
+import type {WorkflowsPluginConfig, CollectionTriggerConfigCrud} from "./config-types.js"
 
 import {createWorkflowCollection} from '../collections/Workflow.js'
 import {WorkflowRunsCollection} from '../collections/WorkflowRuns.js'
@@ -62,7 +62,7 @@ const applyHooksToCollections = <T extends string>(pluginOptions: WorkflowsPlugi
       continue
     }
 
-    const crud = triggerConfig === true ? {
+    const crud: CollectionTriggerConfigCrud = triggerConfig === true ? {
       create: true,
       delete: true,
       read: true,
@@ -75,7 +75,7 @@ const applyHooksToCollections = <T extends string>(pluginOptions: WorkflowsPlugi
     }
 
     // Apply afterChange hook for create/update operations
-    if ((crud as any).update || (crud as any).create) {
+    if (crud.update || crud.create) {
       if (!collectionConfig.hooks.afterChange) {
         collectionConfig.hooks.afterChange = []
       }
