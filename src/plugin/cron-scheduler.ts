@@ -2,7 +2,7 @@ import type {Config, Payload, TaskConfig} from 'payload'
 
 import cron from 'node-cron'
 
-import {type Workflow, WorkflowExecutor} from '../core/workflow-executor.js'
+import {type PayloadWorkflow, WorkflowExecutor} from '../core/workflow-executor.js'
 import {getConfigLogger} from './logger.js'
 
 /**
@@ -101,7 +101,7 @@ export function generateCronTasks(config: Config): void {
         }
 
         // Execute the workflow
-        await executor.execute(workflow as Workflow, context, req)
+        await executor.execute(workflow as PayloadWorkflow, context, req)
 
         // Re-queue the job for the next scheduled execution if cronExpression is provided
         if (cronExpression) {

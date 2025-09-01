@@ -6,11 +6,14 @@ export type {
   CustomTriggerOptions,
   TriggerResult,
   ExecutionContext,
-  Workflow,
-  WorkflowStep,
-  WorkflowTrigger,
   WorkflowsPluginConfig
 } from './types/index.js'
+
+export type {
+  PayloadWorkflow as Workflow,
+  WorkflowStep,
+  WorkflowTrigger
+} from './core/workflow-executor.js'
 
 // Server-side functions are NOT re-exported here to avoid bundling issues
 // Import server-side functions from the /server export instead

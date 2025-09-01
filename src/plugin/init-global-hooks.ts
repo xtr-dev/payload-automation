@@ -1,7 +1,7 @@
 import type { Payload, PayloadRequest } from "payload"
 import type { Logger } from "pino"
 
-import type { WorkflowExecutor, Workflow } from "../core/workflow-executor.js"
+import type { WorkflowExecutor, PayloadWorkflow } from "../core/workflow-executor.js"
 
 export function initGlobalHooks(payload: Payload, logger: Payload['logger'], executor: WorkflowExecutor) {
   // Get all globals from the config
@@ -100,7 +100,7 @@ async function executeTriggeredGlobalWorkflows(
       }
 
       // Execute the workflow
-      await executor.execute(workflow as Workflow, context, req)
+      await executor.execute(workflow as PayloadWorkflow, context, req)
     }
   } catch (error) {
     logger.error({

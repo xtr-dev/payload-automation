@@ -1,7 +1,7 @@
 import type { Payload, PayloadRequest } from 'payload'
 
 import { initializeLogger } from '../plugin/logger.js'
-import { type Workflow, WorkflowExecutor } from './workflow-executor.js'
+import { type PayloadWorkflow, WorkflowExecutor } from './workflow-executor.js'
 
 export interface CustomTriggerOptions {
   /**
@@ -142,7 +142,7 @@ export async function triggerCustomWorkflow(
         }
 
         // Execute the workflow
-        await executor.execute(workflow as Workflow, context, workflowReq)
+        await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
 
         // Get the latest run for this workflow to get the run ID
         const runs = await payload.find({
@@ -255,7 +255,7 @@ export async function triggerWorkflowById(
 
     // Create executor and execute
     const executor = new WorkflowExecutor(payload, logger)
-    await executor.execute(workflow as Workflow, context, workflowReq)
+    await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
 
     // Get the latest run to get the run ID
     const runs = await payload.find({

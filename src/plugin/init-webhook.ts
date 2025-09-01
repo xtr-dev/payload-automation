@@ -1,6 +1,6 @@
 import type {Config, PayloadRequest} from 'payload'
 
-import {type Workflow, WorkflowExecutor} from '../core/workflow-executor.js'
+import {type PayloadWorkflow, WorkflowExecutor} from '../core/workflow-executor.js'
 import {getConfigLogger, initializeLogger} from './logger.js'
 
 export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): void {
@@ -110,7 +110,7 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
             }
 
             // Execute the workflow
-            await executor.execute(workflow as Workflow, context, req)
+            await executor.execute(workflow as PayloadWorkflow, context, req)
 
             return { status: 'triggered', workflowId: workflow.id }
           } catch (error) {

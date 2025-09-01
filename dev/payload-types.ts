@@ -217,7 +217,7 @@ export interface Workflow {
         /**
          * Collection that triggers the workflow
          */
-        collection?: 'posts' | null;
+        collectionSlug?: 'posts' | null;
         /**
          * Collection operation that triggers the workflow
          */
@@ -242,6 +242,10 @@ export interface Workflow {
          * Timezone for cron execution (e.g., "America/New_York", "Europe/London"). Defaults to UTC.
          */
         timezone?: string | null;
+        /**
+         * JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.doc.status == 'published'")
+         */
+        condition?: string | null;
         id?: string | null;
       }[]
     | null;
@@ -262,6 +266,10 @@ export interface Workflow {
          * Step names that must complete before this step can run
          */
         dependencies?: string[] | null;
+        /**
+         * JSONPath expression that must evaluate to true for this step to execute (e.g., "$.trigger.doc.status == 'published'")
+         */
+        condition?: string | null;
         id?: string | null;
       }[]
     | null;
@@ -584,13 +592,14 @@ export interface WorkflowsSelect<T extends boolean = true> {
     | T
     | {
         type?: T;
-        collection?: T;
+        collectionSlug?: T;
         operation?: T;
         webhookPath?: T;
         global?: T;
         globalOperation?: T;
         cronExpression?: T;
         timezone?: T;
+        condition?: T;
         id?: T;
       };
   steps?:
@@ -600,6 +609,7 @@ export interface WorkflowsSelect<T extends boolean = true> {
         name?: T;
         input?: T;
         dependencies?: T;
+        condition?: T;
         id?: T;
       };
   updatedAt?: T;
@@ -741,7 +751,7 @@ export interface TaskCreateDocument {
     /**
      * The collection slug to create a document in
      */
-    collection: string;
+    collectionSlug: string;
     /**
      * The document data to create
      */

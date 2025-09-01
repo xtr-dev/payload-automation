@@ -1,31 +1,39 @@
 import type { Payload, PayloadRequest } from 'payload'
 
+// We need to reference the generated types dynamically since they're not available at build time
+// Using generic types and casting where necessary
+export type PayloadWorkflow = {
+  id: number
+  name: string
+  description?: string | null
+  triggers?: Array<{
+    type?: string | null
+    collectionSlug?: string | null
+    operation?: string | null
+    condition?: string | null
+    [key: string]: unknown
+  }> | null
+  steps?: Array<{
+    step?: string | null
+    name?: string | null
+    input?: unknown
+    dependencies?: string[] | null
+    condition?: string | null
+    [key: string]: unknown
+  }> | null
+  [key: string]: unknown
+}
+
 import { JSONPath } from 'jsonpath-plus'
 
-export type Workflow = {
-  _version?: number
-  id: string
-  name: string
-  steps: WorkflowStep[]
-  triggers: WorkflowTrigger[]
+// Helper type to extract workflow step data from the generated types
+export type WorkflowStep = NonNullable<PayloadWorkflow['steps']>[0] & {
+  name: string // Ensure name is always present for our execution logic
 }
 
-export type WorkflowStep = {
-  condition?: string
-  dependencies?: string[]
-  input?: null | Record<string, unknown>
-  name: string
-  step: string
-}
-
-export interface WorkflowTrigger {
-  collection?: string
-  condition?: string
-  global?: string
-  globalOperation?: string
-  operation?: string
-  type: string
-  webhookPath?: string
+// Helper type to extract workflow trigger data from the generated types  
+export type WorkflowTrigger = NonNullable<PayloadWorkflow['triggers']>[0] & {
+  type: string // Ensure type is always present for our execution logic
 }
 
 export interface ExecutionContext {
@@ -154,7 +162,7 @@ export class WorkflowExecutor {
 
     try {
       // Resolve input data using JSONPath
-      const resolvedInput = this.resolveStepInput(step.input || {}, context)
+      const resolvedInput = this.resolveStepInput(step.input as Record<string, unknown> || {}, context)
       context.steps[stepName].input = resolvedInput
 
       if (!taskSlug) {
@@ -399,6 +407,47 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Safely serialize an object, handling circular references and non-serializable values
+   */
+  private safeSerialize(obj: unknown): unknown {
+    const seen = new WeakSet()
+    
+    const serialize = (value: unknown): unknown => {
+      if (value === null || typeof value !== 'object') {
+        return value
+      }
+      
+      if (seen.has(value as object)) {
+        return '[Circular Reference]'
+      }
+      
+      seen.add(value as object)
+      
+      if (Array.isArray(value)) {
+        return value.map(serialize)
+      }
+      
+      const result: Record<string, unknown> = {}
+      for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+        try {
+          // Skip non-serializable properties that are likely internal database objects
+          if (key === 'table' || key === 'schema' || key === '_' || key === '__') {
+            continue
+          }
+          result[key] = serialize(val)
+        } catch {
+          // Skip properties that can't be accessed or serialized
+          result[key] = '[Non-serializable]'
+        }
+      }
+      
+      return result
+    }
+    
+    return serialize(obj)
+  }
+
+  /**
    * Update workflow run with current context
    */
   private async updateWorkflowRunContext(
@@ -407,14 +456,14 @@ export class WorkflowExecutor {
     req: PayloadRequest
   ): Promise<void> {
     const serializeContext = () => ({
-      steps: context.steps,
+      steps: this.safeSerialize(context.steps),
       trigger: {
         type: context.trigger.type,
         collection: context.trigger.collection,
-        data: context.trigger.data,
-        doc: context.trigger.doc,
+        data: this.safeSerialize(context.trigger.data),
+        doc: this.safeSerialize(context.trigger.doc),
         operation: context.trigger.operation,
-        previousDoc: context.trigger.previousDoc,
+        previousDoc: this.safeSerialize(context.trigger.previousDoc),
         triggeredAt: context.trigger.triggeredAt,
         user: context.trigger.req?.user
       }
@@ -486,21 +535,21 @@ export class WorkflowExecutor {
   /**
    * Execute a workflow with the given context
    */
-  async execute(workflow: Workflow, context: ExecutionContext, req: PayloadRequest): Promise<void> {
+  async execute(workflow: PayloadWorkflow, context: ExecutionContext, req: PayloadRequest): Promise<void> {
     this.logger.info({
       workflowId: workflow.id,
       workflowName: workflow.name
     }, 'Starting workflow execution')
 
     const serializeContext = () => ({
-      steps: context.steps,
+      steps: this.safeSerialize(context.steps),
       trigger: {
         type: context.trigger.type,
         collection: context.trigger.collection,
-        data: context.trigger.data,
-        doc: context.trigger.doc,
+        data: this.safeSerialize(context.trigger.data),
+        doc: this.safeSerialize(context.trigger.doc),
         operation: context.trigger.operation,
-        previousDoc: context.trigger.previousDoc,
+        previousDoc: this.safeSerialize(context.trigger.previousDoc),
         triggeredAt: context.trigger.triggeredAt,
         user: context.trigger.req?.user
       }
@@ -515,14 +564,14 @@ export class WorkflowExecutor {
         status: 'running',
         triggeredBy: context.trigger.req?.user?.email || 'system',
         workflow: workflow.id,
-        workflowVersion: workflow._version || 1
+        workflowVersion: 1 // Default version since generated type doesn't have _version field
       },
       req
     })
 
     try {
       // Resolve execution order based on dependencies
-      const executionBatches = this.resolveExecutionOrder(workflow.steps)
+      const executionBatches = this.resolveExecutionOrder(workflow.steps as WorkflowStep[] || [])
 
       this.logger.info({
         batchSizes: executionBatches.map(batch => batch.length),
@@ -720,7 +769,7 @@ export class WorkflowExecutor {
           }, 'Triggering workflow')
 
           // Execute the workflow
-          await this.execute(workflow as Workflow, context, req)
+          await this.execute(workflow as PayloadWorkflow, context, req)
         }
       }
     } catch (error) {

@@ -27,30 +27,9 @@ export interface ExecutionContext {
   req: any // PayloadRequest
 }
 
-export interface WorkflowStep {
-  id: string
-  type: string
-  input: Record<string, any>
-  dependencies?: string[]
-}
-
-export interface WorkflowTrigger {
-  type: 'collection' | 'global' | 'webhook' | 'cron' | 'manual'
-  collection?: string
-  global?: string
-  event?: 'create' | 'update' | 'delete' | 'read'
-  path?: string
-  cron?: string
-}
-
-export interface Workflow {
-  id: string
-  name: string
-  description?: string
-  active: boolean
-  triggers: WorkflowTrigger[]
-  steps: WorkflowStep[]
-}
+// NOTE: Workflow, WorkflowStep, and WorkflowTrigger types are now imported from the generated PayloadCMS types
+// These interfaces have been removed to avoid duplication and inconsistencies
+// Import them from 'payload' or the generated payload-types.ts file instead
 
 export interface WorkflowsPluginConfig {
   collections?: string[]
