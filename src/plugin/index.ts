@@ -15,6 +15,18 @@ import {getConfigLogger, initializeLogger} from './logger.js'
 
 export {getLogger} from './logger.js'
 
+// Global executor registry for config-phase hooks
+let globalExecutor: WorkflowExecutor | null = null
+
+const setWorkflowExecutor = (executor: WorkflowExecutor) => {
+  console.log('🚨 SETTING GLOBAL EXECUTOR')
+  globalExecutor = executor
+}
+
+const getWorkflowExecutor = (): WorkflowExecutor | null => {
+  return globalExecutor
+}
+
 const applyCollectionsConfig = <T extends string>(pluginOptions: WorkflowsPluginConfig<T>, config: Config) => {
   // Add workflow collections
   if (!config.collections) {
@@ -27,6 +39,82 @@ const applyCollectionsConfig = <T extends string>(pluginOptions: WorkflowsPlugin
   )
 }
 
+const applyHooksToCollections = <T extends string>(pluginOptions: WorkflowsPluginConfig<T>, config: Config) => {
+  const configLogger = getConfigLogger()
+  
+  if (!pluginOptions.collectionTriggers || Object.keys(pluginOptions.collectionTriggers).length === 0) {
+    configLogger.warn('No collection triggers configured - hooks will not be applied')
+    return
+  }
+
+  configLogger.info('Applying hooks to collections during config phase')
+
+  // Apply hooks to each configured collection
+  for (const [collectionSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
+    if (!triggerConfig) {
+      continue
+    }
+
+    // Find the collection in the config
+    const collectionConfig = config.collections?.find(c => c.slug === collectionSlug)
+    if (!collectionConfig) {
+      configLogger.warn(`Collection '${collectionSlug}' not found in config - cannot apply hooks`)
+      continue
+    }
+
+    const crud = triggerConfig === true ? {
+      create: true,
+      delete: true,
+      read: true,
+      update: true,
+    } : triggerConfig
+
+    // Initialize hooks if they don't exist
+    if (!collectionConfig.hooks) {
+      collectionConfig.hooks = {}
+    }
+
+    // Apply afterChange hook for create/update operations
+    if ((crud as any).update || (crud as any).create) {
+      if (!collectionConfig.hooks.afterChange) {
+        collectionConfig.hooks.afterChange = []
+      }
+
+      // Add our automation hook - this will be called when the executor is ready
+      collectionConfig.hooks.afterChange.push(async (change) => {
+        console.log('🚨 CONFIG-PHASE AUTOMATION HOOK CALLED! 🚨')
+        console.log('Collection:', change.collection.slug)
+        console.log('Operation:', change.operation)
+        console.log('Doc ID:', change.doc?.id)
+
+        // Get the executor from global registry (set during onInit)
+        const executor = getWorkflowExecutor()
+        if (!executor) {
+          console.log('❌ No executor available yet - workflow execution skipped')
+          return
+        }
+
+        console.log('✅ Executor found - executing workflows')
+        
+        try {
+          await executor.executeTriggeredWorkflows(
+            change.collection.slug,
+            change.operation as 'create' | 'update',
+            change.doc,
+            change.previousDoc,
+            change.req
+          )
+          console.log('🚨 executeTriggeredWorkflows completed successfully')
+        } catch (error) {
+          console.log('🚨 executeTriggeredWorkflows failed:', error)
+        }
+      })
+    }
+
+    configLogger.info(`Applied hooks to collection: ${collectionSlug}`)
+  }
+}
+
 
 export const workflowsPlugin =
   <TSlug extends string>(pluginOptions: WorkflowsPluginConfig<TSlug>) =>
@@ -37,6 +125,9 @@ export const workflowsPlugin =
       }
 
       applyCollectionsConfig<TSlug>(pluginOptions, config)
+      
+      // CRITICAL FIX: Apply hooks during config phase, not onInit
+      applyHooksToCollections<TSlug>(pluginOptions, config)
 
       if (!config.jobs) {
         config.jobs = {tasks: []}
@@ -83,12 +174,12 @@ export const workflowsPlugin =
         const executor = new WorkflowExecutor(payload, logger)
         console.log('🚨 EXECUTOR CREATED:', typeof executor)
         console.log('🚨 EXECUTOR METHODS:', Object.getOwnPropertyNames(Object.getPrototypeOf(executor)))
+        
+        // Register executor globally for config-phase hooks
+        setWorkflowExecutor(executor)
 
-        // Initialize hooks
-        console.log('🚨 INITIALIZING COLLECTION HOOKS')
-        logger.info('Initializing collection hooks...')
-        initCollectionHooks(pluginOptions, payload, logger, executor)
-        console.log('🚨 COLLECTION HOOKS INITIALIZATION COMPLETE')
+        // Note: Collection hooks are now applied during config phase, not here
+        logger.info('Collection hooks applied during config phase - executor now available for them')
         
         logger.info('Initializing global hooks...')
         initGlobalHooks(payload, logger, executor)
