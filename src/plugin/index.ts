@@ -21,6 +21,12 @@ let globalExecutor: WorkflowExecutor | null = null
 const setWorkflowExecutor = (executor: WorkflowExecutor) => {
   console.log('🚨 SETTING GLOBAL EXECUTOR')
   globalExecutor = executor
+  
+  // Also set on global object as fallback
+  if (typeof global !== 'undefined') {
+    (global as any).__workflowExecutor = executor
+    console.log('🚨 EXECUTOR ALSO SET ON GLOBAL OBJECT')
+  }
 }
 
 const getWorkflowExecutor = (): WorkflowExecutor | null => {
@@ -79,38 +85,58 @@ export const workflowsPlugin =
             collection.hooks.afterChange = []
           }
           
-          // Add our hook DIRECTLY to the collection config
-          // This happens BEFORE PayloadCMS processes the config
-          const automationHook = async (args: any) => {
-            console.log('🔥🔥🔥 AUTOMATION HOOK FROM CONFIG PHASE! 🔥🔥🔥')
-            console.log('Collection:', args.collection.slug)
-            console.log('Operation:', args.operation)
-            console.log('Doc ID:', args.doc?.id)
-            
-            // We'll need to get the executor from somewhere
-            // For now, just prove the hook works
-            console.log('🔥🔥🔥 CONFIG-PHASE HOOK SUCCESSFULLY EXECUTED! 🔥🔥🔥')
-            
-            // Try to get executor from global registry
-            const executor = getWorkflowExecutor()
-            if (executor) {
-              console.log('✅ Executor available - executing workflows!')
+          // Create a properly bound hook function that doesn't rely on closures
+          // Use a simple function that PayloadCMS can definitely execute
+          const automationHook = Object.assign(
+            async function payloadAutomationHook(args: any) {
               try {
-                await executor.executeTriggeredWorkflows(
-                  args.collection.slug,
-                  args.operation,
-                  args.doc,
-                  args.previousDoc,
-                  args.req
-                )
-                console.log('✅ Workflow execution completed!')
+                // Use global console to ensure output
+                global.console.log('🔥🔥🔥 AUTOMATION HOOK EXECUTED! 🔥🔥🔥')
+                global.console.log('Collection:', args?.collection?.slug)
+                global.console.log('Operation:', args?.operation)
+                global.console.log('Doc ID:', args?.doc?.id)
+                
+                // Try multiple ways to get the executor
+                let executor = null
+                
+                // Method 1: Global registry
+                if (typeof getWorkflowExecutor === 'function') {
+                  executor = getWorkflowExecutor()
+                }
+                
+                // Method 2: Global variable fallback
+                if (!executor && typeof global !== 'undefined' && (global as any).__workflowExecutor) {
+                  executor = (global as any).__workflowExecutor
+                  global.console.log('Got executor from global variable')
+                }
+                
+                if (executor) {
+                  global.console.log('✅ Executor found - executing workflows!')
+                  await executor.executeTriggeredWorkflows(
+                    args.collection.slug,
+                    args.operation,
+                    args.doc,
+                    args.previousDoc,
+                    args.req
+                  )
+                  global.console.log('✅ Workflow execution completed!')
+                } else {
+                  global.console.log('⚠️ No executor available')
+                }
               } catch (error) {
-                console.error('❌ Workflow execution failed:', error)
+                global.console.error('❌ Hook execution error:', error)
+                // Don't throw - just log
               }
-            } else {
-              console.log('⚠️ Executor not yet available')
+              
+              // Always return undefined to match other hooks
+              return undefined
+            },
+            {
+              // Add metadata to help debugging
+              __isAutomationHook: true,
+              __version: '0.0.21'
             }
-          }
+          )
           
           // Add the hook to the collection config
           collection.hooks.afterChange.push(automationHook)
