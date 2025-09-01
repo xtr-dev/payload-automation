@@ -480,7 +480,7 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Evaluate a condition using JSONPath
+   * Evaluate a condition using JSONPath and comparison operators
    */
   public evaluateCondition(condition: string, context: ExecutionContext): boolean {
     this.logger.debug({
@@ -492,34 +492,94 @@ export class WorkflowExecutor {
     }, 'Starting condition evaluation')
 
     try {
-      const result = JSONPath({
-        json: context,
-        path: condition,
-        wrap: false
-      })
-
-      this.logger.debug({
-        condition,
-        result,
-        resultType: Array.isArray(result) ? 'array' : typeof result,
-        resultLength: Array.isArray(result) ? result.length : undefined
-      }, 'JSONPath evaluation result')
-
-      // Handle different result types
-      let finalResult: boolean
-      if (Array.isArray(result)) {
-        finalResult = result.length > 0 && Boolean(result[0])
+      // Check if this is a comparison expression
+      const comparisonMatch = condition.match(/^(.+?)\s*(==|!=|>|<|>=|<=)\s*(.+)$/)
+      
+      if (comparisonMatch) {
+        const [, leftExpr, operator, rightExpr] = comparisonMatch
+        
+        // Evaluate left side (should be JSONPath)
+        const leftValue = this.resolveJSONPathValue(leftExpr.trim(), context)
+        
+        // Parse right side (could be string, number, boolean, or JSONPath)
+        const rightValue = this.parseConditionValue(rightExpr.trim(), context)
+        
+        this.logger.debug({
+          condition,
+          leftExpr: leftExpr.trim(),
+          leftValue,
+          operator,
+          rightExpr: rightExpr.trim(),
+          rightValue,
+          leftType: typeof leftValue,
+          rightType: typeof rightValue
+        }, 'Evaluating comparison condition')
+        
+        // Perform comparison
+        let result: boolean
+        switch (operator) {
+          case '==':
+            result = leftValue === rightValue
+            break
+          case '!=':
+            result = leftValue !== rightValue
+            break
+          case '>':
+            result = Number(leftValue) > Number(rightValue)
+            break
+          case '<':
+            result = Number(leftValue) < Number(rightValue)
+            break
+          case '>=':
+            result = Number(leftValue) >= Number(rightValue)
+            break
+          case '<=':
+            result = Number(leftValue) <= Number(rightValue)
+            break
+          default:
+            throw new Error(`Unknown comparison operator: ${operator}`)
+        }
+        
+        this.logger.debug({
+          condition,
+          result,
+          leftValue,
+          rightValue,
+          operator
+        }, 'Comparison condition evaluation completed')
+        
+        return result
       } else {
-        finalResult = Boolean(result)
+        // Treat as simple JSONPath boolean evaluation
+        const result = JSONPath({
+          json: context,
+          path: condition,
+          wrap: false
+        })
+
+        this.logger.debug({
+          condition,
+          result,
+          resultType: Array.isArray(result) ? 'array' : typeof result,
+          resultLength: Array.isArray(result) ? result.length : undefined
+        }, 'JSONPath boolean evaluation result')
+
+        // Handle different result types
+        let finalResult: boolean
+        if (Array.isArray(result)) {
+          finalResult = result.length > 0 && Boolean(result[0])
+        } else {
+          finalResult = Boolean(result)
+        }
+
+        this.logger.debug({
+          condition,
+          finalResult,
+          originalResult: result
+        }, 'Boolean condition evaluation completed')
+
+        return finalResult
       }
-
-      this.logger.debug({
-        condition,
-        finalResult,
-        originalResult: result
-      }, 'Condition evaluation completed')
-
-      return finalResult
     } catch (error) {
       this.logger.warn({
         condition,
@@ -530,6 +590,49 @@ export class WorkflowExecutor {
       // If condition evaluation fails, assume false
       return false
     }
+  }
+  
+  /**
+   * Resolve a JSONPath value from the context
+   */
+  private resolveJSONPathValue(expr: string, context: ExecutionContext): any {
+    if (expr.startsWith('$')) {
+      const result = JSONPath({
+        json: context,
+        path: expr,
+        wrap: false
+      })
+      // Return first result if array, otherwise the result itself
+      return Array.isArray(result) && result.length > 0 ? result[0] : result
+    }
+    return expr
+  }
+  
+  /**
+   * Parse a condition value (string literal, number, boolean, or JSONPath)
+   */
+  private parseConditionValue(expr: string, context: ExecutionContext): any {
+    // Handle string literals
+    if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+      return expr.slice(1, -1) // Remove quotes
+    }
+    
+    // Handle boolean literals
+    if (expr === 'true') return true
+    if (expr === 'false') return false
+    
+    // Handle number literals
+    if (/^-?\d+(\.\d+)?$/.test(expr)) {
+      return Number(expr)
+    }
+    
+    // Handle JSONPath expressions
+    if (expr.startsWith('$')) {
+      return this.resolveJSONPathValue(expr, context)
+    }
+    
+    // Return as string if nothing else matches
+    return expr
   }
 
   /**
@@ -555,19 +658,48 @@ export class WorkflowExecutor {
       }
     })
 
+    this.logger.info({
+      workflowId: workflow.id,
+      workflowName: workflow.name,
+      contextSummary: {
+        triggerType: context.trigger.type,
+        triggerCollection: context.trigger.collection,
+        triggerOperation: context.trigger.operation,
+        hasDoc: !!context.trigger.doc,
+        userEmail: context.trigger.req?.user?.email
+      }
+    }, 'About to create workflow run record')
+
     // Create a workflow run record
-    const workflowRun = await this.payload.create({
-      collection: 'workflow-runs',
-      data: {
-        context: serializeContext(),
-        startedAt: new Date().toISOString(),
-        status: 'running',
-        triggeredBy: context.trigger.req?.user?.email || 'system',
-        workflow: workflow.id,
-        workflowVersion: 1 // Default version since generated type doesn't have _version field
-      },
-      req
-    })
+    let workflowRun;
+    try {
+      workflowRun = await this.payload.create({
+        collection: 'workflow-runs',
+        data: {
+          context: serializeContext(),
+          startedAt: new Date().toISOString(),
+          status: 'running',
+          triggeredBy: context.trigger.req?.user?.email || 'system',
+          workflow: workflow.id,
+          workflowVersion: 1 // Default version since generated type doesn't have _version field
+        },
+        req
+      })
+
+      this.logger.info({
+        workflowRunId: workflowRun.id,
+        workflowId: workflow.id,
+        workflowName: workflow.name
+      }, 'Workflow run record created successfully')
+    } catch (error) {
+      this.logger.error({
+        error: error instanceof Error ? error.message : 'Unknown error',
+        errorStack: error instanceof Error ? error.stack : undefined,
+        workflowId: workflow.id,
+        workflowName: workflow.name
+      }, 'Failed to create workflow run record')
+      throw error
+    }
 
     try {
       // Resolve execution order based on dependencies
@@ -711,6 +843,18 @@ export class WorkflowExecutor {
         }, 'Matching triggers found')
 
         for (const trigger of matchingTriggers) {
+          this.logger.info({
+            workflowId: workflow.id,
+            workflowName: workflow.name,
+            triggerDetails: {
+              type: trigger.type,
+              collection: trigger.collection,
+              collectionSlug: trigger.collectionSlug,
+              operation: trigger.operation,
+              hasCondition: !!trigger.condition
+            }
+          }, 'Processing matching trigger - about to execute workflow')
+
           // Create execution context for condition evaluation
           const context: ExecutionContext = {
             steps: {},

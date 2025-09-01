@@ -103,7 +103,8 @@ const buildConfigWithMemoryDB = async () => {
     plugins: [
       workflowsPlugin<CollectionSlug>({
         collectionTriggers: {
-          posts: true
+          posts: true,
+          media: true
         },
         steps: [
           HttpRequestStepTask,
