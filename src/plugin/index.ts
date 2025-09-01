@@ -52,7 +52,71 @@ export const workflowsPlugin =
 
       applyCollectionsConfig<TSlug>(pluginOptions, config)
       
-      // Revert: Don't apply hooks in config phase - user collections don't exist yet
+      // CRITICAL: Modify existing collection configs BEFORE PayloadCMS processes them
+      // This is the ONLY time we can add hooks that will actually work
+      const logger = getConfigLogger()
+      logger.info('Attempting to modify collection configs before PayloadCMS initialization...')
+      
+      if (config.collections && pluginOptions.collectionTriggers) {
+        for (const [triggerSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
+          if (!triggerConfig) continue
+          
+          // Find the collection config that matches
+          const collectionIndex = config.collections.findIndex(c => c.slug === triggerSlug)
+          if (collectionIndex === -1) {
+            logger.warn(`Collection '${triggerSlug}' not found in config.collections`)
+            continue
+          }
+          
+          const collection = config.collections[collectionIndex]
+          logger.info(`Found collection '${triggerSlug}' - modifying its hooks...`)
+          
+          // Initialize hooks if needed
+          if (!collection.hooks) {
+            collection.hooks = {}
+          }
+          if (!collection.hooks.afterChange) {
+            collection.hooks.afterChange = []
+          }
+          
+          // Add our hook DIRECTLY to the collection config
+          // This happens BEFORE PayloadCMS processes the config
+          const automationHook = async (args: any) => {
+            console.log('🔥🔥🔥 AUTOMATION HOOK FROM CONFIG PHASE! 🔥🔥🔥')
+            console.log('Collection:', args.collection.slug)
+            console.log('Operation:', args.operation)
+            console.log('Doc ID:', args.doc?.id)
+            
+            // We'll need to get the executor from somewhere
+            // For now, just prove the hook works
+            console.log('🔥🔥🔥 CONFIG-PHASE HOOK SUCCESSFULLY EXECUTED! 🔥🔥🔥')
+            
+            // Try to get executor from global registry
+            const executor = getWorkflowExecutor()
+            if (executor) {
+              console.log('✅ Executor available - executing workflows!')
+              try {
+                await executor.executeTriggeredWorkflows(
+                  args.collection.slug,
+                  args.operation,
+                  args.doc,
+                  args.previousDoc,
+                  args.req
+                )
+                console.log('✅ Workflow execution completed!')
+              } catch (error) {
+                console.error('❌ Workflow execution failed:', error)
+              }
+            } else {
+              console.log('⚠️ Executor not yet available')
+            }
+          }
+          
+          // Add the hook to the collection config
+          collection.hooks.afterChange.push(automationHook)
+          logger.info(`Added automation hook to '${triggerSlug}' - hook count: ${collection.hooks.afterChange.length}`)
+        }
+      }
 
       if (!config.jobs) {
         config.jobs = {tasks: []}
@@ -103,44 +167,8 @@ export const workflowsPlugin =
         // Register executor globally
         setWorkflowExecutor(executor)
 
-        // DIRECT RUNTIME HOOK REGISTRATION - bypass all abstractions
-        logger.info('Applying hooks directly to runtime collections...')
-        
-        for (const [collectionSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers || {})) {
-          if (!triggerConfig) continue
-          
-          const collection = payload.collections[collectionSlug as TSlug]
-          if (!collection) {
-            logger.warn(`Collection '${collectionSlug}' not found at runtime`)
-            continue
-          }
-
-          console.log(`🚨 DIRECTLY MANIPULATING ${collectionSlug} COLLECTION`)
-          console.log(`🚨 Current afterChange hooks:`, collection.config.hooks?.afterChange?.length || 0)
-          
-          // Ensure hooks array exists
-          if (!collection.config.hooks) {
-            collection.config.hooks = {} as any // PayloadCMS hooks type is complex, bypass for direct manipulation
-          }
-          if (!collection.config.hooks.afterChange) {
-            collection.config.hooks.afterChange = []
-          }
-          
-          // Add ultra-simple test hook
-          const ultraSimpleHook = async (change: { collection: { slug: string }, operation: string, doc?: { id?: string } }) => {
-            console.log('🎯 ULTRA SIMPLE HOOK EXECUTED! 🎯')
-            console.log('🎯 Collection:', change.collection.slug)
-            console.log('🎯 Operation:', change.operation)
-            console.log('🎯 SUCCESS - Direct runtime registration works!')
-          }
-          
-          // Insert at beginning to ensure it runs first
-          collection.config.hooks.afterChange.unshift(ultraSimpleHook)
-          
-          console.log(`🚨 Added hook to ${collectionSlug} - new count:`, collection.config.hooks.afterChange.length)
-          
-          logger.info(`Direct hook registration completed for: ${collectionSlug}`)
-        }
+        // Hooks are now registered during config phase - just log status
+        logger.info('Hooks were registered during config phase - executor now available')
         
         logger.info('Initializing global hooks...')
         initGlobalHooks(payload, logger, executor)
