@@ -79,11 +79,16 @@ export const workflowsPlugin =
         logger.info(`Plugin configuration: ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers, ${pluginOptions.steps?.length || 0} steps`)
 
         // Create workflow executor instance
+        console.log('🚨 CREATING WORKFLOW EXECUTOR INSTANCE')
         const executor = new WorkflowExecutor(payload, logger)
+        console.log('🚨 EXECUTOR CREATED:', typeof executor)
+        console.log('🚨 EXECUTOR METHODS:', Object.getOwnPropertyNames(Object.getPrototypeOf(executor)))
 
         // Initialize hooks
+        console.log('🚨 INITIALIZING COLLECTION HOOKS')
         logger.info('Initializing collection hooks...')
         initCollectionHooks(pluginOptions, payload, logger, executor)
+        console.log('🚨 COLLECTION HOOKS INITIALIZATION COMPLETE')
         
         logger.info('Initializing global hooks...')
         initGlobalHooks(payload, logger, executor)

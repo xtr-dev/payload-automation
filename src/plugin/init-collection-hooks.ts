@@ -39,14 +39,27 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
       collection.config.hooks.afterChange = collection.config.hooks.afterChange || []
       collection.config.hooks.afterChange.push(async (change) => {
         const operation = change.operation as 'create' | 'update'
+        
+        // AGGRESSIVE LOGGING - this should ALWAYS appear
+        console.log('🚨 AUTOMATION PLUGIN HOOK CALLED! 🚨')
+        console.log('Collection:', change.collection.slug)
+        console.log('Operation:', operation)
+        console.log('Doc ID:', change.doc?.id)
+        console.log('Has executor?', !!executor)
+        console.log('Executor type:', typeof executor)
+        
         logger.info({
           slug: change.collection.slug,
           operation,
           docId: change.doc?.id,
           previousDocId: change.previousDoc?.id,
+          hasExecutor: !!executor,
+          executorType: typeof executor
         }, 'AUTOMATION PLUGIN: Collection hook triggered')
 
         try {
+          console.log('🚨 About to call executeTriggeredWorkflows')
+          
           // Execute workflows for this trigger
           await executor.executeTriggeredWorkflows(
             change.collection.slug,
@@ -55,12 +68,17 @@ export function initCollectionHooks<T extends string>(pluginOptions: WorkflowsPl
             change.previousDoc,
             change.req
           )
+          
+          console.log('🚨 executeTriggeredWorkflows completed without error')
+          
           logger.info({
             slug: change.collection.slug,
             operation,
             docId: change.doc?.id
           }, 'AUTOMATION PLUGIN: executeTriggeredWorkflows completed successfully')
         } catch (error) {
+          console.log('🚨 AUTOMATION PLUGIN ERROR:', error)
+          
           logger.error({
             slug: change.collection.slug,
             operation,

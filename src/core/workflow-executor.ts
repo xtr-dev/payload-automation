@@ -787,6 +787,13 @@ export class WorkflowExecutor {
     previousDoc: unknown,
     req: PayloadRequest
   ): Promise<void> {
+    console.log('🚨 EXECUTOR: executeTriggeredWorkflows called!')
+    console.log('🚨 EXECUTOR: Collection =', collection)
+    console.log('🚨 EXECUTOR: Operation =', operation)
+    console.log('🚨 EXECUTOR: Doc ID =', (doc as any)?.id)
+    console.log('🚨 EXECUTOR: Has payload?', !!this.payload)
+    console.log('🚨 EXECUTOR: Has logger?', !!this.logger)
+    
     this.logger.info({
       collection,
       operation,
