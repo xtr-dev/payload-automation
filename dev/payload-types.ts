@@ -217,7 +217,7 @@ export interface Workflow {
         /**
          * Collection that triggers the workflow
          */
-        collectionSlug?: 'posts' | null;
+        collectionSlug?: ('posts' | 'media') | null;
         /**
          * Collection operation that triggers the workflow
          */
