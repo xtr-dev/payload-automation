@@ -197,11 +197,17 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             }
           ]
         },
-        {
-          name: 'input',
-          type: 'json',
-          required: false
-        },
+        ...(steps || []).flatMap(step => (step.inputSchema || []).map(field => ({
+          ...field,
+          admin: {
+            ...(field.admin || {}),
+            condition: (...args) => args[1]?.step === step.slug && (
+              field.admin?.condition ?
+                field.admin.condition.call(this, ...args) :
+                true
+            ),
+          },
+        } as Field))),
         {
           name: 'dependencies',
           type: 'text',
