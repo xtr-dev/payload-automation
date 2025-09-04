@@ -37,6 +37,16 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
       },
     },
     {
+      name: 'executionStatus',
+      type: 'ui',
+      admin: {
+        components: {
+          Field: '@/components/WorkflowExecutionStatus'
+        },
+        condition: (data) => !!data?.id // Only show for existing workflows
+      }
+    },
+    {
       name: 'triggers',
       type: 'array',
       fields: [

@@ -39,27 +39,30 @@ export const WorkflowRunsCollection: CollectionConfig = {
       type: 'select',
       admin: {
         description: 'Current execution status',
+        components: {
+          Cell: '@/components/StatusCell'
+        }
       },
       defaultValue: 'pending',
       options: [
         {
-          label: 'Pending',
+          label: '⏳ Pending',
           value: 'pending',
         },
         {
-          label: 'Running',
+          label: '🔄 Running',
           value: 'running',
         },
         {
-          label: 'Completed',
+          label: '✅ Completed',
           value: 'completed',
         },
         {
-          label: 'Failed',
+          label: '❌ Failed',
           value: 'failed',
         },
         {
-          label: 'Cancelled',
+          label: '⏹️ Cancelled',
           value: 'cancelled',
         },
       ],
@@ -136,6 +139,10 @@ export const WorkflowRunsCollection: CollectionConfig = {
       type: 'textarea',
       admin: {
         description: 'Error message if workflow execution failed',
+        condition: (_, siblingData) => siblingData?.status === 'failed',
+        components: {
+          Field: '@/components/ErrorDisplay'
+        }
       },
     },
     {

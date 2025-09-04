@@ -73,17 +73,15 @@ describe('Workflow Trigger Test', () => {
           {
             name: 'log-post',
             step: 'http-request-step',
-            input: {
-              url: 'https://httpbin.org/post',
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: {
-                message: 'Post created',
-                postId: '$.trigger.doc.id',
-                postTitle: '$.trigger.doc.content'
-              }
+            url: 'https://httpbin.org/post',
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: {
+              message: 'Post created',
+              postId: '$.trigger.doc.id',
+              postTitle: '$.trigger.doc.content'
             }
           }
         ]
