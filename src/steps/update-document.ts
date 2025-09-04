@@ -18,7 +18,7 @@ export const UpdateDocumentStepTask = {
       name: 'id',
       type: 'text',
       admin: {
-        description: 'The ID of the document to update'
+        description: 'The ID of the document to update. Use JSONPath to reference IDs (e.g., "$.trigger.doc.id" or "$.steps.previousStep.output.id")'
       },
       required: true
     },
@@ -26,7 +26,7 @@ export const UpdateDocumentStepTask = {
       name: 'data',
       type: 'json',
       admin: {
-        description: 'The data to update the document with'
+        description: 'The data to update the document with. Use JSONPath to reference values (e.g., {"status": "$.trigger.doc.status", "updatedBy": "$.trigger.user.id"})'
       },
       required: true
     },

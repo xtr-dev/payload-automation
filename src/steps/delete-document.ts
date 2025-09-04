@@ -18,14 +18,14 @@ export const DeleteDocumentStepTask = {
       name: 'id',
       type: 'text',
       admin: {
-        description: 'The ID of a specific document to delete (leave empty to delete multiple)'
+        description: 'The ID of a specific document to delete. Use JSONPath (e.g., "$.trigger.doc.id"). Leave empty to delete multiple.'
       }
     },
     {
       name: 'where',
       type: 'json',
       admin: {
-        description: 'Query conditions to find documents to delete (used when ID is not provided)'
+        description: 'Query conditions to find documents to delete when ID is not provided. Use JSONPath in values (e.g., {"author": "$.trigger.doc.author"})'
       }
     }
   ],

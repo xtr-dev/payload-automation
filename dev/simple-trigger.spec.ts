@@ -1,91 +1,50 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import type { Payload } from 'payload'
-import { getPayload } from 'payload'
-import config from './payload.config'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { getTestPayload, cleanDatabase } from './test-setup.js'
+import { mockHttpBin, testFixtures } from './test-helpers.js'
 
 describe('Workflow Trigger Test', () => {
-  let payload: Payload
-
-  beforeAll(async () => {
-    payload = await getPayload({ config: await config })
-  }, 60000)
-
-  afterAll(async () => {
-    if (!payload) return
-    
-    try {
-      // Clear test data
-      const workflows = await payload.find({
-        collection: 'workflows',
-        limit: 100
-      })
-      
-      for (const workflow of workflows.docs) {
-        await payload.delete({
-          collection: 'workflows',
-          id: workflow.id
-        })
-      }
-
-      const runs = await payload.find({
-        collection: 'workflow-runs',
-        limit: 100
-      })
-      
-      for (const run of runs.docs) {
-        await payload.delete({
-          collection: 'workflow-runs',
-          id: run.id
-        })
-      }
-
-      const posts = await payload.find({
-        collection: 'posts',
-        limit: 100
-      })
-      
-      for (const post of posts.docs) {
-        await payload.delete({
-          collection: 'posts',
-          id: post.id
-        })
-      }
-    } catch (error) {
-      console.warn('Cleanup failed:', error)
+  
+  beforeEach(async () => {
+    await cleanDatabase()
+    // Set up HTTP mocks
+    const expectedRequestData = {
+      message: 'Post created',
+      postId: expect.any(String), // MongoDB ObjectId
+      postTitle: 'Test post content for workflow trigger'
     }
-  }, 30000)
+    mockHttpBin.mockPost(expectedRequestData)
+  })
+
+  afterEach(async () => {
+    await cleanDatabase()
+    mockHttpBin.cleanup()
+  })
 
   it('should create a workflow run when a post is created', async () => {
+    const payload = getTestPayload()
+    
+    // Use test fixtures for consistent data
+    const testWorkflow = {
+      ...testFixtures.basicWorkflow,
+      name: 'Test Post Creation Workflow',
+      description: 'Triggers when a post is created',
+      steps: [
+        {
+          ...testFixtures.httpRequestStep(),
+          name: 'log-post',
+          body: {
+            message: 'Post created',
+            postId: '$.trigger.doc.id',
+            postTitle: '$.trigger.doc.content'
+          }
+        }
+      ]
+    }
+    
     // Create a workflow with collection trigger
     const workflow = await payload.create({
       collection: 'workflows',
-      data: {
-        name: 'Test Post Creation Workflow',
-        description: 'Triggers when a post is created',
-        triggers: [
-          {
-            type: 'collection-trigger',
-            collectionSlug: 'posts',
-            operation: 'create'
-          }
-        ],
-        steps: [
-          {
-            name: 'log-post',
-            step: 'http-request-step',
-            url: 'https://httpbin.org/post',
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: {
-              message: 'Post created',
-              postId: '$.trigger.doc.id',
-              postTitle: '$.trigger.doc.content'
-            }
-          }
-        ]
-      }
+      data: testWorkflow
     })
 
     expect(workflow).toBeDefined()
@@ -94,9 +53,7 @@ describe('Workflow Trigger Test', () => {
     // Create a post to trigger the workflow
     const post = await payload.create({
       collection: 'posts',
-      data: {
-        content: 'This should trigger the workflow'
-      }
+      data: testFixtures.testPost
     })
 
     expect(post).toBeDefined()
@@ -117,7 +74,14 @@ describe('Workflow Trigger Test', () => {
     })
 
     expect(runs.totalDocs).toBeGreaterThan(0)
-    expect(runs.docs[0].workflow).toBe(typeof workflow.id === 'object' ? workflow.id.toString() : workflow.id)
+    
+    // Check if workflow is an object or ID
+    const workflowRef = runs.docs[0].workflow
+    const workflowId = typeof workflowRef === 'object' && workflowRef !== null 
+      ? (workflowRef as any).id 
+      : workflowRef
+    
+    expect(workflowId).toBe(workflow.id) // Should reference the workflow ID
     
     console.log('✅ Workflow run created successfully!')
     console.log(`Run status: ${runs.docs[0].status}`)

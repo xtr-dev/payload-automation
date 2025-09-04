@@ -41,7 +41,7 @@ export const HttpRequestStepTask = {
       type: 'json',
       admin: {
         condition: (_, siblingData) => siblingData?.method !== 'GET' && siblingData?.method !== 'DELETE',
-        description: 'Request body data (JSON object or string)'
+        description: 'Request body data. Use JSONPath to reference values (e.g., {"postId": "$.trigger.doc.id", "title": "$.trigger.doc.title"})'
       }
     },
     {

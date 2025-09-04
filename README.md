@@ -63,11 +63,82 @@ import type { WorkflowsPluginConfig } from '@xtr-dev/payload-automation'
 
 ## Step Types
 
-- **HTTP Request** - Make external API calls
+### HTTP Request
+Make external API calls with comprehensive error handling and retry logic.
+
+**Key Features:**
+- Support for GET, POST, PUT, DELETE, PATCH methods
+- Authentication: Bearer token, Basic auth, API key headers
+- Configurable timeouts and retry logic
+- JSONPath integration for dynamic URLs and request bodies
+
+**Error Handling:**
+HTTP Request steps use a **response-based success model** rather than status-code-based failures:
+
+- ✅ **Successful completion**: All HTTP requests that receive a response (including 4xx/5xx status codes) are marked as "succeeded"
+- ❌ **Failed execution**: Only network errors, timeouts, DNS failures, and connection issues cause step failure
+- 📊 **Error information preserved**: HTTP error status codes (404, 500, etc.) are captured in the step output for workflow conditional logic
+
+**Example workflow logic:**
+```typescript
+// Step outputs for a 404 response:
+{
+  "status": 404,
+  "statusText": "Not Found", 
+  "body": "Resource not found",
+  "headers": {...},
+  "duration": 1200
+}
+
+// Use in workflow conditions:
+// "$.steps.apiRequest.output.status >= 400" to handle errors
+```
+
+This design allows workflows to handle HTTP errors gracefully rather than failing completely, enabling robust error handling and retry logic.
+
+**Enhanced Error Tracking:**
+For network failures (timeouts, DNS errors, connection failures), the plugin provides detailed error information through an independent storage system that bypasses PayloadCMS's output limitations:
+
+```typescript
+// Timeout error details preserved in workflow context:
+{
+  "steps": {
+    "httpStep": {
+      "state": "failed",
+      "error": "Task handler returned a failed state",
+      "errorDetails": {
+        "errorType": "timeout",
+        "duration": 2006,
+        "attempts": 1,
+        "finalError": "Request timeout after 2000ms",
+        "context": {
+          "url": "https://api.example.com/data",
+          "method": "GET",
+          "timeout": 2000
+        }
+      },
+      "executionInfo": {
+        "completed": true,
+        "success": false,
+        "executedAt": "2025-09-04T15:16:10.000Z",
+        "duration": 2006
+      }
+    }
+  }
+}
+
+// Access in workflow conditions:
+// "$.steps.httpStep.errorDetails.errorType == 'timeout'"
+// "$.steps.httpStep.errorDetails.duration > 5000"
+```
+
+### Document Operations
 - **Create Document** - Create PayloadCMS documents
 - **Read Document** - Query documents with filters
-- **Update Document** - Modify existing documents
+- **Update Document** - Modify existing documents  
 - **Delete Document** - Remove documents
+
+### Communication
 - **Send Email** - Send notifications via PayloadCMS email
 
 ## Data Resolution

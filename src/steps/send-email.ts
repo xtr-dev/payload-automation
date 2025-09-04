@@ -10,7 +10,7 @@ export const SendEmailStepTask = {
       name: 'to',
       type: 'text',
       admin: {
-        description: 'Recipient email address'
+        description: 'Recipient email address. Use JSONPath for dynamic values (e.g., "$.trigger.doc.email" or "$.trigger.user.email")'
       },
       required: true
     },
@@ -18,14 +18,14 @@ export const SendEmailStepTask = {
       name: 'from',
       type: 'text',
       admin: {
-        description: 'Sender email address (optional, uses default if not provided)'
+        description: 'Sender email address. Use JSONPath if needed (e.g., "$.trigger.doc.senderEmail"). Uses default if not provided.'
       }
     },
     {
       name: 'subject',
       type: 'text',
       admin: {
-        description: 'Email subject line'
+        description: 'Email subject line. Can include JSONPath references (e.g., "Order #$.trigger.doc.orderNumber received")'
       },
       required: true
     },
@@ -33,14 +33,14 @@ export const SendEmailStepTask = {
       name: 'text',
       type: 'textarea',
       admin: {
-        description: 'Plain text email content'
+        description: 'Plain text email content. Use JSONPath to include dynamic content (e.g., "Dear $.trigger.doc.customerName, your order #$.trigger.doc.id has been received.")'
       }
     },
     {
       name: 'html',
       type: 'textarea',
       admin: {
-        description: 'HTML email content (optional)'
+        description: 'HTML email content. Use JSONPath for dynamic values (e.g., "<h1>Order #$.trigger.doc.orderNumber</h1>")'
       }
     },
     {

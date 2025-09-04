@@ -22,17 +22,9 @@ if (!process.env.ROOT_DIR) {
 }
 
 const buildConfigWithMemoryDB = async () => {
-  if (process.env.NODE_ENV === 'test') {
-    const memoryDB = await MongoMemoryReplSet.create({
-      replSet: {
-        count: 3,
-        dbName: 'payloadmemory',
-      },
-    })
-
-    process.env.DATABASE_URI = `${memoryDB.getUri()}&retryWrites=true`
-  }
-
+  // Use MongoDB adapter for testing instead of SQLite
+  const { mongooseAdapter } = await import('@payloadcms/db-mongodb')
+  
   return buildConfig({
     admin: {
       importMap: {
@@ -77,10 +69,8 @@ const buildConfigWithMemoryDB = async () => {
         ]
       }
     ],
-    db: sqliteAdapter({
-      client: {
-        url: `file:${path.resolve(dirname, 'payload.db')}`,
-      },
+    db: mongooseAdapter({
+      url: process.env.DATABASE_URI || 'mongodb://localhost:27017/payload-test',
     }),
     editor: lexicalEditor(),
     email: testEmailAdapter,

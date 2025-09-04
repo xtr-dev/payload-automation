@@ -18,7 +18,7 @@ export const CreateDocumentStepTask = {
       name: 'data',
       type: 'json',
       admin: {
-        description: 'The document data to create'
+        description: 'The document data to create. Use JSONPath to reference trigger data (e.g., {"title": "$.trigger.doc.title", "author": "$.trigger.doc.author"})'
       },
       required: true
     },

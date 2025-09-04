@@ -89,7 +89,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           type: 'text',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'webhook-trigger',
-            description: 'URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows/webhook/my-webhook',
+            description: 'URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows-webhook/my-webhook',
           },
           validate: (value: any, {siblingData}: any) => {
             if (siblingData?.type === 'webhook-trigger' && !value) {
@@ -172,7 +172,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           name: 'condition',
           type: 'text',
           admin: {
-            description: 'JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.doc.status == \'published\'")'
+            description: 'JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.trigger.doc.status == \'published\'")'
           },
           required: false
         },
