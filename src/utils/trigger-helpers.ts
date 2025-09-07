@@ -10,9 +10,12 @@ export function createTriggerParameter(
   fieldConfig: any, // Use any to allow flexible field configurations
   triggerSlug: string
 ): Field {
+  // Create a unique field name by prefixing with trigger slug
+  const uniqueFieldName = `__trigger_${triggerSlug}_${name}`
+  
   return {
     ...fieldConfig,
-    name,
+    name: uniqueFieldName,
     virtual: true,
     admin: {
       ...fieldConfig.admin,

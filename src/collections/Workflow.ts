@@ -71,7 +71,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         },
         // Virtual fields for collection trigger
         {
-          name: 'collectionSlug',
+          name: '__builtin_collectionSlug',
           type: 'select',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'collection-trigger',
@@ -95,7 +95,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           virtual: true,
         },
         {
-          name: 'operation',
+          name: '__builtin_operation',
           type: 'select',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'collection-trigger',
@@ -125,7 +125,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         },
         // Virtual fields for webhook trigger
         {
-          name: 'webhookPath',
+          name: '__builtin_webhookPath',
           type: 'text',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'webhook-trigger',
@@ -155,7 +155,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         },
         // Virtual fields for global trigger
         {
-          name: 'global',
+          name: '__builtin_global',
           type: 'select',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'global-trigger',
@@ -179,7 +179,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           virtual: true,
         },
         {
-          name: 'globalOperation',
+          name: '__builtin_globalOperation',
           type: 'select',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'global-trigger',
@@ -206,7 +206,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         },
         // Virtual fields for cron trigger
         {
-          name: 'cronExpression',
+          name: '__builtin_cronExpression',
           type: 'text',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'cron-trigger',
@@ -250,7 +250,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           virtual: true,
         },
         {
-          name: 'timezone',
+          name: '__builtin_timezone',
           type: 'text',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'cron-trigger',
