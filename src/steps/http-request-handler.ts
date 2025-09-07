@@ -19,6 +19,8 @@ interface HttpRequestInput {
 }
 
 export const httpStepHandler: TaskHandler<'http-request-step'> = async ({input, req}) => {
+  const startTime = Date.now() // Move startTime to outer scope
+  
   try {
     if (!input || !input.url) {
       return {
@@ -36,7 +38,6 @@ export const httpStepHandler: TaskHandler<'http-request-step'> = async ({input, 
     }
 
   const typedInput = input as HttpRequestInput
-  const startTime = Date.now()
   
     // Validate URL
     try {
@@ -260,7 +261,7 @@ export const httpStepHandler: TaskHandler<'http-request-step'> = async ({input, 
     req?.payload?.logger?.error({
       error: error.message,
       stack: error.stack,
-      input: typedInput?.url || 'unknown'
+      input: (input as any)?.url || 'unknown'
     }, 'Unexpected error in HTTP request handler')
 
     return {
@@ -270,7 +271,7 @@ export const httpStepHandler: TaskHandler<'http-request-step'> = async ({input, 
         headers: {},
         body: '',
         data: null,
-        duration: Date.now() - (startTime || Date.now()),
+        duration: Date.now() - startTime,
         error: `HTTP request handler error: ${error.message}`
       },
       state: 'failed'

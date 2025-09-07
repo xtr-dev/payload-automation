@@ -3,7 +3,7 @@
 
 export { TriggerWorkflowButton } from '../components/TriggerWorkflowButton.js'
 export { StatusCell } from '../components/StatusCell.js'
-export { ErrorDisplay } from '../components/ErrorDisplay.js'
+// export { ErrorDisplay } from '../components/ErrorDisplay.js' // Temporarily disabled
 export { WorkflowExecutionStatus } from '../components/WorkflowExecutionStatus.js'
 
 // Future client components can be added here:

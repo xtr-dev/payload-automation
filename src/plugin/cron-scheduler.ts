@@ -54,14 +54,17 @@ export function generateCronTasks(config: Config): void {
         // Find the matching cron trigger and check its condition if present
         const triggers = workflow.triggers as Array<{
           condition?: string
-          cronExpression?: string
-          timezone?: string
+          parameters?: {
+            cronExpression?: string
+            timezone?: string
+            [key: string]: any
+          }
           type: string
         }>
 
         const matchingTrigger = triggers?.find(trigger =>
           trigger.type === 'cron-trigger' &&
-          trigger.cronExpression === cronExpression
+          trigger.parameters?.cronExpression === cronExpression
         )
 
         // Check trigger condition if present
@@ -183,8 +186,11 @@ export async function registerCronJobs(payload: Payload, logger: Payload['logger
 
     for (const workflow of workflows.docs) {
       const triggers = workflow.triggers as Array<{
-        cronExpression?: string
-        timezone?: string
+        parameters?: {
+          cronExpression?: string
+          timezone?: string
+          [key: string]: any
+        }
         type: string
       }>
 
@@ -192,12 +198,12 @@ export async function registerCronJobs(payload: Payload, logger: Payload['logger
       const cronTriggers = triggers?.filter(t => t.type === 'cron-trigger') || []
 
       for (const trigger of cronTriggers) {
-        if (trigger.cronExpression) {
+        if (trigger.parameters?.cronExpression) {
           try {
             // Validate cron expression before queueing
-            if (!validateCronExpression(trigger.cronExpression)) {
+            if (!validateCronExpression(trigger.parameters.cronExpression)) {
               logger.error({
-                cronExpression: trigger.cronExpression,
+                cronExpression: trigger.parameters.cronExpression,
                 workflowId: workflow.id,
                 workflowName: workflow.name
               }, 'Invalid cron expression format')
@@ -205,13 +211,13 @@ export async function registerCronJobs(payload: Payload, logger: Payload['logger
             }
 
             // Validate timezone if provided
-            if (trigger.timezone) {
+            if (trigger.parameters?.timezone) {
               try {
                 // Test if timezone is valid by trying to create a date with it
-                new Intl.DateTimeFormat('en', { timeZone: trigger.timezone })
+                new Intl.DateTimeFormat('en', { timeZone: trigger.parameters.timezone })
               } catch {
                 logger.error({
-                  timezone: trigger.timezone,
+                  timezone: trigger.parameters.timezone,
                   workflowId: workflow.id,
                   workflowName: workflow.name
                 }, 'Invalid timezone specified')
@@ -220,27 +226,27 @@ export async function registerCronJobs(payload: Payload, logger: Payload['logger
             }
 
             // Calculate next execution time
-            const nextExecution = getNextCronTime(trigger.cronExpression, trigger.timezone)
+            const nextExecution = getNextCronTime(trigger.parameters.cronExpression, trigger.parameters?.timezone)
 
             // Queue the job
             await payload.jobs.queue({
-              input: { cronExpression: trigger.cronExpression, timezone: trigger.timezone, workflowId: workflow.id },
+              input: { cronExpression: trigger.parameters.cronExpression, timezone: trigger.parameters?.timezone, workflowId: workflow.id },
               task: 'workflow-cron-executor',
               waitUntil: nextExecution
             })
 
             logger.info({
-              cronExpression: trigger.cronExpression,
+              cronExpression: trigger.parameters.cronExpression,
               nextExecution: nextExecution.toISOString(),
-              timezone: trigger.timezone || 'UTC',
+              timezone: trigger.parameters?.timezone || 'UTC',
               workflowId: workflow.id,
               workflowName: workflow.name
             }, 'Queued initial cron job for workflow')
           } catch (error) {
             logger.error({
-              cronExpression: trigger.cronExpression,
+              cronExpression: trigger.parameters.cronExpression,
               error: error instanceof Error ? error.message : 'Unknown error',
-              timezone: trigger.timezone,
+              timezone: trigger.parameters?.timezone,
               workflowId: workflow.id,
               workflowName: workflow.name
             }, 'Failed to queue cron job')
@@ -508,8 +514,11 @@ export async function updateWorkflowCronJobs(
     }
 
     const triggers = workflow.triggers as Array<{
-      cronExpression?: string
-      timezone?: string
+      parameters?: {
+        cronExpression?: string
+        timezone?: string
+        [key: string]: any
+      }
       type: string
     }>
 
@@ -524,12 +533,12 @@ export async function updateWorkflowCronJobs(
     let scheduledJobs = 0
 
     for (const trigger of cronTriggers) {
-      if (trigger.cronExpression) {
+      if (trigger.parameters?.cronExpression) {
         try {
           // Validate cron expression before queueing
-          if (!validateCronExpression(trigger.cronExpression)) {
+          if (!validateCronExpression(trigger.parameters.cronExpression)) {
             logger.error({
-              cronExpression: trigger.cronExpression,
+              cronExpression: trigger.parameters.cronExpression,
               workflowId,
               workflowName: workflow.name
             }, 'Invalid cron expression format')
@@ -537,12 +546,12 @@ export async function updateWorkflowCronJobs(
           }
 
           // Validate timezone if provided
-          if (trigger.timezone) {
+          if (trigger.parameters?.timezone) {
             try {
-              new Intl.DateTimeFormat('en', { timeZone: trigger.timezone })
+              new Intl.DateTimeFormat('en', { timeZone: trigger.parameters.timezone })
             } catch {
               logger.error({
-                timezone: trigger.timezone,
+                timezone: trigger.parameters.timezone,
                 workflowId,
                 workflowName: workflow.name
               }, 'Invalid timezone specified')
@@ -551,11 +560,11 @@ export async function updateWorkflowCronJobs(
           }
 
           // Calculate next execution time
-          const nextExecution = getNextCronTime(trigger.cronExpression, trigger.timezone)
+          const nextExecution = getNextCronTime(trigger.parameters.cronExpression, trigger.parameters?.timezone)
 
           // Queue the job
           await payload.jobs.queue({
-            input: { cronExpression: trigger.cronExpression, timezone: trigger.timezone, workflowId },
+            input: { cronExpression: trigger.parameters.cronExpression, timezone: trigger.parameters?.timezone, workflowId },
             task: 'workflow-cron-executor',
             waitUntil: nextExecution
           })
@@ -563,17 +572,17 @@ export async function updateWorkflowCronJobs(
           scheduledJobs++
 
           logger.info({
-            cronExpression: trigger.cronExpression,
+            cronExpression: trigger.parameters.cronExpression,
             nextExecution: nextExecution.toISOString(),
-            timezone: trigger.timezone || 'UTC',
+            timezone: trigger.parameters?.timezone || 'UTC',
             workflowId,
             workflowName: workflow.name
           }, 'Scheduled cron job for workflow')
         } catch (error) {
           logger.error({
-            cronExpression: trigger.cronExpression,
+            cronExpression: trigger.parameters?.cronExpression,
             error: error instanceof Error ? error.message : 'Unknown error',
-            timezone: trigger.timezone,
+            timezone: trigger.parameters?.timezone,
             workflowId,
             workflowName: workflow.name
           }, 'Failed to schedule cron job')

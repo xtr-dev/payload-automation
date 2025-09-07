@@ -1,19 +1,19 @@
 // Main export contains only types and client-safe utilities
 // Server-side functions are exported via '@xtr-dev/payload-automation/server'
 
-// Pure types only - completely safe for client bundling
-export type {
-  CustomTriggerOptions,
-  TriggerResult,
-  ExecutionContext,
-  WorkflowsPluginConfig
-} from './types/index.js'
-
 export type {
   PayloadWorkflow as Workflow,
   WorkflowStep,
   WorkflowTrigger
 } from './core/workflow-executor.js'
+
+// Pure types only - completely safe for client bundling
+export type {
+  CustomTriggerOptions,
+  ExecutionContext,
+  TriggerResult,
+  WorkflowsPluginConfig
+} from './types/index.js'
 
 // Server-side functions are NOT re-exported here to avoid bundling issues
 // Import server-side functions from the /server export instead

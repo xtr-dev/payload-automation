@@ -67,12 +67,15 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
             const triggers = workflow.triggers as Array<{
               condition?: string
               type: string
-              webhookPath?: string
+              parameters?: {
+                webhookPath?: string
+                [key: string]: any
+              }
             }>
 
             const matchingTrigger = triggers?.find(trigger =>
               trigger.type === 'webhook-trigger' &&
-              trigger.webhookPath === path
+              trigger.parameters?.webhookPath === path
             )
 
             // Check trigger condition if present

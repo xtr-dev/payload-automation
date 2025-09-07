@@ -62,13 +62,37 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           ]
         },
         {
+          name: 'parameters',
+          type: 'json',
+          admin: {
+            hidden: true,
+          },
+          defaultValue: {}
+        },
+        // Virtual fields for collection trigger
+        {
           name: 'collectionSlug',
           type: 'select',
           admin: {
             condition: (_, siblingData) => siblingData?.type === 'collection-trigger',
             description: 'Collection that triggers the workflow',
           },
-          options: Object.keys(collectionTriggers || {})
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.collectionSlug || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.collectionSlug = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
+          options: Object.keys(collectionTriggers || {}),
+          virtual: true,
         },
         {
           name: 'operation',
@@ -77,13 +101,29 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             condition: (_, siblingData) => siblingData?.type === 'collection-trigger',
             description: 'Collection operation that triggers the workflow',
           },
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.operation || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.operation = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
           options: [
             'create',
             'delete',
             'read',
             'update',
-          ]
+          ],
+          virtual: true,
         },
+        // Virtual fields for webhook trigger
         {
           name: 'webhookPath',
           type: 'text',
@@ -91,13 +131,29 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             condition: (_, siblingData) => siblingData?.type === 'webhook-trigger',
             description: 'URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows-webhook/my-webhook',
           },
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.webhookPath || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.webhookPath = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
           validate: (value: any, {siblingData}: any) => {
-            if (siblingData?.type === 'webhook-trigger' && !value) {
+            if (siblingData?.type === 'webhook-trigger' && !value && !siblingData?.parameters?.webhookPath) {
               return 'Webhook path is required for webhook triggers'
             }
             return true
-          }
+          },
+          virtual: true,
         },
+        // Virtual fields for global trigger
         {
           name: 'global',
           type: 'select',
@@ -105,7 +161,22 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             condition: (_, siblingData) => siblingData?.type === 'global-trigger',
             description: 'Global that triggers the workflow',
           },
-          options: [] // Will be populated dynamically based on available globals
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.global || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.global = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
+          options: [], // Will be populated dynamically based on available globals
+          virtual: true,
         },
         {
           name: 'globalOperation',
@@ -114,10 +185,26 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             condition: (_, siblingData) => siblingData?.type === 'global-trigger',
             description: 'Global operation that triggers the workflow',
           },
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.globalOperation || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.globalOperation = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
           options: [
             'update'
-          ]
+          ],
+          virtual: true,
         },
+        // Virtual fields for cron trigger
         {
           name: 'cronExpression',
           type: 'text',
@@ -126,15 +213,30 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             description: 'Cron expression for scheduled execution (e.g., "0 0 * * *" for daily at midnight)',
             placeholder: '0 0 * * *'
           },
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.cronExpression || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.cronExpression = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
           validate: (value: any, {siblingData}: any) => {
-            if (siblingData?.type === 'cron-trigger' && !value) {
+            const cronValue = value || siblingData?.parameters?.cronExpression
+            if (siblingData?.type === 'cron-trigger' && !cronValue) {
               return 'Cron expression is required for cron triggers'
             }
 
             // Validate cron expression format if provided
-            if (siblingData?.type === 'cron-trigger' && value) {
+            if (siblingData?.type === 'cron-trigger' && cronValue) {
               // Basic format validation - should be 5 parts separated by spaces
-              const cronParts = value.trim().split(/\s+/)
+              const cronParts = cronValue.trim().split(/\s+/)
               if (cronParts.length !== 5) {
                 return 'Invalid cron expression format. Expected 5 parts: "minute hour day month weekday" (e.g., "0 9 * * 1")'
               }
@@ -144,7 +246,8 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             }
 
             return true
-          }
+          },
+          virtual: true,
         },
         {
           name: 'timezone',
@@ -155,18 +258,34 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             placeholder: 'UTC'
           },
           defaultValue: 'UTC',
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.timezone || 'UTC'
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters.timezone = value || 'UTC'
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
           validate: (value: any, {siblingData}: any) => {
-            if (siblingData?.type === 'cron-trigger' && value) {
+            const tzValue = value || siblingData?.parameters?.timezone
+            if (siblingData?.type === 'cron-trigger' && tzValue) {
               try {
                 // Test if timezone is valid by trying to create a date with it
-                new Intl.DateTimeFormat('en', {timeZone: value})
+                new Intl.DateTimeFormat('en', {timeZone: tzValue})
                 return true
               } catch {
-                return `Invalid timezone: ${value}. Please use a valid IANA timezone identifier (e.g., "America/New_York", "Europe/London")`
+                return `Invalid timezone: ${tzValue}. Please use a valid IANA timezone identifier (e.g., "America/New_York", "Europe/London")`
               }
             }
             return true
-          }
+          },
+          virtual: true,
         },
         {
           name: 'condition',
@@ -176,7 +295,8 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           },
           required: false
         },
-        ...(triggers || []).flatMap(t => (t.inputs || []).map(f => ({
+        // Virtual fields for custom triggers
+        ...(triggers || []).flatMap(t => (t.inputs || []).filter(f => 'name' in f && f.name).map(f => ({
           ...f,
           admin: {
             ...(f.admin || {}),
@@ -186,6 +306,21 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
                 true
             ),
           },
+          hooks: {
+            afterRead: [
+              ({ siblingData }) => {
+                return siblingData?.parameters?.[(f as any).name] || undefined
+              }
+            ],
+            beforeChange: [
+              ({ siblingData, value }) => {
+                if (!siblingData.parameters) {siblingData.parameters = {}}
+                siblingData.parameters[(f as any).name] = value
+                return undefined // Virtual field, don't store directly
+              }
+            ]
+          },
+          virtual: true,
         } as Field)))
       ]
     },

@@ -8,9 +8,17 @@ export type PayloadWorkflow = {
   description?: string | null
   triggers?: Array<{
     type?: string | null
-    collectionSlug?: string | null
-    operation?: string | null
     condition?: string | null
+    parameters?: {
+      collectionSlug?: string | null
+      operation?: string | null
+      webhookPath?: string | null
+      cronExpression?: string | null
+      timezone?: string | null
+      global?: string | null
+      globalOperation?: string | null
+      [key: string]: unknown
+    } | null
     [key: string]: unknown
   }> | null
   steps?: Array<{
@@ -42,6 +50,30 @@ export interface ExecutionContext {
     input: unknown
     output: unknown
     state: 'failed' | 'pending' | 'running' | 'succeeded'
+    _startTime?: number
+    executionInfo?: {
+      completed: boolean
+      success: boolean
+      executedAt: string
+      duration: number
+      failureReason?: string
+    }
+    errorDetails?: {
+      stepId: string
+      errorType: string
+      duration: number
+      attempts: number
+      finalError: string
+      context: {
+        url?: string
+        method?: string
+        timeout?: number
+        statusCode?: number
+        headers?: Record<string, string>
+        [key: string]: any
+      }
+      timestamp: string
+    }
   }>
   trigger: {
     collection?: string
@@ -987,11 +1019,14 @@ export class WorkflowExecutor {
       for (const workflow of workflows.docs) {
         // Check if this workflow has a matching trigger
         const triggers = workflow.triggers as Array<{
-          collection?: string
-          collectionSlug?: string
           condition?: string
-          operation: string
           type: string
+          parameters?: {
+            collection?: string
+            collectionSlug?: string
+            operation?: string
+            [key: string]: any
+          }
         }>
         
         this.logger.debug({
@@ -1000,16 +1035,16 @@ export class WorkflowExecutor {
           triggerCount: triggers?.length || 0,
           triggers: triggers?.map(t => ({
             type: t.type,
-            collection: t.collection,
-            collectionSlug: t.collectionSlug,
-            operation: t.operation
+            collection: t.parameters?.collection,
+            collectionSlug: t.parameters?.collectionSlug,
+            operation: t.parameters?.operation
           }))
         }, 'Checking workflow triggers')
 
         const matchingTriggers = triggers?.filter(trigger =>
           trigger.type === 'collection-trigger' &&
-          (trigger.collection === collection || trigger.collectionSlug === collection) &&
-          trigger.operation === operation
+          (trigger.parameters?.collection === collection || trigger.parameters?.collectionSlug === collection) &&
+          trigger.parameters?.operation === operation
         ) || []
         
         this.logger.info({
@@ -1026,9 +1061,9 @@ export class WorkflowExecutor {
             workflowName: workflow.name,
             triggerDetails: {
               type: trigger.type,
-              collection: trigger.collection,
-              collectionSlug: trigger.collectionSlug,
-              operation: trigger.operation,
+              collection: trigger.parameters?.collection,
+              collectionSlug: trigger.parameters?.collectionSlug,
+              operation: trigger.parameters?.operation,
               hasCondition: !!trigger.condition
             }
           }, 'Processing matching trigger - about to execute workflow')
