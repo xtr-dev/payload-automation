@@ -298,6 +298,8 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         // Virtual fields for custom triggers
         ...(triggers || []).flatMap(t => (t.inputs || []).filter(f => 'name' in f && f.name).map(f => ({
           ...f,
+          // Prefix field name with trigger slug to avoid conflicts
+          name: `__${t.slug}_${(f as any).name}`,
           admin: {
             ...(f.admin || {}),
             condition: (...args) => args[1]?.type === t.slug && (
