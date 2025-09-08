@@ -3,31 +3,29 @@
  * 
  * @example
  * ```typescript
- * import { createTrigger, webhookTrigger } from '@xtr-dev/payload-automation/helpers'
+ * import { createTrigger, createTriggerField, webhookTrigger } from '@xtr-dev/payload-automation/helpers'
  * 
- * // Simple trigger
- * const myTrigger = createTrigger('my-trigger').parameters({
- *   apiKey: { type: 'text', required: true },
- *   timeout: { type: 'number', defaultValue: 30 }
- * })
+ * // Simple trigger with array of fields
+ * const myTrigger = createTrigger('my-trigger', [
+ *   { name: 'apiKey', type: 'text', required: true },
+ *   { name: 'timeout', type: 'number', defaultValue: 30 }
+ * ])
  * 
- * // Webhook trigger with presets
+ * // Single field with virtual storage
+ * const field = createTriggerField(
+ *   { name: 'webhookUrl', type: 'text', required: true },
+ *   'my-trigger'
+ * )
+ * 
+ * // Webhook trigger preset
  * const orderWebhook = webhookTrigger('order-webhook')
- *   .parameter('orderTypes', {
- *     type: 'select',
- *     hasMany: true,
- *     options: ['regular', 'subscription']
- *   })
- *   .build()
  * ```
  */
 
 // Core helpers
 export {
-  createTriggerParameter,
-  createTriggerParameters,
-  createTrigger,
-  createAdvancedTrigger
+  createTriggerField,
+  createTrigger
 } from '../utils/trigger-helpers.js'
 
 // Preset builders
@@ -37,11 +35,4 @@ export {
   eventTrigger,
   manualTrigger,
   apiTrigger
-} from '../utils/trigger-presets.js'
-
-// Common parameter sets for extending
-export {
-  webhookParameters,
-  cronParameters,
-  eventParameters
 } from '../utils/trigger-presets.js'

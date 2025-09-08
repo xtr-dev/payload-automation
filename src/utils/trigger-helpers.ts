@@ -2,137 +2,132 @@ import type { Field } from 'payload'
 import type { CustomTriggerConfig } from '../plugin/config-types.js'
 
 /**
- * Helper function to create a virtual trigger parameter field
- * Handles the boilerplate for storing/reading from the parameters JSON field
+ * Creates a virtual field for a trigger parameter that stores its value in the parameters JSON field
+ * 
+ * @param field - Standard PayloadCMS field configuration (must be a data field with a name)
+ * @param triggerSlug - The slug of the trigger this field belongs to
+ * @returns Modified field with virtual storage hooks and proper naming
+ * 
+ * @example
+ * ```typescript
+ * const myTrigger: CustomTriggerConfig = {
+ *   slug: 'my-trigger',
+ *   inputs: [
+ *     createTriggerField({
+ *       name: 'webhookUrl',
+ *       type: 'text',
+ *       required: true,
+ *       admin: {
+ *         description: 'URL to call when triggered'
+ *       }
+ *     }, 'my-trigger')
+ *   ]
+ * }
+ * ```
  */
-export function createTriggerParameter(
-  name: string,
-  fieldConfig: any, // Use any to allow flexible field configurations
-  triggerSlug: string
-): Field {
+export function createTriggerField(field: any, triggerSlug: string): Field {
+  const originalName = field.name
+  if (!originalName) {
+    throw new Error('Field must have a name property')
+  }
+
   // Create a unique field name by prefixing with trigger slug
-  const uniqueFieldName = `__trigger_${triggerSlug}_${name}`
+  const uniqueFieldName = `__trigger_${triggerSlug}_${originalName}`
   
-  return {
-    ...fieldConfig,
+  const resultField: any = {
+    ...field,
     name: uniqueFieldName,
     virtual: true,
     admin: {
-      ...fieldConfig.admin,
-      condition: (_, siblingData) => siblingData?.type === triggerSlug && (
-        fieldConfig.admin?.condition ? 
-          fieldConfig.admin.condition(_, siblingData) : 
-          true
-      )
+      ...(field.admin || {}),
+      condition: (data: any, siblingData: any) => {
+        // Only show this field when the trigger type matches
+        const triggerMatches = siblingData?.type === triggerSlug
+        
+        // If the original field had a condition, combine it with our trigger condition
+        if (field.admin?.condition) {
+          return triggerMatches && field.admin.condition(data, siblingData)
+        }
+        
+        return triggerMatches
+      }
     },
     hooks: {
-      ...fieldConfig.hooks,
+      ...(field.hooks || {}),
       afterRead: [
-        ...(fieldConfig.hooks?.afterRead || []),
-        ({ siblingData }) => siblingData?.parameters?.[name] || fieldConfig.defaultValue
+        ...(field.hooks?.afterRead || []),
+        ({ siblingData }: any) => {
+          // Read the value from the parameters JSON field
+          return siblingData?.parameters?.[originalName] ?? field.defaultValue
+        }
       ],
       beforeChange: [
-        ...(fieldConfig.hooks?.beforeChange || []),
-        ({ value, siblingData }) => {
-          if (!siblingData.parameters) siblingData.parameters = {}
-          siblingData.parameters[name] = value
+        ...(field.hooks?.beforeChange || []),
+        ({ value, siblingData }: any) => {
+          // Store the value in the parameters JSON field
+          if (!siblingData.parameters) {
+            siblingData.parameters = {}
+          }
+          siblingData.parameters[originalName] = value
           return undefined // Virtual field, don't store directly
         }
       ]
-    },
-    validate: fieldConfig.validate || fieldConfig.required ? 
-      (value: any, args: any) => {
-        const paramValue = value ?? args.siblingData?.parameters?.[name]
-        
-        // Check required
-        if (fieldConfig.required && args.siblingData?.type === triggerSlug && !paramValue) {
-          return `${fieldConfig.admin?.description || name} is required for ${triggerSlug}`
-        }
-        
-        // Run original validation if present
-        return fieldConfig.validate?.(paramValue, args) ?? true
-      } : 
-      undefined
-  } as Field
+    }
+  }
+
+  // Only add validate if the field supports it (data fields)
+  if (field.validate || field.required) {
+    resultField.validate = (value: any, args: any) => {
+      const paramValue = value ?? args.siblingData?.parameters?.[originalName]
+      
+      // Check required validation
+      if (field.required && args.siblingData?.type === triggerSlug && !paramValue) {
+        const label = field.label || field.admin?.description || originalName
+        return `${label} is required for ${triggerSlug}`
+      }
+      
+      // Run original validation if present
+      if (field.validate) {
+        return field.validate(paramValue, args)
+      }
+      
+      return true
+    }
+  }
+
+  return resultField as Field
 }
 
 /**
- * Helper to create multiple trigger parameter fields at once
+ * Creates a custom trigger configuration with the provided fields
+ * 
+ * @param slug - Unique identifier for the trigger
+ * @param fields - Array of PayloadCMS fields that will be shown as trigger parameters
+ * @returns Complete trigger configuration
+ * 
+ * @example
+ * ```typescript
+ * const webhookTrigger = createTrigger('webhook', [
+ *   {
+ *     name: 'url',
+ *     type: 'text',
+ *     required: true,
+ *     admin: {
+ *       description: 'Webhook URL'
+ *     }
+ *   },
+ *   {
+ *     name: 'method',
+ *     type: 'select',
+ *     options: ['GET', 'POST', 'PUT', 'DELETE'],
+ *     defaultValue: 'POST'
+ *   }
+ * ])
+ * ```
  */
-export function createTriggerParameters(
-  triggerSlug: string,
-  parameters: Record<string, any>
-): Field[] {
-  return Object.entries(parameters).map(([name, fieldConfig]) => 
-    createTriggerParameter(name, fieldConfig, triggerSlug)
-  )
-}
-
-/**
- * Main trigger builder function that creates a fluent API for defining triggers
- */
-export function createTrigger<TSlug extends string>(slug: TSlug) {
+export function createTrigger(slug: string, fields: Field[]): CustomTriggerConfig {
   return {
-    /**
-     * Define parameters for this trigger using a clean object syntax
-     * @param paramConfig - Object where keys are parameter names and values are Field configs
-     * @returns Complete CustomTriggerConfig ready for use
-     */
-    parameters(paramConfig: Record<string, any>): CustomTriggerConfig {
-      return {
-        slug,
-        inputs: Object.entries(paramConfig).map(([name, fieldConfig]) => 
-          createTriggerParameter(name, fieldConfig, slug)
-        )
-      }
-    }
-  }
-}
-
-/**
- * Advanced trigger builder with chainable methods for more complex scenarios
- */
-export function createAdvancedTrigger<TSlug extends string>(slug: TSlug) {
-  const builder = {
     slug,
-    _parameters: {} as Record<string, any>,
-    
-    /**
-     * Set all parameters at once
-     */
-    parameters(paramConfig: Record<string, any>) {
-      this._parameters = paramConfig
-      return this
-    },
-    
-    /**
-     * Add a single parameter
-     */
-    parameter(name: string, fieldConfig: any) {
-      this._parameters[name] = fieldConfig
-      return this
-    },
-    
-    /**
-     * Extend with existing parameter sets (useful for common patterns)
-     */
-    extend(baseParameters: Record<string, any>) {
-      this._parameters = { ...baseParameters, ...this._parameters }
-      return this
-    },
-    
-    /**
-     * Build the final trigger configuration
-     */
-    build(): CustomTriggerConfig {
-      return {
-        slug: this.slug,
-        inputs: Object.entries(this._parameters).map(([name, fieldConfig]) => 
-          createTriggerParameter(name, fieldConfig, this.slug)
-        )
-      }
-    }
+    inputs: fields.map(field => createTriggerField(field, slug))
   }
-  
-  return builder
 }
