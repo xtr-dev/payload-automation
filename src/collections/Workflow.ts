@@ -296,34 +296,9 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           required: false
         },
         // Virtual fields for custom triggers
-        ...(triggers || []).flatMap(t => (t.inputs || []).filter(f => 'name' in f && f.name).map(f => ({
-          ...f,
-          // Prefix field name with trigger slug to avoid conflicts
-          name: `__${t.slug}_${(f as any).name}`,
-          admin: {
-            ...(f.admin || {}),
-            condition: (...args) => args[1]?.type === t.slug && (
-              f.admin?.condition ?
-                f.admin.condition.call(this, ...args) :
-                true
-            ),
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.[(f as any).name] || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters[(f as any).name] = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          virtual: true,
-        } as Field)))
+        // Note: Custom trigger fields from trigger-helpers already have unique names
+        // We just need to pass them through without modification
+        ...(triggers || []).flatMap(t => (t.inputs || []))
       ]
     },
     {
