@@ -186,19 +186,40 @@ export const workflowsPlugin =
                 }, 'Collection automation hook triggered')
 
                 if (!registry.isInitialized) {
-                  logger.warn('Workflow executor not yet initialized, skipping execution')
-                  return undefined
+                  logger.warn('Workflow executor not yet initialized, attempting lazy initialization')
+                  
+                  try {
+                    // Try to create executor if we have a payload instance
+                    if (args.req?.payload) {
+                      logger.info('Creating workflow executor via lazy initialization')
+                      const { WorkflowExecutor } = await import('../core/workflow-executor.js')
+                      const executor = new WorkflowExecutor(args.req.payload, logger)
+                      setWorkflowExecutor(executor, logger)
+                      logger.info('Lazy initialization successful')
+                    } else {
+                      logger.error('Cannot lazy initialize - no payload instance available')
+                      await createFailedWorkflowRun(args, 'Workflow executor not initialized and lazy initialization failed - no payload instance', logger)
+                      return undefined
+                    }
+                  } catch (error) {
+                    logger.error('Lazy initialization failed:', error)
+                    const errorMessage = error instanceof Error ? error.message : String(error)
+                    await createFailedWorkflowRun(args, `Workflow executor lazy initialization failed: ${errorMessage}`, logger)
+                    return undefined
+                  }
                 }
 
-                if (!registry.executor) {
+                // Re-check registry after potential lazy initialization
+                const updatedRegistry = getExecutorRegistry()
+                if (!updatedRegistry.executor) {
                   logger.error('Workflow executor is null despite being marked as initialized')
                   // Create a failed workflow run to track this issue
-                  await createFailedWorkflowRun(args, 'Executor not available', logger)
+                  await createFailedWorkflowRun(args, 'Executor not available after initialization', logger)
                   return undefined
                 }
 
                 logger.debug('Executing triggered workflows...')
-                await registry.executor.executeTriggeredWorkflows(
+                await updatedRegistry.executor.executeTriggeredWorkflows(
                   args.collection.slug,
                   args.operation,
                   args.doc,
