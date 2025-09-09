@@ -145,7 +145,7 @@ export const workflowsPlugin =
       // CRITICAL: Modify existing collection configs BEFORE PayloadCMS processes them
       // This is the ONLY time we can add hooks that will actually work
       const logger = getConfigLogger()
-      logger.info('Attempting to modify collection configs before PayloadCMS initialization...')
+      logger.debug('Modifying collection configs...')
 
       if (config.collections && pluginOptions.collectionTriggers) {
         for (const [triggerSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
@@ -311,10 +311,8 @@ export const workflowsPlugin =
         logger.info(`Plugin configuration: ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers, ${pluginOptions.steps?.length || 0} steps`)
 
         // Create workflow executor instance
-        console.log('🚨 CREATING WORKFLOW EXECUTOR INSTANCE')
+        logger.debug('Creating workflow executor instance')
         const executor = new WorkflowExecutor(payload, logger)
-        console.log('🚨 EXECUTOR CREATED:', typeof executor)
-        console.log('🚨 EXECUTOR METHODS:', Object.getOwnPropertyNames(Object.getPrototypeOf(executor)))
 
         // Register executor with proper dependency injection
         setWorkflowExecutor(executor, logger)

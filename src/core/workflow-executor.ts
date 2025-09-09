@@ -990,12 +990,6 @@ export class WorkflowExecutor {
     previousDoc: unknown,
     req: PayloadRequest
   ): Promise<void> {
-    console.log('🚨 EXECUTOR: executeTriggeredWorkflows called!')
-    console.log('🚨 EXECUTOR: Collection =', collection)
-    console.log('🚨 EXECUTOR: Operation =', operation)
-    console.log('🚨 EXECUTOR: Doc ID =', (doc as any)?.id)
-    console.log('🚨 EXECUTOR: Has payload?', !!this.payload)
-    console.log('🚨 EXECUTOR: Has logger?', !!this.logger)
     
     this.logger.info({
       collection,
@@ -1029,24 +1023,11 @@ export class WorkflowExecutor {
           }
         }>
         
-        this.logger.info({
+        this.logger.debug({
           workflowId: workflow.id,
           workflowName: workflow.name,
-          triggerCount: triggers?.length || 0,
-          triggers: triggers?.map(t => ({
-            type: t.type,
-            parameters: t.parameters,
-            collection: t.parameters?.collection,
-            collectionSlug: t.parameters?.collectionSlug,
-            operation: t.parameters?.operation,
-            // Debug matching criteria
-            typeMatch: t.type === 'collection-trigger',
-            collectionMatch: (t.parameters?.collection === collection || t.parameters?.collectionSlug === collection),
-            operationMatch: t.parameters?.operation === operation
-          })),
-          targetCollection: collection,
-          targetOperation: operation
-        }, 'Checking workflow triggers with detailed matching info')
+          triggerCount: triggers?.length || 0
+        }, 'Checking workflow triggers')
 
         const matchingTriggers = triggers?.filter(trigger =>
           trigger.type === 'collection-trigger' &&
@@ -1090,18 +1071,13 @@ export class WorkflowExecutor {
 
           // Check trigger condition if present
           if (trigger.condition) {
-            this.logger.info({
+            this.logger.debug({
               collection,
               operation,
               condition: trigger.condition,
-              docId: (doc as any)?.id,
-              docFields: doc ? Object.keys(doc) : [],
-              previousDocId: (previousDoc as any)?.id,
               workflowId: workflow.id,
-              workflowName: workflow.name,
-              docStatus: (doc as any)?.status,
-              previousDocStatus: (previousDoc as any)?.status
-            }, 'Evaluating trigger condition before execution')
+              workflowName: workflow.name
+            }, 'Evaluating trigger condition')
 
             const conditionMet = this.evaluateCondition(trigger.condition, context)
 
