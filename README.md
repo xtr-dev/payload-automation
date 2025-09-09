@@ -155,6 +155,34 @@ Use JSONPath to access workflow data:
 - Node.js ^18.20.2 || >=20.9.0
 - pnpm ^9 || ^10
 
+## Environment Variables
+
+Control plugin logging with these environment variables:
+
+### `PAYLOAD_AUTOMATION_LOG_LEVEL`
+Controls both configuration-time and runtime logging. 
+- **Values**: `silent`, `error`, `warn`, `info`, `debug`, `trace`
+- **Default**: `warn`
+- **Example**: `PAYLOAD_AUTOMATION_LOG_LEVEL=debug`
+
+### `PAYLOAD_AUTOMATION_CONFIG_LOG_LEVEL` (optional)
+Override log level specifically for configuration-time logs (plugin setup).
+- **Values**: Same as above
+- **Default**: Falls back to `PAYLOAD_AUTOMATION_LOG_LEVEL` or `warn`
+- **Example**: `PAYLOAD_AUTOMATION_CONFIG_LOG_LEVEL=silent`
+
+### Production Usage
+For production, keep the default (`warn`) or use `error` or `silent`:
+```bash
+PAYLOAD_AUTOMATION_LOG_LEVEL=error npm start
+```
+
+### Development Usage
+For debugging, use `debug` or `info`:
+```bash
+PAYLOAD_AUTOMATION_LOG_LEVEL=debug npm run dev
+```
+
 ## Documentation
 
 Full documentation coming soon. For now, explore the development environment in the repository for examples and patterns.

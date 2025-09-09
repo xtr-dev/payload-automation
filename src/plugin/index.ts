@@ -145,7 +145,6 @@ export const workflowsPlugin =
       // CRITICAL: Modify existing collection configs BEFORE PayloadCMS processes them
       // This is the ONLY time we can add hooks that will actually work
       const logger = getConfigLogger()
-      logger.debug('Modifying collection configs...')
 
       if (config.collections && pluginOptions.collectionTriggers) {
         for (const [triggerSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
@@ -159,7 +158,6 @@ export const workflowsPlugin =
           }
 
           const collection = config.collections[collectionIndex]
-          logger.debug(`Found collection '${triggerSlug}' - modifying its hooks...`)
 
           // Initialize hooks if needed
           if (!collection.hooks) {
@@ -266,7 +264,6 @@ export const workflowsPlugin =
 
           // Add the hook to the collection config
           collection.hooks.afterChange.push(automationHook)
-          logger.debug(`Added automation hook to '${triggerSlug}' - hook count: ${collection.hooks.afterChange.length}`)
         }
       }
 
@@ -275,17 +272,13 @@ export const workflowsPlugin =
       }
 
       const configLogger = getConfigLogger()
-      configLogger.debug(`Configuring workflow plugin with ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers`)
 
       // Generate cron tasks for workflows with cron triggers
       generateCronTasks(config)
 
       for (const step of pluginOptions.steps) {
         if (!config.jobs?.tasks?.find(task => task.slug === step.slug)) {
-          configLogger.debug(`Registering task: ${step.slug}`)
           config.jobs?.tasks?.push(step)
-        } else {
-          configLogger.debug(`Task ${step.slug} already registered, skipping`)
         }
       }
 
@@ -295,11 +288,9 @@ export const workflowsPlugin =
       // Set up onInit to register collection hooks and initialize features
       const incomingOnInit = config.onInit
       config.onInit = async (payload) => {
-        configLogger.info(`onInit called - collections: ${Object.keys(payload.collections).length}`)
 
         // Execute any existing onInit functions first
         if (incomingOnInit) {
-          configLogger.debug('Executing existing onInit function')
           await incomingOnInit(payload)
         }
 

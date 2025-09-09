@@ -4,24 +4,39 @@ import type { Payload } from 'payload'
 let pluginLogger: null | Payload['logger'] = null
 
 /**
+ * Get the configured log level from environment variables
+ * Supports: PAYLOAD_AUTOMATION_LOG_LEVEL for unified control
+ * Or separate: PAYLOAD_AUTOMATION_CONFIG_LOG_LEVEL and PAYLOAD_AUTOMATION_LOG_LEVEL
+ */
+function getConfigLogLevel(): string {
+  return process.env.PAYLOAD_AUTOMATION_CONFIG_LOG_LEVEL || 
+         process.env.PAYLOAD_AUTOMATION_LOG_LEVEL || 
+         'warn' // Default to warn level for production
+}
+
+/**
  * Simple config-time logger for use during plugin configuration
  * Uses console with plugin prefix since Payload logger isn't available yet
  */
 const configLogger = {
   debug: <T>(message: string, ...args: T[]) => {
-    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
-    console.log(`[payload-automation] ${message}`, ...args)
+    const level = getConfigLogLevel()
+    if (level === 'silent' || (level !== 'debug' && level !== 'trace')) {return}
+    console.debug(`[payload-automation] ${message}`, ...args)
   },
   error: <T>(message: string, ...args: T[]) => {
-    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
+    const level = getConfigLogLevel()
+    if (level === 'silent') {return}
     console.error(`[payload-automation] ${message}`, ...args)
   },
   info: <T>(message: string, ...args: T[]) => {
-    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
-    console.log(`[payload-automation] ${message}`, ...args)
+    const level = getConfigLogLevel()
+    if (level === 'silent' || level === 'error' || level === 'warn') {return}
+    console.info(`[payload-automation] ${message}`, ...args)
   },
   warn: <T>(message: string, ...args: T[]) => {
-    if (!process.env.PAYLOAD_AUTOMATION_CONFIG_LOGGING) {return}
+    const level = getConfigLogLevel()
+    if (level === 'silent' || level === 'error') {return}
     console.warn(`[payload-automation] ${message}`, ...args)
   }
 }
@@ -39,8 +54,13 @@ export function getConfigLogger() {
  */
 export function initializeLogger(payload: Payload): Payload['logger'] {
   // Create a child logger with plugin identification
+  // Use PAYLOAD_AUTOMATION_LOG_LEVEL as the primary env var
+  const logLevel = process.env.PAYLOAD_AUTOMATION_LOG_LEVEL || 
+                   process.env.PAYLOAD_AUTOMATION_LOGGING || // Legacy support
+                   'warn' // Default to warn level for production
+  
   pluginLogger = payload.logger.child({
-    level: process.env.PAYLOAD_AUTOMATION_LOGGING || 'silent',
+    level: logLevel,
     plugin: '@xtr-dev/payload-automation'
   })
   return pluginLogger

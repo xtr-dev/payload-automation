@@ -7,7 +7,6 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
   const logger = getConfigLogger()
   // Ensure the prefix starts with a slash
   const normalizedPrefix = webhookPrefix.startsWith('/') ? webhookPrefix : `/${webhookPrefix}`
-  logger.debug(`Adding webhook endpoint: ${normalizedPrefix}`)
 
   // Define webhook endpoint
   const webhookEndpoint = {
@@ -170,9 +169,5 @@ export function initWebhookEndpoint(config: Config, webhookPrefix = 'webhook'): 
   if (!existingEndpoint) {
     // Combine existing endpoints with the webhook endpoint
     config.endpoints = [...(config.endpoints || []), webhookEndpoint]
-    logger.debug(`Webhook endpoint added at path: ${webhookEndpoint.path}`)
-    logger.debug('Webhook endpoint added')
-  } else {
-    logger.debug(`Webhook endpoint already exists at path: ${webhookEndpoint.path}`)
   }
 }
