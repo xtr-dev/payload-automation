@@ -319,17 +319,45 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             }
           ]
         },
-        ...(steps || []).flatMap(step => (step.inputSchema || []).map(field => ({
-          ...field,
-          admin: {
-            ...(field.admin || {}),
-            condition: (...args) => args[1]?.step === step.slug && (
-              field.admin?.condition ?
-                field.admin.condition.call(this, ...args) :
-                true
-            ),
-          },
-        } as Field))),
+        ...(steps || []).flatMap(step => (step.inputSchema || []).map(field => {
+          const originalName = (field as any).name;
+          const resultField: any = {
+            ...field,
+            // Prefix field name with step slug to avoid conflicts
+            name: `__step_${step.slug}_${originalName}`,
+            admin: {
+              ...(field.admin || {}),
+              condition: (...args: any[]) => args[1]?.step === step.slug && (
+                (field.admin as any)?.condition ?
+                  (field.admin as any).condition.call(this, ...args) :
+                  true
+              ),
+            },
+            virtual: true,
+          };
+
+          // Add hooks to store/retrieve from the step's input data
+          resultField.hooks = {
+            ...((field as any).hooks || {}),
+            afterRead: [
+              ...(((field as any).hooks)?.afterRead || []),
+              ({ siblingData }: any) => {
+                // Read from step input data using original field name
+                return siblingData?.[originalName] || (field as any).defaultValue;
+              }
+            ],
+            beforeChange: [
+              ...(((field as any).hooks)?.beforeChange || []),
+              ({ siblingData, value }: any) => {
+                // Store in step data using original field name
+                siblingData[originalName] = value;
+                return undefined; // Don't store the prefixed field
+              }
+            ]
+          };
+
+          return resultField as Field;
+        })),
         {
           name: 'dependencies',
           type: 'text',
