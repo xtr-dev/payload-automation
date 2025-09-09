@@ -92,7 +92,7 @@ export interface Config {
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
   };
   db: {
-    defaultIDType: number;
+    defaultIDType: string;
   };
   globals: {};
   globalsSelect: {};
@@ -136,7 +136,7 @@ export interface UserAuthOperations {
  * via the `definition` "posts".
  */
 export interface Post {
-  id: number;
+  id: string;
   content?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -146,7 +146,7 @@ export interface Post {
  * via the `definition` "media".
  */
 export interface Media {
-  id: number;
+  id: string;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -164,9 +164,9 @@ export interface Media {
  * via the `definition` "auditLog".
  */
 export interface AuditLog {
-  id: number;
-  post?: (number | null) | Post;
-  user?: (number | null) | User;
+  id: string;
+  post?: (string | null) | Post;
+  user?: (string | null) | User;
   message?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -176,7 +176,7 @@ export interface AuditLog {
  * via the `definition` "users".
  */
 export interface User {
-  id: number;
+  id: string;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -202,7 +202,7 @@ export interface User {
  * via the `definition` "workflows".
  */
 export interface Workflow {
-  id: number;
+  id: string;
   /**
    * Human-readable name for the workflow
    */
@@ -214,36 +214,45 @@ export interface Workflow {
   triggers?:
     | {
         type?: ('collection-trigger' | 'webhook-trigger' | 'global-trigger' | 'cron-trigger') | null;
+        parameters?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
         /**
          * Collection that triggers the workflow
          */
-        collectionSlug?: ('posts' | 'media') | null;
+        __builtin_collectionSlug?: ('posts' | 'media') | null;
         /**
          * Collection operation that triggers the workflow
          */
-        operation?: ('create' | 'delete' | 'read' | 'update') | null;
+        __builtin_operation?: ('create' | 'delete' | 'read' | 'update') | null;
         /**
-         * URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows/webhook/my-webhook
+         * URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows-webhook/my-webhook
          */
-        webhookPath?: string | null;
+        __builtin_webhookPath?: string | null;
         /**
          * Global that triggers the workflow
          */
-        global?: string | null;
+        __builtin_global?: string | null;
         /**
          * Global operation that triggers the workflow
          */
-        globalOperation?: 'update' | null;
+        __builtin_globalOperation?: 'update' | null;
         /**
          * Cron expression for scheduled execution (e.g., "0 0 * * *" for daily at midnight)
          */
-        cronExpression?: string | null;
+        __builtin_cronExpression?: string | null;
         /**
          * Timezone for cron execution (e.g., "America/New_York", "Europe/London"). Defaults to UTC.
          */
-        timezone?: string | null;
+        __builtin_timezone?: string | null;
         /**
-         * JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.doc.status == 'published'")
+         * JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.trigger.doc.status == 'published'")
          */
         condition?: string | null;
         id?: string | null;
@@ -253,7 +262,18 @@ export interface Workflow {
     | {
         step?: ('http-request-step' | 'create-document') | null;
         name?: string | null;
-        input?:
+        /**
+         * The URL to make the HTTP request to
+         */
+        url?: string | null;
+        /**
+         * HTTP method to use
+         */
+        method?: ('GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH') | null;
+        /**
+         * HTTP headers as JSON object (e.g., {"Content-Type": "application/json"})
+         */
+        headers?:
           | {
               [k: string]: unknown;
             }
@@ -262,6 +282,80 @@ export interface Workflow {
           | number
           | boolean
           | null;
+        /**
+         * Request body data. Use JSONPath to reference values (e.g., {"postId": "$.trigger.doc.id", "title": "$.trigger.doc.title"})
+         */
+        body?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        /**
+         * Request timeout in milliseconds (default: 30000)
+         */
+        timeout?: number | null;
+        authentication?: {
+          /**
+           * Authentication method
+           */
+          type?: ('none' | 'bearer' | 'basic' | 'apikey') | null;
+          /**
+           * Bearer token value
+           */
+          token?: string | null;
+          /**
+           * Basic auth username
+           */
+          username?: string | null;
+          /**
+           * Basic auth password
+           */
+          password?: string | null;
+          /**
+           * API key header name (e.g., "X-API-Key")
+           */
+          headerName?: string | null;
+          /**
+           * API key value
+           */
+          headerValue?: string | null;
+        };
+        /**
+         * Number of retry attempts on failure (max: 5)
+         */
+        retries?: number | null;
+        /**
+         * Delay between retries in milliseconds
+         */
+        retryDelay?: number | null;
+        /**
+         * The collection slug to create a document in
+         */
+        collectionSlug?: string | null;
+        /**
+         * The document data to create. Use JSONPath to reference trigger data (e.g., {"title": "$.trigger.doc.title", "author": "$.trigger.doc.author"})
+         */
+        data?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        /**
+         * Create as draft (if collection has drafts enabled)
+         */
+        draft?: boolean | null;
+        /**
+         * Locale for the document (if localization is enabled)
+         */
+        locale?: string | null;
         /**
          * Step names that must complete before this step can run
          */
@@ -282,11 +376,11 @@ export interface Workflow {
  * via the `definition` "workflow-runs".
  */
 export interface WorkflowRun {
-  id: number;
+  id: string;
   /**
    * Reference to the workflow that was executed
    */
-  workflow: number | Workflow;
+  workflow: string | Workflow;
   /**
    * Version of the workflow that was executed
    */
@@ -380,7 +474,7 @@ export interface WorkflowRun {
  * via the `definition` "payload-jobs".
  */
 export interface PayloadJob {
-  id: number;
+  id: string;
   /**
    * Input data provided to the job
    */
@@ -472,40 +566,40 @@ export interface PayloadJob {
  * via the `definition` "payload-locked-documents".
  */
 export interface PayloadLockedDocument {
-  id: number;
+  id: string;
   document?:
     | ({
         relationTo: 'posts';
-        value: number | Post;
+        value: string | Post;
       } | null)
     | ({
         relationTo: 'media';
-        value: number | Media;
+        value: string | Media;
       } | null)
     | ({
         relationTo: 'auditLog';
-        value: number | AuditLog;
+        value: string | AuditLog;
       } | null)
     | ({
         relationTo: 'workflows';
-        value: number | Workflow;
+        value: string | Workflow;
       } | null)
     | ({
         relationTo: 'workflow-runs';
-        value: number | WorkflowRun;
+        value: string | WorkflowRun;
       } | null)
     | ({
         relationTo: 'users';
-        value: number | User;
+        value: string | User;
       } | null)
     | ({
         relationTo: 'payload-jobs';
-        value: number | PayloadJob;
+        value: string | PayloadJob;
       } | null);
   globalSlug?: string | null;
   user: {
     relationTo: 'users';
-    value: number | User;
+    value: string | User;
   };
   updatedAt: string;
   createdAt: string;
@@ -515,10 +609,10 @@ export interface PayloadLockedDocument {
  * via the `definition` "payload-preferences".
  */
 export interface PayloadPreference {
-  id: number;
+  id: string;
   user: {
     relationTo: 'users';
-    value: number | User;
+    value: string | User;
   };
   key?: string | null;
   value?:
@@ -538,7 +632,7 @@ export interface PayloadPreference {
  * via the `definition` "payload-migrations".
  */
 export interface PayloadMigration {
-  id: number;
+  id: string;
   name?: string | null;
   batch?: number | null;
   updatedAt: string;
@@ -592,13 +686,14 @@ export interface WorkflowsSelect<T extends boolean = true> {
     | T
     | {
         type?: T;
-        collectionSlug?: T;
-        operation?: T;
-        webhookPath?: T;
-        global?: T;
-        globalOperation?: T;
-        cronExpression?: T;
-        timezone?: T;
+        parameters?: T;
+        __builtin_collectionSlug?: T;
+        __builtin_operation?: T;
+        __builtin_webhookPath?: T;
+        __builtin_global?: T;
+        __builtin_globalOperation?: T;
+        __builtin_cronExpression?: T;
+        __builtin_timezone?: T;
         condition?: T;
         id?: T;
       };
@@ -607,7 +702,27 @@ export interface WorkflowsSelect<T extends boolean = true> {
     | {
         step?: T;
         name?: T;
-        input?: T;
+        url?: T;
+        method?: T;
+        headers?: T;
+        body?: T;
+        timeout?: T;
+        authentication?:
+          | T
+          | {
+              type?: T;
+              token?: T;
+              username?: T;
+              password?: T;
+              headerName?: T;
+              headerValue?: T;
+            };
+        retries?: T;
+        retryDelay?: T;
+        collectionSlug?: T;
+        data?: T;
+        draft?: T;
+        locale?: T;
         dependencies?: T;
         condition?: T;
         id?: T;
@@ -736,10 +851,118 @@ export interface TaskWorkflowCronExecutor {
  */
 export interface TaskHttpRequestStep {
   input: {
-    url?: string | null;
+    /**
+     * The URL to make the HTTP request to
+     */
+    url: string;
+    /**
+     * HTTP method to use
+     */
+    method?: ('GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH') | null;
+    /**
+     * HTTP headers as JSON object (e.g., {"Content-Type": "application/json"})
+     */
+    headers?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Request body data. Use JSONPath to reference values (e.g., {"postId": "$.trigger.doc.id", "title": "$.trigger.doc.title"})
+     */
+    body?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Request timeout in milliseconds (default: 30000)
+     */
+    timeout?: number | null;
+    authentication?: {
+      /**
+       * Authentication method
+       */
+      type?: ('none' | 'bearer' | 'basic' | 'apikey') | null;
+      /**
+       * Bearer token value
+       */
+      token?: string | null;
+      /**
+       * Basic auth username
+       */
+      username?: string | null;
+      /**
+       * Basic auth password
+       */
+      password?: string | null;
+      /**
+       * API key header name (e.g., "X-API-Key")
+       */
+      headerName?: string | null;
+      /**
+       * API key value
+       */
+      headerValue?: string | null;
+    };
+    /**
+     * Number of retry attempts on failure (max: 5)
+     */
+    retries?: number | null;
+    /**
+     * Delay between retries in milliseconds
+     */
+    retryDelay?: number | null;
   };
   output: {
-    response?: string | null;
+    /**
+     * HTTP status code
+     */
+    status?: number | null;
+    /**
+     * HTTP status text
+     */
+    statusText?: string | null;
+    /**
+     * Response headers
+     */
+    headers?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Response body
+     */
+    body?: string | null;
+    /**
+     * Parsed response data (if JSON)
+     */
+    data?:
+      | {
+          [k: string]: unknown;
+        }
+      | unknown[]
+      | string
+      | number
+      | boolean
+      | null;
+    /**
+     * Request duration in milliseconds
+     */
+    duration?: number | null;
   };
 }
 /**
@@ -753,7 +976,7 @@ export interface TaskCreateDocument {
      */
     collectionSlug: string;
     /**
-     * The document data to create
+     * The document data to create. Use JSONPath to reference trigger data (e.g., {"title": "$.trigger.doc.title", "author": "$.trigger.doc.author"})
      */
     data:
       | {

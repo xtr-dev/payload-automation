@@ -166,14 +166,15 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
 
       {/* Technical Details Toggle */}
       <div>
-        <Button
-          onClick={() => setExpanded(!expanded)}
-          size="small"
-          buttonStyle="secondary"
-          style={{ marginBottom: expanded ? '12px' : '0' }}
-        >
-          {expanded ? 'Hide' : 'Show'} Technical Details
-        </Button>
+        <div style={{ marginBottom: expanded ? '12px' : '0' }}>
+          <Button
+            onClick={() => setExpanded(!expanded)}
+            size="small"
+            buttonStyle="secondary"
+          >
+            {expanded ? 'Hide' : 'Show'} Technical Details
+          </Button>
+        </div>
         
         {expanded && (
           <div style={{

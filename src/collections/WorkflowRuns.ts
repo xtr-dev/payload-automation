@@ -40,7 +40,7 @@ export const WorkflowRunsCollection: CollectionConfig = {
       admin: {
         description: 'Current execution status',
         components: {
-          Cell: '@/components/StatusCell'
+          Cell: '../components/StatusCell'
         }
       },
       defaultValue: 'pending',
@@ -141,7 +141,7 @@ export const WorkflowRunsCollection: CollectionConfig = {
         description: 'Error message if workflow execution failed',
         condition: (_, siblingData) => siblingData?.status === 'failed',
         components: {
-          Field: '@/components/ErrorDisplay'
+          Field: '../components/ErrorDisplay'
         }
       },
     },

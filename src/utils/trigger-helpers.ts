@@ -1,5 +1,21 @@
 import type { Field } from 'payload'
+
 import type { CustomTriggerConfig } from '../plugin/config-types.js'
+
+// Types for better type safety
+interface FieldWithName {
+  name: string
+  [key: string]: unknown
+}
+
+interface HookContext {
+  siblingData: Record<string, unknown>
+  value?: unknown
+}
+
+interface ValidationContext {
+  siblingData: Record<string, unknown>
+}
 
 /**
  * Creates a virtual field for a trigger parameter that stores its value in the parameters JSON field
@@ -25,7 +41,7 @@ import type { CustomTriggerConfig } from '../plugin/config-types.js'
  * }
  * ```
  */
-export function createTriggerField(field: any, triggerSlug: string): Field {
+export function createTriggerField(field: FieldWithName, triggerSlug: string): Field {
   const originalName = field.name
   if (!originalName) {
     throw new Error('Field must have a name property')
@@ -34,61 +50,70 @@ export function createTriggerField(field: any, triggerSlug: string): Field {
   // Create a unique field name by prefixing with trigger slug
   const uniqueFieldName = `__trigger_${triggerSlug}_${originalName}`
   
-  const resultField: any = {
+  const resultField: Record<string, unknown> = {
     ...field,
-    name: uniqueFieldName,
-    virtual: true,
     admin: {
-      ...(field.admin || {}),
-      condition: (data: any, siblingData: any) => {
+      ...(field.admin as Record<string, unknown> || {}),
+      condition: (data: unknown, siblingData: Record<string, unknown>) => {
         // Only show this field when the trigger type matches
         const triggerMatches = siblingData?.type === triggerSlug
         
         // If the original field had a condition, combine it with our trigger condition
-        if (field.admin?.condition) {
-          return triggerMatches && field.admin.condition(data, siblingData)
+        const originalCondition = (field.admin as Record<string, unknown>)?.condition
+        if (originalCondition && typeof originalCondition === 'function') {
+          return triggerMatches && (originalCondition as (data: unknown, siblingData: Record<string, unknown>) => boolean)(data, siblingData)
         }
         
         return triggerMatches
       }
     },
     hooks: {
-      ...(field.hooks || {}),
+      ...(field.hooks as Record<string, unknown[]> || {}),
       afterRead: [
-        ...(field.hooks?.afterRead || []),
-        ({ siblingData }: any) => {
+        ...((field.hooks as Record<string, unknown[]>)?.afterRead || []),
+        ({ siblingData }: HookContext) => {
           // Read the value from the parameters JSON field
-          return siblingData?.parameters?.[originalName] ?? field.defaultValue
+          const parameters = siblingData?.parameters as Record<string, unknown>
+          return parameters?.[originalName] ?? (field as Record<string, unknown>).defaultValue
         }
       ],
       beforeChange: [
-        ...(field.hooks?.beforeChange || []),
-        ({ value, siblingData }: any) => {
+        ...((field.hooks as Record<string, unknown[]>)?.beforeChange || []),
+        ({ siblingData, value }: HookContext) => {
           // Store the value in the parameters JSON field
           if (!siblingData.parameters) {
             siblingData.parameters = {}
           }
-          siblingData.parameters[originalName] = value
+          const parameters = siblingData.parameters as Record<string, unknown>
+          parameters[originalName] = value
           return undefined // Virtual field, don't store directly
         }
       ]
-    }
+    },
+    name: uniqueFieldName,
+    virtual: true,
   }
 
   // Only add validate if the field supports it (data fields)
-  if (field.validate || field.required) {
-    resultField.validate = (value: any, args: any) => {
-      const paramValue = value ?? args.siblingData?.parameters?.[originalName]
+  const hasValidation = (field as Record<string, unknown>).validate || (field as Record<string, unknown>).required
+  if (hasValidation) {
+    resultField.validate = (value: unknown, args: ValidationContext) => {
+      const parameters = args.siblingData?.parameters as Record<string, unknown>
+      const paramValue = value ?? parameters?.[originalName]
       
       // Check required validation
-      if (field.required && args.siblingData?.type === triggerSlug && !paramValue) {
-        const label = field.label || field.admin?.description || originalName
+      const isRequired = (field as Record<string, unknown>).required
+      if (isRequired && args.siblingData?.type === triggerSlug && !paramValue) {
+        const fieldLabel = (field as Record<string, unknown>).label as string
+        const adminDesc = ((field as Record<string, unknown>).admin as Record<string, unknown>)?.description as string
+        const label = fieldLabel || adminDesc || originalName
         return `${label} is required for ${triggerSlug}`
       }
       
       // Run original validation if present
-      if (field.validate) {
-        return field.validate(paramValue, args)
+      const originalValidate = (field as Record<string, unknown>).validate
+      if (originalValidate && typeof originalValidate === 'function') {
+        return (originalValidate as (value: unknown, args: ValidationContext) => boolean | string)(paramValue, args)
       }
       
       return true
@@ -125,7 +150,7 @@ export function createTriggerField(field: any, triggerSlug: string): Field {
  * ])
  * ```
  */
-export function createTrigger(slug: string, fields: Field[]): CustomTriggerConfig {
+export function createTrigger(slug: string, fields: FieldWithName[]): CustomTriggerConfig {
   return {
     slug,
     inputs: fields.map(field => createTriggerField(field, slug))
