@@ -1,9 +1,9 @@
-import { default as default_4845c503d8eeb95a2cf39d519276b9b7 } from '../../../../../components/WorkflowExecutionStatus'
-import { default as default_28774f13376b69227276b43eee64e5a1 } from '../../../../../components/StatusCell'
-import { default as default_623fcff70b12e3e87839f97bf237499a } from '../../../../../components/ErrorDisplay'
+import { WorkflowExecutionStatus as WorkflowExecutionStatus_6f365a93b6cb4b34ad564b391e21db6f } from '@xtr-dev/payload-automation/client'
+import { StatusCell as StatusCell_6f365a93b6cb4b34ad564b391e21db6f } from '@xtr-dev/payload-automation/client'
+import { ErrorDisplay as ErrorDisplay_6f365a93b6cb4b34ad564b391e21db6f } from '@xtr-dev/payload-automation/client'
 
 export const importMap = {
-  "../components/WorkflowExecutionStatus#default": default_4845c503d8eeb95a2cf39d519276b9b7,
-  "../components/StatusCell#default": default_28774f13376b69227276b43eee64e5a1,
-  "../components/ErrorDisplay#default": default_623fcff70b12e3e87839f97bf237499a
+  "@xtr-dev/payload-automation/client#WorkflowExecutionStatus": WorkflowExecutionStatus_6f365a93b6cb4b34ad564b391e21db6f,
+  "@xtr-dev/payload-automation/client#StatusCell": StatusCell_6f365a93b6cb4b34ad564b391e21db6f,
+  "@xtr-dev/payload-automation/client#ErrorDisplay": ErrorDisplay_6f365a93b6cb4b34ad564b391e21db6f
 }

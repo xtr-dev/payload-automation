@@ -41,7 +41,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
       type: 'ui',
       admin: {
         components: {
-          Field: '../components/WorkflowExecutionStatus'
+          Field: '@xtr-dev/payload-automation/client#WorkflowExecutionStatus'
         },
         condition: (data) => !!data?.id // Only show for existing workflows
       }
