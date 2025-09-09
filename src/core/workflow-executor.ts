@@ -1035,11 +1035,18 @@ export class WorkflowExecutor {
           triggerCount: triggers?.length || 0,
           triggers: triggers?.map(t => ({
             type: t.type,
+            parameters: t.parameters,
             collection: t.parameters?.collection,
             collectionSlug: t.parameters?.collectionSlug,
-            operation: t.parameters?.operation
-          }))
-        }, 'Checking workflow triggers')
+            operation: t.parameters?.operation,
+            // Debug matching criteria
+            typeMatch: t.type === 'collection-trigger',
+            collectionMatch: (t.parameters?.collection === collection || t.parameters?.collectionSlug === collection),
+            operationMatch: t.parameters?.operation === operation
+          })),
+          targetCollection: collection,
+          targetOperation: operation
+        }, 'Checking workflow triggers with detailed matching info')
 
         const matchingTriggers = triggers?.filter(trigger =>
           trigger.type === 'collection-trigger' &&
