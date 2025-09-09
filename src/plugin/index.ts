@@ -159,7 +159,7 @@ export const workflowsPlugin =
           }
 
           const collection = config.collections[collectionIndex]
-          logger.info(`Found collection '${triggerSlug}' - modifying its hooks...`)
+          logger.debug(`Found collection '${triggerSlug}' - modifying its hooks...`)
 
           // Initialize hooks if needed
           if (!collection.hooks) {
@@ -266,7 +266,7 @@ export const workflowsPlugin =
 
           // Add the hook to the collection config
           collection.hooks.afterChange.push(automationHook)
-          logger.info(`Added automation hook to '${triggerSlug}' - hook count: ${collection.hooks.afterChange.length}`)
+          logger.debug(`Added automation hook to '${triggerSlug}' - hook count: ${collection.hooks.afterChange.length}`)
         }
       }
 
@@ -275,7 +275,7 @@ export const workflowsPlugin =
       }
 
       const configLogger = getConfigLogger()
-      configLogger.info(`Configuring workflow plugin with ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers`)
+      configLogger.debug(`Configuring workflow plugin with ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers`)
 
       // Generate cron tasks for workflows with cron triggers
       generateCronTasks(config)

@@ -1029,7 +1029,7 @@ export class WorkflowExecutor {
           }
         }>
         
-        this.logger.debug({
+        this.logger.info({
           workflowId: workflow.id,
           workflowName: workflow.name,
           triggerCount: triggers?.length || 0,
@@ -1090,7 +1090,7 @@ export class WorkflowExecutor {
 
           // Check trigger condition if present
           if (trigger.condition) {
-            this.logger.debug({
+            this.logger.info({
               collection,
               operation,
               condition: trigger.condition,
@@ -1098,8 +1098,10 @@ export class WorkflowExecutor {
               docFields: doc ? Object.keys(doc) : [],
               previousDocId: (previousDoc as any)?.id,
               workflowId: workflow.id,
-              workflowName: workflow.name
-            }, 'Evaluating collection trigger condition')
+              workflowName: workflow.name,
+              docStatus: (doc as any)?.status,
+              previousDocStatus: (previousDoc as any)?.status
+            }, 'Evaluating trigger condition before execution')
 
             const conditionMet = this.evaluateCondition(trigger.condition, context)
 
