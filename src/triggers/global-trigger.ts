@@ -1,7 +1,7 @@
 import type {TriggerConfig} from '../plugin/config-types.js'
 
-export const globalTrigger: TriggerConfig = () => ({
-  slug: 'global',
+export const globalTrigger: TriggerConfig = ({globalTriggers}) => ({
+  slug: 'global-hook',
   parameters: [
     {
       name: 'global',
@@ -9,16 +9,20 @@ export const globalTrigger: TriggerConfig = () => ({
       admin: {
         description: 'Global that triggers the workflow',
       },
-      options: [], // Will be populated dynamically based on available globals
+      options: Object.keys(globalTriggers || {}),
     },
     {
-      name: 'globalOperation',
+      name: 'operation',
       type: 'select',
       admin: {
-        description: 'Global operation that triggers the workflow',
+        description: 'Global hook that triggers the workflow',
       },
       options: [
-        'update'
+        "afterChange",
+        "afterRead", 
+        "beforeChange",
+        "beforeRead",
+        "beforeValidate"
       ],
     }
   ]

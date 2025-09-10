@@ -12,7 +12,6 @@ export type PayloadWorkflow = {
     parameters?: {
       collectionSlug?: null | string
       operation?: null | string
-      webhookPath?: null | string
       global?: null | string
       globalOperation?: null | string
       [key: string]: unknown
@@ -43,54 +42,8 @@ export type WorkflowTrigger = {
 } & NonNullable<PayloadWorkflow['triggers']>[0]
 
 export interface ExecutionContext {
-  steps: Record<string, {
-    error?: string
-    input: unknown
-    output: unknown
-    state: 'failed' | 'pending' | 'running' | 'succeeded'
-    _startTime?: number
-    executionInfo?: {
-      completed: boolean
-      success: boolean
-      executedAt: string
-      duration: number
-      failureReason?: string
-    }
-    errorDetails?: {
-      stepId: string
-      errorType: string
-      duration: number
-      attempts: number
-      finalError: string
-      context: {
-        url?: string
-        method?: string
-        timeout?: number
-        statusCode?: number
-        headers?: Record<string, string>
-        [key: string]: any
-      }
-      timestamp: string
-    }
-  }>
-  trigger: {
-    collection?: string
-    data?: unknown
-    doc?: unknown
-    headers?: Record<string, string>
-    operation?: string
-    path?: string
-    previousDoc?: unknown
-    req?: PayloadRequest
-    triggeredAt?: string
-    type: string
-    user?: {
-      collection?: string
-      email?: string
-      id?: string
-    }
-    [key: string]: any
-  }
+  steps: Record<string, any>
+  trigger: Record<string, any>
 }
 
 export class WorkflowExecutor {
@@ -229,7 +182,7 @@ export class WorkflowExecutor {
           }
         }
       }
-      
+
       // Also extract from nested parameters object if it exists
       if (step.parameters && typeof step.parameters === 'object') {
         Object.assign(inputFields, step.parameters)

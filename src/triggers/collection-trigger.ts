@@ -1,6 +1,6 @@
 import type {TriggerConfig} from '../plugin/config-types.js'
 
-export const collectionHookTrigger: TriggerConfig = ({collectionTriggers}) => ({
+export const collectionTrigger: TriggerConfig = ({collectionTriggers}) => ({
   slug: 'collection-hook',
   parameters: [
     {

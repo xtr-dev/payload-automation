@@ -5,12 +5,9 @@ import type {WorkflowsPluginConfig} from "./config-types.js"
 import {createWorkflowCollection} from '../collections/Workflow.js'
 import {WorkflowRunsCollection} from '../collections/WorkflowRuns.js'
 import {WorkflowExecutor} from '../core/workflow-executor.js'
-import {initGlobalHooks} from "./init-global-hooks.js"
-import {initStepTasks} from "./init-step-tasks.js"
-import {initWebhookEndpoint} from "./init-webhook.js"
-import {initWorkflowHooks} from './init-workflow-hooks.js'
 import {getConfigLogger, initializeLogger} from './logger.js'
 import {createCollectionTriggerHook} from "./collection-hook.js"
+import {createGlobalTriggerHook} from "./global-hook.js"
 
 export {getLogger} from './logger.js'
 
@@ -114,6 +111,69 @@ export const workflowsPlugin =
         }
       }
 
+      // Handle global triggers similarly to collection triggers
+      if (config.globals && pluginOptions.globalTriggers) {
+        for (const [globalSlug, triggerConfig] of Object.entries(pluginOptions.globalTriggers)) {
+          if (!triggerConfig) {
+            continue
+          }
+
+          // Find the global config that matches
+          const globalIndex = config.globals.findIndex(g => g.slug === globalSlug)
+          if (globalIndex === -1) {
+            logger.warn(`Global '${globalSlug}' not found in config.globals`)
+            continue
+          }
+
+          const global = config.globals[globalIndex]
+
+          // Initialize hooks if needed
+          if (!global.hooks) {
+            global.hooks = {}
+          }
+
+          // Determine which hooks to register based on config
+          const hooksToRegister = triggerConfig === true
+            ? {
+                afterChange: true,
+                afterRead: true,
+              }
+            : triggerConfig
+
+          // Register each configured hook
+          Object.entries(hooksToRegister).forEach(([hookName, enabled]) => {
+            if (!enabled) {
+              return
+            }
+
+            const hookKey = hookName as keyof typeof global.hooks
+
+            // Initialize the hook array if needed
+            if (!global.hooks![hookKey]) {
+              global.hooks![hookKey] = []
+            }
+
+            // Create the automation hook for this specific global and hook type
+            const automationHook = createGlobalTriggerHook(globalSlug, hookKey)
+
+            // Mark it for debugging
+            Object.defineProperty(automationHook, '__isAutomationHook', {
+              value: true,
+              enumerable: false
+            })
+            Object.defineProperty(automationHook, '__hookType', {
+              value: hookKey,
+              enumerable: false
+            })
+
+            // Add the hook to the global
+            ;(global.hooks![hookKey] as Array<unknown>).push(automationHook)
+
+            logger.debug(`Registered ${hookKey} hook for global '${globalSlug}'`)
+          })
+        }
+      }
+
       if (!config.jobs) {
         config.jobs = {tasks: []}
       }
@@ -124,8 +184,6 @@ export const workflowsPlugin =
         }
       }
 
-      // Initialize webhook endpoint
-      initWebhookEndpoint(config, pluginOptions.webhookPrefix || 'webhook')
 
       // Set up onInit to initialize features
       const incomingOnInit = config.onInit
@@ -139,19 +197,8 @@ export const workflowsPlugin =
         const logger = initializeLogger(payload)
         logger.info('Logger initialized with payload instance')
 
-        // Log collection trigger configuration
-        logger.info(`Plugin configuration: ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers, ${pluginOptions.steps?.length || 0} steps`)
-
-        logger.info('Initializing global hooks...')
-        // Create executor for global hooks
-        const executor = new WorkflowExecutor(payload, logger)
-        initGlobalHooks(payload, logger, executor)
-
-        logger.info('Initializing workflow hooks...')
-        initWorkflowHooks(payload, logger)
-
-        logger.info('Initializing step tasks...')
-        initStepTasks(pluginOptions, payload, logger)
+        // Log trigger configuration
+        logger.info(`Plugin configuration: ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers, ${Object.keys(pluginOptions.globalTriggers || {}).length} global triggers, ${pluginOptions.steps?.length || 0} steps`)
 
         logger.info('Plugin initialized successfully - all hooks registered')
       }

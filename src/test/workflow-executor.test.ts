@@ -72,7 +72,7 @@ describe('WorkflowExecutor', () => {
   describe('resolveStepInput', () => {
     it('should resolve all JSONPath expressions in step config', () => {
       const config = {
-        url: '$.trigger.webhook.url',
+        url: '$.trigger.data.url',
         message: 'Static message',
         data: {
           id: '$.trigger.doc.id',
@@ -83,7 +83,7 @@ describe('WorkflowExecutor', () => {
       const context = {
         trigger: {
           doc: { id: 'doc-123', title: 'Doc Title' },
-          webhook: { url: 'https://example.com/webhook' }
+          data: { url: 'https://example.com/webhook' }
         },
         steps: {}
       }

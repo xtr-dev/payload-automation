@@ -10,10 +10,10 @@ interface ErrorDisplayProps {
   path?: string
 }
 
-export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ 
-  value, 
-  onChange, 
-  readOnly = false 
+export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
+  value,
+  onChange,
+  readOnly = false
 }) => {
   const [expanded, setExpanded] = useState(false)
 
@@ -32,7 +32,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         technical: error
       }
     }
-    
+
     if (error.includes('Network error') || error.includes('fetch')) {
       return {
         type: 'network',
@@ -41,7 +41,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         technical: error
       }
     }
-    
+
     if (error.includes('Hook execution failed')) {
       return {
         type: 'hook',
@@ -50,7 +50,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         technical: error
       }
     }
-    
+
     if (error.includes('Executor not available')) {
       return {
         type: 'executor',
@@ -59,7 +59,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         technical: error
       }
     }
-    
+
     if (error.includes('Collection slug is required') || error.includes('Document data is required')) {
       return {
         type: 'validation',
@@ -68,7 +68,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         technical: error
       }
     }
-    
+
     if (error.includes('status') && error.includes('4')) {
       return {
         type: 'client',
@@ -77,7 +77,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         technical: error
       }
     }
-    
+
     if (error.includes('status') && error.includes('5')) {
       return {
         type: 'server',
@@ -127,7 +127,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
   const errorColor = getErrorColor(errorInfo.type)
 
   return (
-    <div style={{ 
+    <div style={{
       border: `2px solid ${errorColor}30`,
       borderRadius: '8px',
       backgroundColor: `${errorColor}08`,
@@ -135,9 +135,9 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
       marginTop: '8px'
     }}>
       {/* Error Header */}
-      <div style={{ 
-        display: 'flex', 
-        alignItems: 'center', 
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
         gap: '12px',
         marginBottom: '12px'
       }}>
@@ -145,15 +145,15 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
           {getErrorIcon(errorInfo.type)}
         </span>
         <div>
-          <h4 style={{ 
-            margin: 0, 
+          <h4 style={{
+            margin: 0,
             color: errorColor,
             fontSize: '16px',
             fontWeight: '600'
           }}>
             {errorInfo.title}
           </h4>
-          <p style={{ 
+          <p style={{
             margin: '4px 0 0 0',
             color: '#6B7280',
             fontSize: '14px',
@@ -168,14 +168,14 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
       <div>
         <div style={{ marginBottom: expanded ? '12px' : '0' }}>
           <Button
+            buttonStyle="secondary"
             onClick={() => setExpanded(!expanded)}
             size="small"
-            buttonStyle="secondary"
           >
             {expanded ? 'Hide' : 'Show'} Technical Details
           </Button>
         </div>
-        
+
         {expanded && (
           <div style={{
             backgroundColor: '#F8F9FA',
@@ -194,7 +194,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
       </div>
 
       {/* Quick Actions */}
-      <div style={{ 
+      <div style={{
         marginTop: '12px',
         padding: '12px',
         backgroundColor: `${errorColor}10`,
@@ -253,9 +253,9 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
       {/* Hidden textarea for editing if needed */}
       {!readOnly && onChange && (
         <textarea
-          value={value}
           onChange={(e) => onChange(e.target.value)}
           style={{ display: 'none' }}
+          value={value}
         />
       )}
     </div>

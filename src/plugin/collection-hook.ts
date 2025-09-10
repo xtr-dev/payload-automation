@@ -1,7 +1,7 @@
 import {WorkflowExecutor} from "../core/workflow-executor.js"
 
 export const createCollectionTriggerHook = (collectionSlug: string, hookType: string) => {
-  return async (args: HookArgs) => {
+  return async (args: any) => {
     const req = 'req' in args ? args.req :
       'args' in args ? args.args.req :
         undefined

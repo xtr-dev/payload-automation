@@ -3,11 +3,11 @@ import type {CollectionConfig} from 'payload'
 import type {WorkflowsPluginConfig} from "../plugin/config-types.js"
 
 import {parameter} from "../fields/parameter.js"
-import {collectionHookTrigger} from "../triggers/index.js"
+import {collectionTrigger, globalTrigger} from "../triggers/index.js"
 
 export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = (options) => {
   const steps = options.steps || []
-  const triggers = (options.triggers || []).map(t => t(options)).concat(collectionHookTrigger(options))
+  const triggers = (options.triggers || []).map(t => t(options)).concat(collectionTrigger(options), globalTrigger(options))
   return {
     slug: 'workflows',
     access: {

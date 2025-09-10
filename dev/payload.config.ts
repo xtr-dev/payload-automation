@@ -24,13 +24,24 @@ if (!process.env.ROOT_DIR) {
 const buildConfigWithMemoryDB = async () => {
   // Use MongoDB adapter for testing instead of SQLite
   const { mongooseAdapter } = await import('@payloadcms/db-mongodb')
-  
+
   return buildConfig({
     admin: {
       importMap: {
         baseDir: path.resolve(dirname, '..'),
       },
     },
+    globals: [
+      {
+        slug: 'settings',
+        fields: [
+          {
+            name: 'siteName',
+            type: 'text'
+          }
+        ]
+      }
+    ],
     collections: [
       {
         slug: 'posts',
@@ -96,14 +107,13 @@ const buildConfigWithMemoryDB = async () => {
           posts: true,
           media: true
         },
+        globalTriggers: {
+          settings: true
+        },
         steps: [
           HttpRequestStepTask,
           CreateDocumentStepTask
         ],
-        triggers: [
-
-        ],
-        webhookPrefix: '/workflows-webhook'
       }),
     ],
     secret: process.env.PAYLOAD_SECRET || 'test-secret_key',
