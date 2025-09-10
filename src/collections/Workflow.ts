@@ -1,180 +1,178 @@
 import type {CollectionConfig, Field} from 'payload'
 
 import type {WorkflowsPluginConfig} from "../plugin/config-types.js"
+
 import {
-  getCollectionTriggerFields,
-  getCronTriggerFields,
-  getGlobalTriggerFields,
-  getWebhookTriggerFields
+  collectionTrigger,
+  cronTrigger,
+  globalTrigger,
+  webhookTrigger
 } from '../triggers/index.js'
+import {trigger} from '../triggers/helpers.js'
 
-export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = ({
-                                                                                                        collectionTriggers,
-                                                                                                        steps,
-                                                                                                        triggers
-                                                                                                      }) => ({
-  slug: 'workflows',
-  access: {
+export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = (options) => {
+  const {steps, collectionTriggers} = options
+  const triggers = (options.triggers || []).map(t => t(options))
+  return {
+    slug: 'workflows',
+      access: {
     create: () => true,
-    delete: () => true,
-    read: () => true,
-    update: () => true,
+      delete: () => true,
+      read: () => true,
+      update: () => true,
   },
-  admin: {
-    defaultColumns: ['name', 'updatedAt'],
-    description: 'Create and manage automated workflows.',
-    group: 'Automation',
-    useAsTitle: 'name',
-  },
-  fields: [
-    {
-      name: 'name',
-      type: 'text',
-      admin: {
-        description: 'Human-readable name for the workflow',
+    admin: {
+      defaultColumns: ['name', 'updatedAt'],
+        description: 'Create and manage automated workflows.',
+        group: 'Automation',
+        useAsTitle: 'name',
+    },
+    fields: [
+      {
+        name: 'name',
+        type: 'text',
+        admin: {
+          description: 'Human-readable name for the workflow',
+        },
+        required: true,
       },
-      required: true,
-    },
-    {
-      name: 'description',
-      type: 'textarea',
-      admin: {
-        description: 'Optional description of what this workflow does',
+      {
+        name: 'description',
+        type: 'textarea',
+        admin: {
+          description: 'Optional description of what this workflow does',
+        },
       },
-    },
-    {
-      name: 'executionStatus',
-      type: 'ui',
-      admin: {
-        components: {
-          Field: '@xtr-dev/payload-automation/client#WorkflowExecutionStatus'
-        },
-        condition: (data) => !!data?.id // Only show for existing workflows
-      }
-    },
-    {
-      name: 'triggers',
-      type: 'array',
-      fields: [
-        {
-          name: 'type',
-          type: 'select',
-          options: [
-            'collection-trigger',
-            'webhook-trigger',
-            'global-trigger',
-            'cron-trigger',
-            ...(triggers || []).map(t => t.slug)
-          ]
-        },
-        {
-          name: 'parameters',
-          type: 'json',
-          admin: {
-            hidden: true,
+      {
+        name: 'executionStatus',
+        type: 'ui',
+        admin: {
+          components: {
+            Field: '@xtr-dev/payload-automation/client#WorkflowExecutionStatus'
           },
-          defaultValue: {}
-        },
-        // Virtual fields for built-in triggers
-        ...getCollectionTriggerFields(collectionTriggers),
-        ...getWebhookTriggerFields(),
-        ...getGlobalTriggerFields(),
-        ...getCronTriggerFields(),
-        {
-          name: 'condition',
-          type: 'text',
-          admin: {
-            description: 'JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.trigger.doc.status == \'published\'")'
+          condition: (data) => !!data?.id // Only show for existing workflows
+        }
+      },
+      {
+        name: 'triggers',
+        type: 'array',
+        fields: [
+          {
+            name: 'type',
+            type: 'select',
+            options: [
+              ...(triggers || []).map(t => t.slug)
+            ]
           },
-          required: false
-        },
-        // Virtual fields for custom triggers
-        // Note: Custom trigger fields from trigger-helpers already have unique names
-        // We just need to pass them through without modification
-        ...(triggers || []).flatMap(t => (t.inputs || []))
-      ]
-    },
-    {
-      name: 'steps',
-      type: 'array',
-      fields: [
-        {
-          type: 'row',
-          fields: [
-            {
-              name: 'step',
-              type: 'select',
-              options: steps.map(t => t.slug)
-            },
-            {
-              name: 'name',
-              type: 'text',
-            }
-          ]
-        },
-        ...(steps || []).flatMap(step => (step.inputSchema || []).map(field => {
-          const originalName = (field as any).name;
-          const resultField: any = {
-            ...field,
-            // Prefix field name with step slug to avoid conflicts
-            name: `__step_${step.slug}_${originalName}`,
+          {
+            name: 'parameters',
+            type: 'json',
             admin: {
-              ...(field.admin || {}),
-              condition: (...args: any[]) => args[1]?.step === step.slug && (
-                (field.admin as any)?.condition ?
-                  (field.admin as any).condition.call(this, ...args) :
-                  true
-              ),
+              hidden: true,
             },
-            virtual: true,
-          };
-
-          // Add hooks to store/retrieve from the step's input data
-          resultField.hooks = {
-            ...((field as any).hooks || {}),
-            afterRead: [
-              ...(((field as any).hooks)?.afterRead || []),
-              ({ siblingData }: any) => {
-                // Read from step input data using original field name
-                return siblingData?.[originalName] || (field as any).defaultValue;
-              }
-            ],
-            beforeChange: [
-              ...(((field as any).hooks)?.beforeChange || []),
-              ({ siblingData, value }: any) => {
-                // Store in step data using original field name
-                siblingData[originalName] = value;
-                return undefined; // Don't store the prefixed field
+            defaultValue: {}
+          },
+          // Virtual fields for built-in triggers
+          ...trigger({slug: 'collection', fields: collectionTrigger(options).fields}).fields,
+          ...trigger({slug: 'webhook', fields: webhookTrigger().fields}).fields,
+          ...trigger({slug: 'global', fields: globalTrigger().fields}).fields,
+          ...trigger({slug: 'cron', fields: cronTrigger().fields}).fields,
+          {
+            name: 'condition',
+            type: 'text',
+            admin: {
+              description: 'JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.trigger.doc.status == \'published\'")'
+            },
+            required: false
+          },
+          // Virtual fields for custom triggers
+          // Note: Custom trigger fields from trigger-helpers already have unique names
+          // We just need to pass them through without modification
+          ...(triggers || []).flatMap(t => (t.fields || []))
+        ]
+      },
+      {
+        name: 'steps',
+        type: 'array',
+        fields: [
+          {
+            type: 'row',
+            fields: [
+              {
+                name: 'step',
+                type: 'select',
+                options: steps.map(t => t.slug)
+              },
+              {
+                name: 'name',
+                type: 'text',
               }
             ]
-          };
+          },
+          ...(steps || []).flatMap(step => (step.inputSchema || []).map(field => {
+            const originalName = (field as any).name;
+            const resultField: any = {
+              ...field,
+              // Prefix field name with step slug to avoid conflicts
+              name: `__step_${step.slug}_${originalName}`,
+              admin: {
+                ...(field.admin || {}),
+                condition: (...args: any[]) => args[1]?.step === step.slug && (
+                  (field.admin as any)?.condition ?
+                    (field.admin as any).condition.call(this, ...args) :
+                    true
+                ),
+              },
+              virtual: true,
+            };
 
-          return resultField as Field;
-        })),
-        {
-          name: 'dependencies',
-          type: 'text',
-          admin: {
-            description: 'Step names that must complete before this step can run'
+            // Add hooks to store/retrieve from the step's input data
+            resultField.hooks = {
+              ...((field as any).hooks || {}),
+              afterRead: [
+                ...(((field as any).hooks)?.afterRead || []),
+                ({ siblingData }: any) => {
+                  // Read from step input data using original field name
+                  return siblingData?.[originalName] || (field as any).defaultValue;
+                }
+              ],
+              beforeChange: [
+                ...(((field as any).hooks)?.beforeChange || []),
+                ({ siblingData, value }: any) => {
+                  // Store in step data using original field name
+                  siblingData[originalName] = value;
+                  return undefined; // Don't store the prefixed field
+                }
+              ]
+            };
+
+            return resultField as Field;
+          })),
+          {
+            name: 'dependencies',
+            type: 'text',
+            admin: {
+              description: 'Step names that must complete before this step can run'
+            },
+            hasMany: true,
+            required: false
           },
-          hasMany: true,
-          required: false
-        },
-        {
-          name: 'condition',
-          type: 'text',
-          admin: {
-            description: 'JSONPath expression that must evaluate to true for this step to execute (e.g., "$.trigger.doc.status == \'published\'")'
+          {
+            name: 'condition',
+            type: 'text',
+            admin: {
+              description: 'JSONPath expression that must evaluate to true for this step to execute (e.g., "$.trigger.doc.status == \'published\'")'
+            },
+            required: false
           },
-          required: false
-        },
-      ],
-    }
-  ],
-  versions: {
+        ],
+      }
+    ],
+      versions: {
     drafts: {
       autosave: false,
     },
     maxPerDoc: 10,
   },
-})
+  }
+}

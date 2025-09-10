@@ -1,19 +1,14 @@
-import type {Field} from 'payload'
+import type {TriggerConfig} from '../plugin/config-types.js'
 
-import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
-
-import {triggerField} from "./helpers.js"
-
-export function getCollectionTriggerFields<T extends string>(
-  collectionTriggers: WorkflowsPluginConfig<T>['collectionTriggers']
-): Field[] {
-  return [
-    triggerField({
+export const collectionTrigger: TriggerConfig = ({collectionTriggers}) => ({
+  slug: 'collection',
+  fields: [
+    {
       name: 'collectionSlug',
       type: 'select',
       options: Object.keys(collectionTriggers || {}),
-    }),
-    triggerField({
+    },
+    {
       name: 'operation',
       type: 'select',
       options: [
@@ -22,6 +17,6 @@ export function getCollectionTriggerFields<T extends string>(
         'read',
         'update',
       ],
-    })
+    }
   ]
-}
+})

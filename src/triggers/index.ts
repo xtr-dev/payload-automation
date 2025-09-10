@@ -1,4 +1,4 @@
-export { getCollectionTriggerFields } from './collection-trigger.js'
-export { getCronTriggerFields } from './cron-trigger.js'
-export { getGlobalTriggerFields } from './global-trigger.js'
-export { getWebhookTriggerFields } from './webhook-trigger.js'
+export { collectionTrigger } from './collection-trigger.js'
+export { cronTrigger } from './cron-trigger.js'
+export { globalTrigger } from './global-trigger.js'
+export { webhookTrigger } from './webhook-trigger.js'

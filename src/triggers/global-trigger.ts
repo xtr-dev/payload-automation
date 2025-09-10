@@ -1,28 +1,25 @@
-import type {Field} from 'payload'
+import type {TriggerConfig} from '../plugin/config-types.js'
 
-import {triggerField} from "./helpers.js"
-
-export function getGlobalTriggerFields(): Field[] {
-  return [
-    triggerField({
+export const globalTrigger: TriggerConfig = () => ({
+  slug: 'global',
+  fields: [
+    {
       name: 'global',
       type: 'select',
       admin: {
-        condition: (_, siblingData) => siblingData?.type === 'global-trigger',
         description: 'Global that triggers the workflow',
       },
       options: [], // Will be populated dynamically based on available globals
-    }),
-    triggerField({
+    },
+    {
       name: 'globalOperation',
       type: 'select',
       admin: {
-        condition: (_, siblingData) => siblingData?.type === 'global-trigger',
         description: 'Global operation that triggers the workflow',
       },
       options: [
         'update'
       ],
-    })
+    }
   ]
-}
+})

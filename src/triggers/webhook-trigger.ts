@@ -1,22 +1,20 @@
-import type {Field} from 'payload'
+import type {TriggerConfig} from '../plugin/config-types.js'
 
-import {triggerField} from "./helpers.js"
-
-export function getWebhookTriggerFields(): Field[] {
-  return [
-    triggerField({
+export const webhookTrigger: TriggerConfig = () => ({
+  slug: 'webhook',
+  fields: [
+    {
       name: 'webhookPath',
       type: 'text',
       admin: {
-        condition: (_, siblingData) => siblingData?.type === 'webhook-trigger',
         description: 'URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows-webhook/my-webhook',
       },
       validate: (value: any, {siblingData}: any) => {
-        if (siblingData?.type === 'webhook-trigger' && !value && !siblingData?.parameters?.webhookPath) {
+        if (siblingData?.type === 'webhook' && !value && !siblingData?.parameters?.webhookPath) {
           return 'Webhook path is required for webhook triggers'
         }
         return true
       },
-    })
+    }
   ]
-}
+})

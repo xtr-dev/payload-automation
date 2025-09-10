@@ -1,4 +1,6 @@
-import type {Field, TaskConfig} from "payload"
+import type {TaskConfig} from "payload"
+
+import type {Trigger} from "../triggers/types.js"
 
 export type CollectionTriggerConfigCrud = {
   create?: true
@@ -9,10 +11,7 @@ export type CollectionTriggerConfigCrud = {
 
 export type CollectionTriggerConfig = CollectionTriggerConfigCrud | true
 
-export type CustomTriggerConfig = {
-  inputs?: Field[]
-  slug: string,
-}
+export type TriggerConfig = <T extends string>(config: WorkflowsPluginConfig<T>) => Trigger
 
 export type WorkflowsPluginConfig<TSlug extends string> = {
   collectionTriggers: {
@@ -20,6 +19,6 @@ export type WorkflowsPluginConfig<TSlug extends string> = {
   }
   enabled?: boolean
   steps: TaskConfig<string>[],
-  triggers?: CustomTriggerConfig[]
+  triggers?: TriggerConfig[]
   webhookPrefix?: string
 }
