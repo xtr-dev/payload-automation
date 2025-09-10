@@ -3,7 +3,7 @@ import type {Field} from "payload"
 
 export const parameter = (slug: string, field: {name: string} & Field): Field => ({
   ...field,
-  name: 'parameter' + field.name.replace(/^\w/, c => c.toUpperCase()),
+  name: 'parameter' + field.name.replace(/^\w/, c => c.toUpperCase()) + Math.random().toString().replace(/\D/g, ''),
   admin: {
     ...(field.admin as unknown || {}),
     condition: (_, siblingData, __) => {
