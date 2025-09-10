@@ -38,6 +38,45 @@ export const createCollectionTriggerHook = (collectionSlug: string, hookType: st
         }
       }
 
+      // Check if any trigger has a condition and evaluate it
+      let shouldExecute = false
+      for (const trigger of workflow.triggers || []) {
+        if (trigger.type === 'collection-hook' && 
+            trigger.parameters?.collectionSlug === collectionSlug && 
+            trigger.parameters?.hook === hookType) {
+          
+          if (trigger.condition) {
+            // Evaluate the condition
+            try {
+              const conditionMet = executor.evaluateCondition(trigger.condition, context)
+              if (conditionMet) {
+                shouldExecute = true
+                break
+              }
+            } catch (error) {
+              payload.logger.error({
+                workflowId: workflow.id,
+                condition: trigger.condition,
+                error: error instanceof Error ? error.message : 'Unknown error'
+              }, 'Failed to evaluate trigger condition')
+            }
+          } else {
+            // No condition means always execute
+            shouldExecute = true
+            break
+          }
+        }
+      }
+
+      if (!shouldExecute) {
+        payload.logger.debug({
+          workflowId: workflow.id,
+          collection: collectionSlug,
+          hookType
+        }, 'Workflow skipped due to unmet condition')
+        continue
+      }
+
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await executor.execute(workflow as any, context, req)

@@ -56,7 +56,10 @@ The plugin uses separate exports to avoid bundling server-side code in client bu
 import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
 
 // Client-side components  
-import { TriggerWorkflowButton } from '@xtr-dev/payload-automation/client'
+import { StatusCell, ErrorDisplay } from '@xtr-dev/payload-automation/client'
+
+// Helper utilities
+import { /* helpers */ } from '@xtr-dev/payload-automation/helpers'
 
 // Types only (safe for both server and client)
 import type { WorkflowsPluginConfig } from '@xtr-dev/payload-automation'
@@ -215,6 +218,8 @@ export default async function handler(req, res) {
 ```
 
 **Benefits**: Better reliability, proper process isolation, easier debugging, and leverages existing infrastructure.
+
+**Note**: Built-in cron triggers have been removed in v0.0.37+ to focus on webhook-based scheduling which provides better reliability and debugging capabilities.
 
 ## Documentation
 

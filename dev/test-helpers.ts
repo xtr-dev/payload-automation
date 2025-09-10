@@ -159,39 +159,54 @@ export const mockHttpBin = {
  * Test fixtures for common workflow configurations
  */
 export const testFixtures = {
+  // Function to create workflow data that bypasses parameter validation
+  createWorkflow: async (payload: any, workflowData: any) => {
+    // Insert directly into database to bypass parameter field validation
+    const result = await payload.db.create({
+      collection: 'workflows',
+      data: workflowData
+    })
+    return result
+  },
   basicWorkflow: {
     name: 'Test Basic Workflow',
     description: 'Basic workflow for testing',
     triggers: [
       {
-        type: 'collection-trigger' as const,
-        collectionSlug: 'posts',
-        operation: 'create' as const
+        type: 'collection-hook' as const,
+        parameters: {
+          collectionSlug: 'posts',
+          hook: 'afterChange'
+        }
       }
     ]
   },
 
   httpRequestStep: (url: string = 'https://httpbin.org/post', expectedData?: any) => ({
     name: 'http-request',
-    step: 'http-request-step',
-    url,
-    method: 'POST' as const,
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: expectedData || {
-      message: 'Test request',
-      data: '$.trigger.doc'
+    type: 'http-request-step',
+    parameters: {
+      url,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: expectedData || {
+        message: 'Test request',
+        data: '$.trigger.doc'
+      }
     }
   }),
 
   createDocumentStep: (collectionSlug: string = 'auditLog') => ({
     name: 'create-audit',
-    step: 'create-document',
-    collectionSlug,
-    data: {
-      message: 'Test document created',
-      sourceId: '$.trigger.doc.id'
+    type: 'create-document',
+    parameters: {
+      collectionSlug,
+      data: {
+        message: 'Test document created',
+        sourceId: '$.trigger.doc.id'
+      }
     }
   }),
 

@@ -5,6 +5,33 @@ All notable changes to the PayloadCMS Automation Plugin will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.38] - 2025-09-10
+
+### Changed
+- Updated dependencies to PayloadCMS 3.45.0
+- Enhanced plugin configuration and stability
+
+## [0.0.37] - 2025-09-XX
+
+### Removed
+- **Breaking Change**: Removed built-in cron trigger implementation in favor of webhook-based scheduling
+- Removed unused plugin modules and associated tests
+- Removed `initCollectionHooks` and associated migration guides
+
+### Changed
+- Refactored triggers to TriggerConfig pattern
+- Simplified executor architecture by removing executorRegistry pattern
+- Updated to on-demand workflow execution creation
+
+### Added
+- Migration guide for v0.0.37 (MIGRATION-v0.0.37.md)
+- Enhanced parameter field configuration
+
+### Migration Notes
+- Built-in cron triggers are no longer supported. Use webhook triggers with external cron services (GitHub Actions, Vercel Cron, etc.)
+- Update trigger configurations to use the new TriggerConfig pattern
+- See MIGRATION-v0.0.37.md for detailed migration steps
+
 ## [0.0.16] - 2025-09-01
 
 ### Fixed
