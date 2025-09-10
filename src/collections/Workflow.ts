@@ -1,23 +1,26 @@
-import type {CollectionConfig, Field} from 'payload'
+import type {CollectionConfig} from 'payload'
 
 import type {WorkflowsPluginConfig} from "../plugin/config-types.js"
 
+import {parameter} from "../fields/parameter.js"
+import {collectionHookTrigger} from "../triggers/index.js"
+
 export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = (options) => {
-  const {steps} = options
-  const triggers = (options.triggers || []).map(t => t(options))
+  const steps = options.steps || []
+  const triggers = (options.triggers || []).map(t => t(options)).concat(collectionHookTrigger(options))
   return {
     slug: 'workflows',
-      access: {
-    create: () => true,
+    access: {
+      create: () => true,
       delete: () => true,
       read: () => true,
       update: () => true,
-  },
+    },
     admin: {
       defaultColumns: ['name', 'updatedAt'],
-        description: 'Create and manage automated workflows.',
-        group: 'Automation',
-        useAsTitle: 'name',
+      description: 'Create and manage automated workflows.',
+      group: 'Automation',
+      useAsTitle: 'name',
     },
     fields: [
       {
@@ -36,16 +39,6 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         },
       },
       {
-        name: 'executionStatus',
-        type: 'ui',
-        admin: {
-          components: {
-            Field: '@xtr-dev/payload-automation/client#WorkflowExecutionStatus'
-          },
-          condition: (data) => !!data?.id // Only show for existing workflows
-        }
-      },
-      {
         name: 'triggers',
         type: 'array',
         fields: [
@@ -53,7 +46,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             name: 'type',
             type: 'select',
             options: [
-              ...(triggers || []).map(t => t.slug)
+              ...triggers.map(t => t.slug)
             ]
           },
           {
@@ -64,6 +57,8 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             },
             defaultValue: {}
           },
+          // Virtual fields for custom triggers
+          ...triggers.flatMap(t => (t.parameters || []).map(p => parameter(t.slug, p as any))),
           {
             name: 'condition',
             type: 'text',
@@ -72,8 +67,6 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             },
             required: false
           },
-          // Virtual fields for custom triggers
-          ...(triggers || []).flatMap(t => (t.fields || []))
         ]
       },
       {
@@ -81,58 +74,25 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         type: 'array',
         fields: [
           {
-            type: 'row',
-            fields: [
-              {
-                name: 'step',
-                type: 'select',
-                options: steps.map(t => t.slug)
-              },
-              {
-                name: 'name',
-                type: 'text',
-              }
-            ]
+            name: 'name',
+            type: 'text',
+            defaultValue: 'Unnamed Step'
           },
-          ...(steps || []).flatMap(step => (step.inputSchema || []).map(field => {
-            const originalName = (field as any).name;
-            const resultField: any = {
-              ...field,
-              // Prefix field name with step slug to avoid conflicts
-              name: `__step_${step.slug}_${originalName}`,
-              admin: {
-                ...(field.admin || {}),
-                condition: (...args: any[]) => args[1]?.step === step.slug && (
-                  (field.admin as any)?.condition ?
-                    (field.admin as any).condition.call(this, ...args) :
-                    true
-                ),
-              },
-              virtual: true,
-            };
-
-            // Add hooks to store/retrieve from the step's input data
-            resultField.hooks = {
-              ...((field as any).hooks || {}),
-              afterRead: [
-                ...(((field as any).hooks)?.afterRead || []),
-                ({ siblingData }: any) => {
-                  // Read from step input data using original field name
-                  return siblingData?.[originalName] || (field as any).defaultValue;
-                }
-              ],
-              beforeChange: [
-                ...(((field as any).hooks)?.beforeChange || []),
-                ({ siblingData, value }: any) => {
-                  // Store in step data using original field name
-                  siblingData[originalName] = value;
-                  return undefined; // Don't store the prefixed field
-                }
-              ]
-            };
-
-            return resultField as Field;
-          })),
+          {
+            name: 'type',
+            type: 'select',
+            options: steps.map(t => t.slug)
+          },
+          {
+            name: 'parameters',
+            type: 'json',
+            admin: {
+              hidden: true,
+            },
+            defaultValue: {}
+          },
+          // Virtual fields for custom triggers
+          ...steps.flatMap(step => (step.inputSchema || []).map(s => parameter(step.slug, s as any))),
           {
             name: 'dependencies',
             type: 'text',
@@ -153,11 +113,11 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         ],
       }
     ],
-      versions: {
-    drafts: {
-      autosave: false,
+    versions: {
+      drafts: {
+        autosave: false,
+      },
+      maxPerDoc: 10,
     },
-    maxPerDoc: 10,
-  },
   }
 }

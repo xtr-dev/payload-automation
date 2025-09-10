@@ -1,9 +1,4 @@
-import type {
-  CollectionAfterChangeHook,
-  Config,
-  PayloadRequest,
-  TypeWithID
-} from 'payload'
+import type {CollectionConfig, Config} from 'payload'
 
 import type {WorkflowsPluginConfig} from "./config-types.js"
 
@@ -15,97 +10,9 @@ import {initStepTasks} from "./init-step-tasks.js"
 import {initWebhookEndpoint} from "./init-webhook.js"
 import {initWorkflowHooks} from './init-workflow-hooks.js'
 import {getConfigLogger, initializeLogger} from './logger.js'
+import {createCollectionTriggerHook} from "./collection-hook.js"
 
 export {getLogger} from './logger.js'
-
-/**
- * Helper function to create failed workflow runs for tracking errors
- */
-const createFailedWorkflowRun = async (
-  collectionSlug: string,
-  operation: string,
-  doc: TypeWithID,
-  previousDoc: TypeWithID,
-  req: PayloadRequest,
-  errorMessage: string
-): Promise<void> => {
-  try {
-    const logger = req?.payload?.logger || console
-
-    // Only create failed workflow runs if we have a payload instance
-    if (!req?.payload || !collectionSlug) {
-      return
-    }
-
-    // Find workflows that should have been triggered
-    const workflows = await req.payload.find({
-      collection: 'workflows',
-      limit: 10,
-      req,
-      where: {
-        'triggers.parameters.collectionSlug': {
-          equals: collectionSlug
-        },
-        'triggers.parameters.operation': {
-          equals: operation
-        },
-        'triggers.type': {
-          equals: 'collection'
-        }
-      }
-    })
-
-    // Create failed workflow runs for each matching workflow
-    for (const workflow of workflows.docs) {
-      await req.payload.create({
-        collection: 'workflow-runs',
-        data: {
-          completedAt: new Date().toISOString(),
-          context: {
-            steps: {},
-            trigger: {
-              type: 'collection',
-              collection: collectionSlug,
-              doc,
-              operation,
-              previousDoc,
-              triggeredAt: new Date().toISOString()
-            }
-          },
-          error: `Hook execution failed: ${errorMessage}`,
-          inputs: {},
-          logs: [{
-            level: 'error',
-            message: `Hook execution failed: ${errorMessage}`,
-            timestamp: new Date().toISOString()
-          }],
-          outputs: {},
-          startedAt: new Date().toISOString(),
-          status: 'failed',
-          steps: [],
-          triggeredBy: req?.user?.email || 'system',
-          workflow: workflow.id,
-          workflowVersion: 1
-        },
-        req
-      })
-    }
-
-    if (workflows.docs.length > 0) {
-      logger.info({
-        errorMessage,
-        workflowCount: workflows.docs.length
-      }, 'Created failed workflow runs for hook execution error')
-    }
-
-  } catch (error) {
-    // Don't let workflow run creation failures break the original operation
-    const logger = req?.payload?.logger || console
-    logger.warn({
-      error: error instanceof Error ? error.message : 'Unknown error'
-    }, 'Failed to create failed workflow run record')
-  }
-}
 
 const applyCollectionsConfig = <T extends string>(pluginOptions: WorkflowsPluginConfig<T>, config: Config) => {
   // Add workflow collections
@@ -119,70 +26,16 @@ const applyCollectionsConfig = <T extends string>(pluginOptions: WorkflowsPlugin
   )
 }
 
-/**
- * Create a collection hook that executes workflows
- */
-const createAutomationHook = <T extends TypeWithID>(): CollectionAfterChangeHook<T> => {
-  return async function payloadAutomationHook(args) {
-    const logger = args.req?.payload?.logger || console
+type AnyHook =
+  CollectionConfig['hooks'] extends infer H
+    ? H extends Record<string, unknown>
+      ? NonNullable<H[keyof H]> extends (infer U)[]
+        ? U
+        : never
+      : never
+    : never;
 
-    try {
-      logger.info({
-        collection: args.collection?.slug,
-        docId: args.doc?.id,
-        hookType: 'automation',
-        operation: args.operation
-      }, 'Collection automation hook triggered')
-
-      // Create executor on-demand
-      const executor = new WorkflowExecutor(args.req.payload, logger)
-
-      logger.debug('Executing triggered workflows...')
-      await executor.executeTriggeredWorkflows(
-        args.collection.slug,
-        args.operation,
-        args.doc,
-        args.previousDoc,
-        args.req
-      )
-
-      logger.info({
-        collection: args.collection?.slug,
-        docId: args.doc?.id,
-        operation: args.operation
-      }, 'Workflow execution completed successfully')
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-
-      logger.error({
-        collection: args.collection?.slug,
-        docId: args.doc?.id,
-        error: errorMessage,
-        errorStack: error instanceof Error ? error.stack : undefined,
-        operation: args.operation
-      }, 'Hook execution failed')
-
-      // Create a failed workflow run to track this error
-      try {
-        await createFailedWorkflowRun(
-          args.collection.slug,
-          args.operation,
-          args.doc,
-          args.previousDoc,
-          args.req,
-          errorMessage
-        )
-      } catch (createError) {
-        logger.error({
-          error: createError instanceof Error ? createError.message : 'Unknown error'
-        }, 'Failed to create workflow run for hook error')
-      }
-
-      // Don't throw to prevent breaking the original operation
-    }
-  }
-}
+type HookArgs = Parameters<AnyHook>[0]
 
 export const workflowsPlugin =
   <TSlug extends string>(pluginOptions: WorkflowsPluginConfig<TSlug>) =>
@@ -199,13 +52,15 @@ export const workflowsPlugin =
       const logger = getConfigLogger()
 
       if (config.collections && pluginOptions.collectionTriggers) {
-        for (const [triggerSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
-          if (!triggerConfig) {continue}
+        for (const [collectionSlug, triggerConfig] of Object.entries(pluginOptions.collectionTriggers)) {
+          if (!triggerConfig) {
+            continue
+          }
 
           // Find the collection config that matches
-          const collectionIndex = config.collections.findIndex(c => c.slug === triggerSlug)
+          const collectionIndex = config.collections.findIndex(c => c.slug === collectionSlug)
           if (collectionIndex === -1) {
-            logger.warn(`Collection '${triggerSlug}' not found in config.collections`)
+            logger.warn(`Collection '${collectionSlug}' not found in config.collections`)
             continue
           }
 
@@ -215,19 +70,47 @@ export const workflowsPlugin =
           if (!collection.hooks) {
             collection.hooks = {}
           }
-          if (!collection.hooks.afterChange) {
-            collection.hooks.afterChange = []
-          }
 
-          // Add the hook to the collection config
-          const automationHook = createAutomationHook()
-          // Mark it for debugging
-          Object.defineProperty(automationHook, '__isAutomationHook', {
-            value: true,
-            enumerable: false
+          // Determine which hooks to register based on config
+          const hooksToRegister = triggerConfig === true
+            ? {
+                afterChange: true,
+                afterDelete: true,
+                afterRead: true,
+              }
+            : triggerConfig
+
+          // Register each configured hook
+          Object.entries(hooksToRegister).forEach(([hookName, enabled]) => {
+            if (!enabled) {
+              return
+            }
+
+            const hookKey = hookName as keyof typeof collection.hooks
+
+            // Initialize the hook array if needed
+            if (!collection.hooks![hookKey]) {
+              collection.hooks![hookKey] = []
+            }
+
+            // Create the automation hook for this specific collection and hook type
+            const automationHook = createCollectionTriggerHook(collectionSlug, hookKey)
+
+            // Mark it for debugging
+            Object.defineProperty(automationHook, '__isAutomationHook', {
+              value: true,
+              enumerable: false
+            })
+            Object.defineProperty(automationHook, '__hookType', {
+              value: hookKey,
+              enumerable: false
+            })
+
+            // Add the hook to the collection
+            ;(collection.hooks![hookKey] as Array<unknown>).push(automationHook)
+
+            logger.debug(`Registered ${hookKey} hook for collection '${collectionSlug}'`)
           })
-
-          collection.hooks.afterChange.push(automationHook)
         }
       }
 

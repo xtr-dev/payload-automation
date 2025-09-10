@@ -31,6 +31,7 @@ export default [
       'perfectionist/sort-object-types': 'off',
       'perfectionist/sort-objects': 'off',
       'perfectionist/sort-exports': 'off',
+      'perfectionist/sort-imports': 'off'
     },
   },
   {

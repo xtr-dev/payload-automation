@@ -2,7 +2,7 @@ import type {TriggerConfig} from '../plugin/config-types.js'
 
 export const globalTrigger: TriggerConfig = () => ({
   slug: 'global',
-  fields: [
+  parameters: [
     {
       name: 'global',
       type: 'select',

@@ -48,20 +48,7 @@ export const WorkflowExecutionStatus: React.FC<WorkflowExecutionStatusProps> = (
   }
 
   if (runs.length === 0) {
-    return (
-      <div style={{ 
-        padding: '16px',
-        backgroundColor: '#F9FAFB',
-        border: '1px solid #E5E7EB',
-        borderRadius: '8px',
-        color: '#6B7280',
-        textAlign: 'center'
-      }}>
-        📋 No execution history yet
-        <br />
-        <small>This workflow hasn't been triggered yet.</small>
-      </div>
-    )
+    return null
   }
 
   const getStatusIcon = (status: string) => {

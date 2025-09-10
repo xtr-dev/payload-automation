@@ -2,7 +2,7 @@ import type {TriggerConfig} from '../plugin/config-types.js'
 
 export const webhookTrigger: TriggerConfig = () => ({
   slug: 'webhook',
-  fields: [
+  parameters: [
     {
       name: 'webhookPath',
       type: 'text',
