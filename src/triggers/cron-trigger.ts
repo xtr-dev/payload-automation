@@ -1,28 +1,16 @@
-import type { Field } from 'payload'
+import type {Field} from 'payload'
+
+import {triggerField} from "./helpers.js"
 
 export function getCronTriggerFields(): Field[] {
   return [
-    {
-      name: '__builtin_cronExpression',
+    triggerField({
+      name: 'cronExpression',
       type: 'text',
       admin: {
         condition: (_, siblingData) => siblingData?.type === 'cron-trigger',
         description: 'Cron expression for scheduled execution (e.g., "0 0 * * *" for daily at midnight)',
         placeholder: '0 0 * * *'
-      },
-      hooks: {
-        afterRead: [
-          ({ siblingData }) => {
-            return siblingData?.parameters?.cronExpression || undefined
-          }
-        ],
-        beforeChange: [
-          ({ siblingData, value }) => {
-            if (!siblingData.parameters) {siblingData.parameters = {}}
-            siblingData.parameters.cronExpression = value
-            return undefined // Virtual field, don't store directly
-          }
-        ]
       },
       validate: (value: any, {siblingData}: any) => {
         const cronValue = value || siblingData?.parameters?.cronExpression
@@ -44,10 +32,9 @@ export function getCronTriggerFields(): Field[] {
 
         return true
       },
-      virtual: true,
-    },
-    {
-      name: '__builtin_timezone',
+    }),
+    triggerField({
+      name: 'timezone',
       type: 'text',
       admin: {
         condition: (_, siblingData) => siblingData?.type === 'cron-trigger',
@@ -55,20 +42,6 @@ export function getCronTriggerFields(): Field[] {
         placeholder: 'UTC'
       },
       defaultValue: 'UTC',
-      hooks: {
-        afterRead: [
-          ({ siblingData }) => {
-            return siblingData?.parameters?.timezone || 'UTC'
-          }
-        ],
-        beforeChange: [
-          ({ siblingData, value }) => {
-            if (!siblingData.parameters) {siblingData.parameters = {}}
-            siblingData.parameters.timezone = value || 'UTC'
-            return undefined // Virtual field, don't store directly
-          }
-        ]
-      },
       validate: (value: any, {siblingData}: any) => {
         const tzValue = value || siblingData?.parameters?.timezone
         if (siblingData?.type === 'cron-trigger' && tzValue) {
@@ -82,7 +55,6 @@ export function getCronTriggerFields(): Field[] {
         }
         return true
       },
-      virtual: true,
-    }
+    })
   ]
 }
