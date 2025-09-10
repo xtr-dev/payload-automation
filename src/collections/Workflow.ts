@@ -2,16 +2,8 @@ import type {CollectionConfig, Field} from 'payload'
 
 import type {WorkflowsPluginConfig} from "../plugin/config-types.js"
 
-import {
-  collectionTrigger,
-  cronTrigger,
-  globalTrigger,
-  webhookTrigger
-} from '../triggers/index.js'
-import {trigger} from '../triggers/helpers.js'
-
 export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = (options) => {
-  const {steps, collectionTriggers} = options
+  const {steps} = options
   const triggers = (options.triggers || []).map(t => t(options))
   return {
     slug: 'workflows',
@@ -72,11 +64,6 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             },
             defaultValue: {}
           },
-          // Virtual fields for built-in triggers
-          ...trigger({slug: 'collection', fields: collectionTrigger(options).fields}).fields,
-          ...trigger({slug: 'webhook', fields: webhookTrigger().fields}).fields,
-          ...trigger({slug: 'global', fields: globalTrigger().fields}).fields,
-          ...trigger({slug: 'cron', fields: cronTrigger().fields}).fields,
           {
             name: 'condition',
             type: 'text',
@@ -86,8 +73,6 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             required: false
           },
           // Virtual fields for custom triggers
-          // Note: Custom trigger fields from trigger-helpers already have unique names
-          // We just need to pass them through without modification
           ...(triggers || []).flatMap(t => (t.fields || []))
         ]
       },

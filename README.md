@@ -9,6 +9,7 @@ A comprehensive workflow automation plugin for PayloadCMS 3.x that enables visua
 - 🔄 **Visual Workflow Builder** - Create complex workflows with drag-and-drop interface
 - ⚡ **Parallel Execution** - Smart dependency resolution for optimal performance
 - 🎯 **Multiple Triggers** - Collection hooks, webhooks, manual execution
+- ⏰ **Scheduled Workflows** - Use webhook triggers with external cron services
 - 📊 **Execution Tracking** - Complete history and monitoring of workflow runs
 - 🔧 **Extensible Steps** - HTTP requests, document CRUD, email notifications
 - 🔍 **JSONPath Integration** - Dynamic data interpolation and transformation
@@ -182,6 +183,38 @@ For debugging, use `debug` or `info`:
 ```bash
 PAYLOAD_AUTOMATION_LOG_LEVEL=debug npm run dev
 ```
+
+## Scheduled Workflows
+
+For scheduled workflows, use **webhook triggers** with external cron services instead of built-in cron triggers:
+
+### GitHub Actions (Free)
+```yaml
+# .github/workflows/daily-report.yml
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 9 AM UTC
+jobs:
+  trigger-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -X POST https://your-app.com/api/workflows-webhook/daily-report
+```
+
+### Vercel Cron (Serverless)
+```js
+// api/cron/daily.js
+export default async function handler(req, res) {
+  await fetch('https://your-app.com/api/workflows-webhook/daily-report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'vercel-cron' })
+  });
+  res.status(200).json({ success: true });
+}
+```
+
+**Benefits**: Better reliability, proper process isolation, easier debugging, and leverages existing infrastructure.
 
 ## Documentation
 

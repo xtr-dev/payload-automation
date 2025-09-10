@@ -13,8 +13,6 @@ export type PayloadWorkflow = {
       collectionSlug?: string | null
       operation?: string | null
       webhookPath?: string | null
-      cronExpression?: string | null
-      timezone?: string | null
       global?: string | null
       globalOperation?: string | null
       [key: string]: unknown

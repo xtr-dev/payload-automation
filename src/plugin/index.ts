@@ -5,8 +5,6 @@ import type {CollectionTriggerConfigCrud, WorkflowsPluginConfig} from "./config-
 import {createWorkflowCollection} from '../collections/Workflow.js'
 import {WorkflowRunsCollection} from '../collections/WorkflowRuns.js'
 import {WorkflowExecutor} from '../core/workflow-executor.js'
-import {generateCronTasks, registerCronJobs} from './cron-scheduler.js'
-import {initCollectionHooks} from "./init-collection-hooks.js"
 import {initGlobalHooks} from "./init-global-hooks.js"
 import {initStepTasks} from "./init-step-tasks.js"
 import {initWebhookEndpoint} from "./init-webhook.js"
@@ -185,7 +183,7 @@ export const workflowsPlugin =
 
                 if (!registry.isInitialized) {
                   logger.warn('Workflow executor not yet initialized, attempting lazy initialization')
-                  
+
                   try {
                     // Try to create executor if we have a payload instance
                     if (args.req?.payload) {
@@ -271,10 +269,7 @@ export const workflowsPlugin =
         config.jobs = {tasks: []}
       }
 
-      const configLogger = getConfigLogger()
 
-      // Generate cron tasks for workflows with cron triggers
-      generateCronTasks(config)
 
       for (const step of pluginOptions.steps) {
         if (!config.jobs?.tasks?.find(task => task.slug === step.slug)) {
@@ -320,9 +315,6 @@ export const workflowsPlugin =
         logger.info('Initializing step tasks...')
         initStepTasks(pluginOptions, payload, logger)
 
-        // Register cron jobs for workflows with cron triggers
-        logger.info('Registering cron jobs...')
-        await registerCronJobs(payload, logger)
 
         logger.info('Plugin initialized successfully - all hooks registered')
       }

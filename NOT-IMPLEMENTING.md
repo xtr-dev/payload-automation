@@ -48,7 +48,8 @@ This document lists workflow steps and triggers that are intentionally **not** b
 - **Performance Alerts** - Requires monitoring infrastructure
 - **Error Events** - Better handled by dedicated error tracking
 
-### Advanced Time-Based
+### Time-Based
+- **Cron Triggers** - Complex timezone handling, process management, and reliability concerns. Use webhook triggers with external cron services instead (GitHub Actions, Vercel Cron, AWS EventBridge, etc.)
 - **Recurring Patterns** (e.g., "every 2nd Tuesday") - Complex parsing and timezone handling
 - **Date Range Triggers** - Can be achieved with conditional logic in workflows
 
@@ -66,3 +67,35 @@ This document lists workflow steps and triggers that are intentionally **not** b
 - Use HTTP Request step for most external integrations  
 - Create custom triggers through Payload hooks
 - Build specialized workflow packages on top of this plugin
+
+### Cron Alternative: Webhook + External Service
+
+Instead of built-in cron triggers, use webhook triggers with external cron services:
+
+**GitHub Actions** (Free):
+```yaml
+# .github/workflows/daily-report.yml
+on:
+  schedule:
+    - cron: '0 9 * * *'  # Daily at 9 AM UTC
+jobs:
+  trigger-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -X POST https://your-app.com/api/workflows-webhook/daily-report
+```
+
+**Vercel Cron** (Serverless):
+```js
+// api/cron/daily.js
+export default async function handler(req, res) {
+  await fetch('https://your-app.com/api/workflows-webhook/daily-report', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source: 'vercel-cron' })
+  });
+  res.status(200).json({ success: true });
+}
+```
+
+**Benefits**: Better reliability, proper process isolation, easier debugging, and leverages existing infrastructure.
