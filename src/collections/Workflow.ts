@@ -1,6 +1,12 @@
 import type {CollectionConfig, Field} from 'payload'
 
 import type {WorkflowsPluginConfig} from "../plugin/config-types.js"
+import {
+  getCollectionTriggerFields,
+  getCronTriggerFields,
+  getGlobalTriggerFields,
+  getWebhookTriggerFields
+} from '../triggers/index.js'
 
 export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = ({
                                                                                                         collectionTriggers,
@@ -69,224 +75,11 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
           },
           defaultValue: {}
         },
-        // Virtual fields for collection trigger
-        {
-          name: '__builtin_collectionSlug',
-          type: 'select',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'collection-trigger',
-            description: 'Collection that triggers the workflow',
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.collectionSlug || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.collectionSlug = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          options: Object.keys(collectionTriggers || {}),
-          virtual: true,
-        },
-        {
-          name: '__builtin_operation',
-          type: 'select',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'collection-trigger',
-            description: 'Collection operation that triggers the workflow',
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.operation || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.operation = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          options: [
-            'create',
-            'delete',
-            'read',
-            'update',
-          ],
-          virtual: true,
-        },
-        // Virtual fields for webhook trigger
-        {
-          name: '__builtin_webhookPath',
-          type: 'text',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'webhook-trigger',
-            description: 'URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows-webhook/my-webhook',
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.webhookPath || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.webhookPath = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          validate: (value: any, {siblingData}: any) => {
-            if (siblingData?.type === 'webhook-trigger' && !value && !siblingData?.parameters?.webhookPath) {
-              return 'Webhook path is required for webhook triggers'
-            }
-            return true
-          },
-          virtual: true,
-        },
-        // Virtual fields for global trigger
-        {
-          name: '__builtin_global',
-          type: 'select',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'global-trigger',
-            description: 'Global that triggers the workflow',
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.global || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.global = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          options: [], // Will be populated dynamically based on available globals
-          virtual: true,
-        },
-        {
-          name: '__builtin_globalOperation',
-          type: 'select',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'global-trigger',
-            description: 'Global operation that triggers the workflow',
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.globalOperation || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.globalOperation = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          options: [
-            'update'
-          ],
-          virtual: true,
-        },
-        // Virtual fields for cron trigger
-        {
-          name: '__builtin_cronExpression',
-          type: 'text',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'cron-trigger',
-            description: 'Cron expression for scheduled execution (e.g., "0 0 * * *" for daily at midnight)',
-            placeholder: '0 0 * * *'
-          },
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.cronExpression || undefined
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.cronExpression = value
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          validate: (value: any, {siblingData}: any) => {
-            const cronValue = value || siblingData?.parameters?.cronExpression
-            if (siblingData?.type === 'cron-trigger' && !cronValue) {
-              return 'Cron expression is required for cron triggers'
-            }
-
-            // Validate cron expression format if provided
-            if (siblingData?.type === 'cron-trigger' && cronValue) {
-              // Basic format validation - should be 5 parts separated by spaces
-              const cronParts = cronValue.trim().split(/\s+/)
-              if (cronParts.length !== 5) {
-                return 'Invalid cron expression format. Expected 5 parts: "minute hour day month weekday" (e.g., "0 9 * * 1")'
-              }
-
-              // Additional validation could use node-cron but we avoid dynamic imports here
-              // The main validation happens at runtime in the cron scheduler
-            }
-
-            return true
-          },
-          virtual: true,
-        },
-        {
-          name: '__builtin_timezone',
-          type: 'text',
-          admin: {
-            condition: (_, siblingData) => siblingData?.type === 'cron-trigger',
-            description: 'Timezone for cron execution (e.g., "America/New_York", "Europe/London"). Defaults to UTC.',
-            placeholder: 'UTC'
-          },
-          defaultValue: 'UTC',
-          hooks: {
-            afterRead: [
-              ({ siblingData }) => {
-                return siblingData?.parameters?.timezone || 'UTC'
-              }
-            ],
-            beforeChange: [
-              ({ siblingData, value }) => {
-                if (!siblingData.parameters) {siblingData.parameters = {}}
-                siblingData.parameters.timezone = value || 'UTC'
-                return undefined // Virtual field, don't store directly
-              }
-            ]
-          },
-          validate: (value: any, {siblingData}: any) => {
-            const tzValue = value || siblingData?.parameters?.timezone
-            if (siblingData?.type === 'cron-trigger' && tzValue) {
-              try {
-                // Test if timezone is valid by trying to create a date with it
-                new Intl.DateTimeFormat('en', {timeZone: tzValue})
-                return true
-              } catch {
-                return `Invalid timezone: ${tzValue}. Please use a valid IANA timezone identifier (e.g., "America/New_York", "Europe/London")`
-              }
-            }
-            return true
-          },
-          virtual: true,
-        },
+        // Virtual fields for built-in triggers
+        ...getCollectionTriggerFields(collectionTriggers),
+        ...getWebhookTriggerFields(),
+        ...getGlobalTriggerFields(),
+        ...getCronTriggerFields(),
         {
           name: 'condition',
           type: 'text',
