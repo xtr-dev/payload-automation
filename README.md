@@ -12,7 +12,7 @@ A comprehensive workflow automation plugin for PayloadCMS 3.x that enables visua
 - ⏰ **Scheduled Workflows** - Use webhook triggers with external cron services
 - 📊 **Execution Tracking** - Complete history and monitoring of workflow runs
 - 🔧 **Extensible Steps** - HTTP requests, document CRUD, email notifications
-- 🔍 **JSONPath Integration** - Dynamic data interpolation and transformation
+- 🔧 **Handlebars Templates** - Dynamic data interpolation with automatic type conversion
 
 ## Installation
 
@@ -74,7 +74,7 @@ Make external API calls with comprehensive error handling and retry logic.
 - Support for GET, POST, PUT, DELETE, PATCH methods
 - Authentication: Bearer token, Basic auth, API key headers
 - Configurable timeouts and retry logic
-- JSONPath integration for dynamic URLs and request bodies
+- Handlebars templates for dynamic URLs and request bodies
 
 **Error Handling:**
 HTTP Request steps use a **response-based success model** rather than status-code-based failures:
@@ -95,7 +95,7 @@ HTTP Request steps use a **response-based success model** rather than status-cod
 }
 
 // Use in workflow conditions:
-// "$.steps.apiRequest.output.status >= 400" to handle errors
+// "{{steps.apiRequest.output.status}} >= 400" to handle errors
 ```
 
 This design allows workflows to handle HTTP errors gracefully rather than failing completely, enabling robust error handling and retry logic.
@@ -132,8 +132,8 @@ For network failures (timeouts, DNS errors, connection failures), the plugin pro
 }
 
 // Access in workflow conditions:
-// "$.steps.httpStep.errorDetails.errorType == 'timeout'"
-// "$.steps.httpStep.errorDetails.duration > 5000"
+// "{{steps.httpStep.errorDetails.errorType}} == 'timeout'"
+// "{{steps.httpStep.errorDetails.duration}} > 5000"
 ```
 
 ### Document Operations
@@ -147,11 +147,39 @@ For network failures (timeouts, DNS errors, connection failures), the plugin pro
 
 ## Data Resolution
 
-Use JSONPath to access workflow data:
+Use Handlebars templates to access workflow data:
 
-- `$.trigger.doc.id` - Access trigger document
-- `$.steps.stepName.output` - Use previous step outputs
-- `$.context` - Access workflow context
+- `{{trigger.doc.id}}` - Access trigger document
+- `{{steps.stepName.output}}` - Use previous step outputs
+- `{{context}}` - Access workflow context
+
+### Template Examples
+
+```json
+{
+  "url": "https://api.example.com/posts/{{steps.createPost.output.id}}",
+  "message": "Post {{trigger.doc.title}} was updated by {{trigger.req.user.email}}",
+  "timeout": "{{steps.configStep.output.timeoutMs}}"
+}
+```
+
+### Automatic Type Conversion
+
+Handlebars templates automatically convert string results to appropriate types based on field names:
+
+- **Numbers**: `timeout`, `retries`, `delay`, `port`, `count`, etc. → converted to numbers
+- **Booleans**: `enabled`, `active`, `success`, `complete`, etc. → converted to booleans  
+- **Numeric strings**: `"5000"` → `5000`, `"3.14"` → `3.14`
+
+### Conditions
+
+Conditions support Handlebars templates with comparison operators:
+
+```json
+{
+  "condition": "{{trigger.doc.status}} == 'published'"
+}
+```
 
 ## Requirements
 

@@ -5,6 +5,31 @@ All notable changes to the PayloadCMS Automation Plugin will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.0.39] - 2025-09-11
+
+### Changed
+- **Breaking Change**: Replaced JSONPath with Handlebars template system for better string interpolation
+- Automatic type conversion for numeric and boolean fields based on field names
+- Enhanced condition evaluation with Handlebars template support
+- Simplified data resolution syntax: `{{steps.stepName.output.field}}` instead of `$.steps.stepName.output.field`
+
+### Removed
+- **Breaking Change**: Removed JSONPath dependency (`jsonpath-plus`) and all backward compatibility
+- Removed `resolveJSONPathValue` and `parseConditionValue` methods
+
+### Added
+- Handlebars template engine for dynamic data interpolation
+- Smart type conversion: strings to numbers/booleans based on field patterns
+- Enhanced template examples and documentation
+- Support for complex string building: `"Post {{trigger.doc.title}} was updated"`
+
+### Migration Notes
+- Update all workflow configurations to use Handlebars syntax:
+  - `$.steps.stepName.output.id` → `{{steps.stepName.output.id}}`
+  - `$.trigger.doc.status == 'published'` → `{{trigger.doc.status}} == 'published'`
+- String interpolation now works naturally: `"Message: {{steps.step1.output.result}}"`
+- Numeric fields (`timeout`, `retries`, etc.) are automatically converted from strings to numbers
+
 ## [0.0.38] - 2025-09-10
 
 ### Changed
