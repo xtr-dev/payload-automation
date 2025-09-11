@@ -84,15 +84,13 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
             options: steps.map(t => t.slug)
           },
           {
-            name: 'parameters',
+            name: 'input',
             type: 'json',
             admin: {
-              hidden: true,
+              description: 'Step input configuration. Use JSONPath expressions to reference dynamic data (e.g., {"url": "$.trigger.doc.webhookUrl", "data": "$.steps.previousStep.output.result"})'
             },
             defaultValue: {}
           },
-          // Virtual fields for custom triggers
-          ...steps.flatMap(step => (step.inputSchema || []).map(s => parameter(step.slug, s as any))),
           {
             name: 'dependencies',
             type: 'text',

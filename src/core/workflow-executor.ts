@@ -19,7 +19,7 @@ export type PayloadWorkflow = {
     [key: string]: unknown
   }> | null
   steps?: Array<{
-    step?: null | string
+    type?: null | string
     name?: null | string
     input?: unknown
     dependencies?: null | string[]
@@ -29,7 +29,7 @@ export type PayloadWorkflow = {
   [key: string]: unknown
 }
 
-import { JSONPath } from 'jsonpath-plus'
+import Handlebars from 'handlebars'
 
 // Helper type to extract workflow step data from the generated types
 export type WorkflowStep = {
@@ -51,6 +51,63 @@ export class WorkflowExecutor {
     private payload: Payload,
     private logger: Payload['logger']
   ) {}
+
+  /**
+   * Convert string values to appropriate types based on common patterns
+   */
+  private convertValueType(value: unknown, key: string): unknown {
+    if (typeof value !== 'string') {
+      return value
+    }
+
+    // Type conversion patterns based on field names and values
+    const numericFields = ['timeout', 'retries', 'delay', 'port', 'limit', 'offset', 'count', 'max', 'min']
+    const booleanFields = ['enabled', 'required', 'active', 'success', 'failed', 'complete']
+
+    // Convert numeric fields
+    if (numericFields.some(field => key.toLowerCase().includes(field))) {
+      const numValue = Number(value)
+      if (!isNaN(numValue)) {
+        this.logger.debug({
+          key,
+          originalValue: value,
+          convertedValue: numValue
+        }, 'Auto-converted field to number')
+        return numValue
+      }
+    }
+
+    // Convert boolean fields
+    if (booleanFields.some(field => key.toLowerCase().includes(field))) {
+      if (value === 'true') return true
+      if (value === 'false') return false
+    }
+
+    // Try to parse as number if it looks numeric
+    if (/^\d+$/.test(value)) {
+      const numValue = parseInt(value, 10)
+      this.logger.debug({
+        key,
+        originalValue: value,
+        convertedValue: numValue
+      }, 'Auto-converted numeric string to number')
+      return numValue
+    }
+
+    // Try to parse as float if it looks like a decimal
+    if (/^\d+\.\d+$/.test(value)) {
+      const floatValue = parseFloat(value)
+      this.logger.debug({
+        key,
+        originalValue: value,
+        convertedValue: floatValue
+      }, 'Auto-converted decimal string to number')
+      return floatValue
+    }
+
+    // Return as string if no conversion applies
+    return value
+  }
 
   /**
    * Classifies error types based on error messages
@@ -165,31 +222,11 @@ export class WorkflowExecutor {
     const taskSlug = step.type as string
 
     try {
-      // Extract input data from step - PayloadCMS flattens inputSchema fields to step level
-      const inputFields: Record<string, unknown> = {}
+      // Get input configuration from the step
+      const inputConfig = (step.input as Record<string, unknown>) || {}
 
-      // Get all fields except the core step fields
-      const coreFields = ['step', 'name', 'dependencies', 'condition', 'type', 'id', 'parameters']
-      for (const [key, value] of Object.entries(step)) {
-        if (!coreFields.includes(key)) {
-          // Handle flattened parameters (remove 'parameter' prefix)
-          if (key.startsWith('parameter')) {
-            const cleanKey = key.replace('parameter', '')
-            const properKey = cleanKey.charAt(0).toLowerCase() + cleanKey.slice(1)
-            inputFields[properKey] = value
-          } else {
-            inputFields[key] = value
-          }
-        }
-      }
-
-      // Also extract from nested parameters object if it exists
-      if (step.parameters && typeof step.parameters === 'object') {
-        Object.assign(inputFields, step.parameters)
-      }
-
-      // Resolve input data using JSONPath
-      const resolvedInput = this.resolveStepInput(inputFields, context)
+      // Resolve input data using Handlebars templates
+      const resolvedInput = this.resolveStepInput(inputConfig, context, taskSlug)
       context.steps[stepName].input = resolvedInput
 
       if (!taskSlug) {
@@ -447,32 +484,6 @@ export class WorkflowExecutor {
     }
   }
 
-  /**
-   * Parse a condition value (string literal, number, boolean, or JSONPath)
-   */
-  private parseConditionValue(expr: string, context: ExecutionContext): any {
-    // Handle string literals
-    if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
-      return expr.slice(1, -1) // Remove quotes
-    }
-
-    // Handle boolean literals
-    if (expr === 'true') {return true}
-    if (expr === 'false') {return false}
-
-    // Handle number literals
-    if (/^-?\d+(?:\.\d+)?$/.test(expr)) {
-      return Number(expr)
-    }
-
-    // Handle JSONPath expressions
-    if (expr.startsWith('$')) {
-      return this.resolveJSONPathValue(expr, context)
-    }
-
-    // Return as string if nothing else matches
-    return expr
-  }
 
   /**
    * Resolve step execution order based on dependencies
@@ -531,68 +542,56 @@ export class WorkflowExecutor {
     return executionBatches
   }
 
-  /**
-   * Resolve a JSONPath value from the context
-   */
-  private resolveJSONPathValue(expr: string, context: ExecutionContext): any {
-    if (expr.startsWith('$')) {
-      const result = JSONPath({
-        json: context,
-        path: expr,
-        wrap: false
-      })
-      // Return first result if array, otherwise the result itself
-      return Array.isArray(result) && result.length > 0 ? result[0] : result
-    }
-    return expr
-  }
 
   /**
-   * Resolve step input using JSONPath expressions
+   * Resolve step input using Handlebars templates with automatic type conversion
    */
-  private resolveStepInput(config: Record<string, unknown>, context: ExecutionContext): Record<string, unknown> {
+  private resolveStepInput(config: Record<string, unknown>, context: ExecutionContext, stepType?: string): Record<string, unknown> {
     const resolved: Record<string, unknown> = {}
 
     this.logger.debug({
       configKeys: Object.keys(config),
       contextSteps: Object.keys(context.steps),
-      triggerType: context.trigger?.type
-    }, 'Starting step input resolution')
+      triggerType: context.trigger?.type,
+      stepType
+    }, 'Starting step input resolution with Handlebars')
 
     for (const [key, value] of Object.entries(config)) {
-      if (typeof value === 'string' && value.startsWith('$')) {
-        // This is a JSONPath expression
-        this.logger.debug({
-          key,
-          jsonPath: value,
-          availableSteps: Object.keys(context.steps),
-          hasTriggerData: !!context.trigger?.data,
-          hasTriggerDoc: !!context.trigger?.doc
-        }, 'Resolving JSONPath expression')
-
-        try {
-          const result = JSONPath({
-            json: context,
-            path: value,
-            wrap: false
-          })
-
+      if (typeof value === 'string') {
+        // Check if the string contains Handlebars templates
+        if (value.includes('{{') && value.includes('}}')) {
           this.logger.debug({
             key,
-            jsonPath: value,
-            result: JSON.stringify(result).substring(0, 200),
-            resultType: Array.isArray(result) ? 'array' : typeof result
-          }, 'JSONPath resolved successfully')
+            template: value,
+            availableSteps: Object.keys(context.steps),
+            hasTriggerData: !!context.trigger?.data,
+            hasTriggerDoc: !!context.trigger?.doc
+          }, 'Processing Handlebars template')
 
-          resolved[key] = result
-        } catch (error) {
-          this.logger.warn({
-            error: error instanceof Error ? error.message : 'Unknown error',
-            key,
-            path: value,
-            contextSnapshot: JSON.stringify(context).substring(0, 500)
-          }, 'Failed to resolve JSONPath')
-          resolved[key] = value // Keep original value if resolution fails
+          try {
+            const template = Handlebars.compile(value)
+            const result = template(context)
+
+            this.logger.debug({
+              key,
+              template: value,
+              result: JSON.stringify(result).substring(0, 200),
+              resultType: typeof result
+            }, 'Handlebars template resolved successfully')
+
+            resolved[key] = this.convertValueType(result, key)
+          } catch (error) {
+            this.logger.warn({
+              error: error instanceof Error ? error.message : 'Unknown error',
+              key,
+              template: value,
+              contextSnapshot: JSON.stringify(context).substring(0, 500)
+            }, 'Failed to resolve Handlebars template')
+            resolved[key] = value // Keep original value if resolution fails
+          }
+        } else {
+          // Regular string, apply type conversion
+          resolved[key] = this.convertValueType(value, key)
         }
       } else if (typeof value === 'object' && value !== null) {
         // Recursively resolve nested objects
@@ -601,7 +600,7 @@ export class WorkflowExecutor {
           nestedKeys: Object.keys(value as Record<string, unknown>)
         }, 'Recursively resolving nested object')
 
-        resolved[key] = this.resolveStepInput(value as Record<string, unknown>, context)
+        resolved[key] = this.resolveStepInput(value as Record<string, unknown>, context, stepType)
       } else {
         // Keep literal values as-is
         resolved[key] = value
@@ -690,7 +689,7 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Evaluate a condition using JSONPath and comparison operators
+   * Evaluate a condition using Handlebars templates and comparison operators
    */
   public evaluateCondition(condition: string, context: ExecutionContext): boolean {
     this.logger.debug({
@@ -708,11 +707,11 @@ export class WorkflowExecutor {
       if (comparisonMatch) {
         const [, leftExpr, operator, rightExpr] = comparisonMatch
 
-        // Evaluate left side (should be JSONPath)
-        const leftValue = this.resolveJSONPathValue(leftExpr.trim(), context)
+        // Evaluate left side (could be Handlebars template or JSONPath)
+        const leftValue = this.resolveConditionValue(leftExpr.trim(), context)
 
-        // Parse right side (could be string, number, boolean, or JSONPath)
-        const rightValue = this.parseConditionValue(rightExpr.trim(), context)
+        // Evaluate right side (could be Handlebars template, JSONPath, or literal)
+        const rightValue = this.resolveConditionValue(rightExpr.trim(), context)
 
         this.logger.debug({
           condition,
@@ -760,19 +759,15 @@ export class WorkflowExecutor {
 
         return result
       } else {
-        // Treat as simple JSONPath boolean evaluation
-        const result = JSONPath({
-          json: context,
-          path: condition,
-          wrap: false
-        })
+        // Treat as template or JSONPath boolean evaluation
+        const result = this.resolveConditionValue(condition, context)
 
         this.logger.debug({
           condition,
           result,
           resultType: Array.isArray(result) ? 'array' : typeof result,
           resultLength: Array.isArray(result) ? result.length : undefined
-        }, 'JSONPath boolean evaluation result')
+        }, 'Boolean evaluation result')
 
         // Handle different result types
         let finalResult: boolean
@@ -800,6 +795,43 @@ export class WorkflowExecutor {
       // If condition evaluation fails, assume false
       return false
     }
+  }
+
+  /**
+   * Resolve a condition value using Handlebars templates or JSONPath
+   */
+  private resolveConditionValue(expr: string, context: ExecutionContext): any {
+    // Handle string literals
+    if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+      return expr.slice(1, -1) // Remove quotes
+    }
+
+    // Handle boolean literals
+    if (expr === 'true') {return true}
+    if (expr === 'false') {return false}
+
+    // Handle number literals
+    if (/^-?\d+(?:\.\d+)?$/.test(expr)) {
+      return Number(expr)
+    }
+
+    // Handle Handlebars templates
+    if (expr.includes('{{') && expr.includes('}}')) {
+      try {
+        const template = Handlebars.compile(expr)
+        return template(context)
+      } catch (error) {
+        this.logger.warn({
+          error: error instanceof Error ? error.message : 'Unknown error',
+          expr
+        }, 'Failed to resolve Handlebars condition')
+        return false
+      }
+    }
+
+
+    // Return as string if nothing else matches
+    return expr
   }
 
   /**
