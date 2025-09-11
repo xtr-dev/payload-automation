@@ -15,9 +15,9 @@ A local copy of the PayloadCMS documentation is available at `./payload-docs/` f
 ### Essential Commands
 - `pnpm dev` - Start development server with Next.js (runs on http://localhost:3000, fallback ports used if occupied)
 - `pnpm build` - Build the plugin for production (runs copyfiles, build:types, build:swc)
-- `pnpm test` - Run all tests (integration + e2e)
-- `pnpm test:int` - Run integration tests with Vitest
-- `pnpm test:e2e` - Run end-to-end tests with Playwright
+- `pnpm test` - Run tests (currently configured for integration and e2e)
+- `pnpm test:int` - Run integration tests
+- `pnpm test:e2e` - Run end-to-end tests
 - `pnpm lint` - Run ESLint
 - `pnpm lint:fix` - Auto-fix ESLint issues
 
@@ -111,13 +111,7 @@ Steps support a `dependencies` field (array of step names) that:
 
 ### Database Configuration
 - **Development**: SQLite adapter for simplicity
-- **Testing**: MongoDB Memory Server for isolation
 - Database selection in `dev/payload.config.ts`
-
-### Testing Strategy
-- **Integration Tests** (`dev/int.spec.ts`): Vitest with 30-second timeouts
-- **E2E Tests** (`dev/e2e.spec.ts`): Playwright testing against development server
-- **Test Database**: MongoDB Memory Server for isolated testing
 
 ### Plugin Development Pattern
 - Uses spread syntax to extend existing PayloadCMS config
@@ -169,7 +163,6 @@ The plugin registers hooks for collections and globals specified in the plugin c
 
 ### Key Development Dependencies
 - Next.js 15.4.4 for development server
-- Vitest + Playwright for testing
 - SWC for fast transpilation
 - Various PayloadCMS adapters (SQLite, MongoDB, PostgreSQL)
 
@@ -179,4 +172,3 @@ The plugin registers hooks for collections and globals specified in the plugin c
 - `src/core/workflow-executor.ts` - Core execution engine with dependency resolution
 - `src/collections/Workflow.ts` - Workflow collection schema and configuration
 - `dev/payload.config.ts` - Development configuration showing plugin integration
-- `dev/int.spec.ts` and `dev/e2e.spec.ts` - Testing patterns and setup
