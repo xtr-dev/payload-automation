@@ -2,7 +2,7 @@
 
 A workflow automation plugin for PayloadCMS 3.x. Run steps in workflows triggered by document changes or webhooks.
 
-⚠️ **Not ready for production**. This package is v0.0.x and may break between versions.
+⚠️ **Pre-release Warning**: This package is currently in active development (v0.0.x). Breaking changes may occur before v1.0.0. Not recommended for production use.
 
 ## Features
 
