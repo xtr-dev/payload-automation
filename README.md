@@ -4,14 +4,14 @@ A workflow automation plugin for PayloadCMS 3.x. Run steps in workflows triggere
 
 ⚠️ **Not ready for production**. This package is v0.0.x and may break between versions.
 
-## What it does
+## Features
 
-- Visual workflow builder in PayloadCMS admin
-- Run workflows when documents are created/updated/deleted
-- Trigger workflows via webhooks
-- Track workflow execution history
-- HTTP requests, document operations, email sending
-- Use data from previous steps in templates
+- 🔄 Visual workflow builder in PayloadCMS admin
+- ⚡ Run workflows when documents are created/updated/deleted
+- 🎯 Trigger workflows via webhooks
+- 📊 Track workflow execution history
+- 🔧 HTTP requests, document operations, email sending
+- 🔗 Use data from previous steps in templates
 
 ## Installation
 
