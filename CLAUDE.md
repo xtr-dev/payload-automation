@@ -48,64 +48,182 @@ This follows the standard PayloadCMS plugin architecture:
 
 ### Core Concepts
 
-1. **Workflows**: Visual workflow definitions with steps and triggers
-2. **Workflow Runs**: Execution instances of workflows with tracking
-3. **Triggers**: Various ways to initiate workflows:
-   - Collection hooks (create, update, delete, read)
-   - Global hooks (global document updates)
-   - Webhook triggers (external HTTP requests)
-   - Manual execution
-4. **Steps**: Individual workflow actions with dependency management:
-   - HTTP requests
-   - Document CRUD operations (create, read, update, delete)
-   - Email notifications
-   - Conditional logic and data transformation
-5. **Parallel Execution**: Steps can run in parallel when dependencies allow
-6. **JSONPath Integration**: Dynamic data interpolation using JSONPath Plus
+1. **Triggers** (separate collection `automation-triggers`):
+   - Reusable trigger definitions shared across workflows
+   - Types: collection-hook, global-hook, scheduled, webhook, manual
+   - Support conditions with JSONata expressions
+   - Usage tracking for dependency management
+
+2. **Steps** (separate collection `automation-steps`):
+   - Reusable step templates that can be used across workflows
+   - Step configuration with visual properties (color, icon)
+   - Built-in retry configuration
+   - Usage tracking for dependency management
+
+3. **Workflows** (`workflows` collection):
+   - References triggers and steps via relationships
+   - Steps array with workflow-specific overrides (inputOverrides)
+   - Error handling configuration (stop, continue, retry)
+   - Version tracking with drafts
+
+4. **Workflow Runs** (`workflow-runs` collection):
+   - Tracks which trigger fired
+   - Structured step results (not raw JSON)
+   - Execution logs with timestamps and levels
+   - Duration tracking
+
+### Step Types
+Available step types (registered via plugin config):
+- `http-request-step`: External API calls
+- `create-document`: Create PayloadCMS documents
+- `read-document`: Query PayloadCMS documents
+- `update-document`: Modify PayloadCMS documents
+- `delete-document`: Remove PayloadCMS documents
+- `send-email`: Email notifications via PayloadCMS email system
+
+### JSONata Expression System
+
+The plugin uses **JSONata** for safe, sandboxed expression evaluation. JSONata is a lightweight query and transformation language for JSON data, similar to XPath for XML.
+
+**Why JSONata:**
+- Pure JavaScript - works on Vercel, Cloudflare, AWS Lambda, etc.
+- Safe sandboxing - no access to Node.js APIs or filesystem
+- Powerful data transformation capabilities
+- Used by Node-RED and other enterprise tools
+
+#### Condition Examples
+
+```javascript
+// Simple comparisons
+trigger.doc._status = "published"
+trigger.doc.count > 10
+
+// Logical operators
+trigger.doc._status = "published" and trigger.doc.author.role = "editor"
+trigger.doc.priority = "high" or trigger.doc.urgent = true
+
+// Check if value exists
+$exists(trigger.doc.metadata.tags)
+$exists(steps.validate.output.error) = false
+
+// Array operations
+$count(trigger.doc.tags) > 0
+trigger.doc.tags[category = "featured"]
+```
+
+#### Data Transformation Examples
+
+```javascript
+// Object construction
+{
+  "id": trigger.doc.id,
+  "title": $uppercase(trigger.doc.title),
+  "slug": $lowercase($replace(trigger.doc.title, " ", "-"))
+}
+
+// Array filtering and mapping
+trigger.doc.items[price > 100].name
+trigger.doc.tags.({"tag": $, "upper": $uppercase($)})
+
+// Aggregations
+$sum(trigger.doc.items.price)
+$average(trigger.doc.ratings)
+```
+
+#### Available Context Variables
+
+- `trigger.doc` - The document that triggered the workflow
+- `trigger.type` - The trigger type ('collection' or 'global')
+- `trigger.collection` - The collection slug (for collection triggers)
+- `trigger.firedTrigger` - Reference to the trigger that fired
+- `steps.<stepName>.output` - Output from a completed step
+- `steps.<stepName>.state` - State of a step ('succeeded', 'failed', 'pending', 'skipped')
+
+#### Custom Functions
+
+The expression engine provides additional custom functions:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `$now()` | Current ISO timestamp | `$now()` |
+| `$timestamp()` | Current Unix timestamp (ms) | `$timestamp()` |
+| `$uuid()` | Generate UUID v4 | `$uuid()` |
+| `$default(value, default)` | Return default if null | `$default(trigger.doc.title, "Untitled")` |
+| `$json(string)` | Parse JSON string | `$json(trigger.doc.metadata)` |
+| `$stringify(value)` | Convert to JSON string | `$stringify(trigger.doc)` |
+| `$keys(object)` | Get object keys | `$keys(trigger.doc)` |
+| `$values(object)` | Get object values | `$values(trigger.doc)` |
+| `$has(object, key)` | Check if key exists | `$has(trigger.doc, "metadata")` |
+| `$coalesce(a, b, ...)` | First non-null value | `$coalesce(trigger.doc.title, trigger.doc.name, "Unknown")` |
+| `$env(name)` | Get env var (PUBLIC_ prefix only) | `$env("PUBLIC_API_URL")` |
+
+#### JSONata Reference
+
+Full JSONata documentation: https://docs.jsonata.org/
+
+Common built-in functions:
+- String: `$uppercase`, `$lowercase`, `$trim`, `$substring`, `$replace`, `$split`, `$join`
+- Numeric: `$sum`, `$average`, `$min`, `$max`, `$round`, `$abs`
+- Array: `$count`, `$append`, `$sort`, `$reverse`, `$filter`, `$map`
+- Object: `$keys`, `$values`, `$merge`, `$spread`
+- Boolean: `$not`, `$exists`
+
+### Creating Steps
+
+Steps can be created using the `createStep` factory:
+
+```typescript
+import { createStep } from '@xtr-dev/payload-automation/steps'
+
+export const myStep = createStep({
+  slug: 'my-step',
+  label: 'My Custom Step',
+  inputSchema: [{ name: 'url', type: 'text', required: true }],
+  outputSchema: [{ name: 'result', type: 'json' }],
+  validate: (input) => {
+    if (!input.url) throw new Error('URL is required')
+  },
+  execute: async (input, req) => {
+    const response = await fetch(input.url as string)
+    return { result: await response.json() }
+  }
+})
+```
+
+### Collections
+
+| Collection | Slug | Description |
+|------------|------|-------------|
+| Triggers | `automation-triggers` | Reusable trigger definitions |
+| Steps | `automation-steps` | Reusable step templates |
+| Workflows | `workflows` | Workflow definitions with trigger/step relationships |
+| Workflow Runs | `workflow-runs` | Execution history with structured results |
 
 ### Key Architecture Components
 
+#### Expression Engine (`src/core/expression-engine.ts`)
+- JSONata-based expression evaluation
+- Expression caching for performance
+- Custom function registration
+- Timeout protection (5s default)
+
 #### Workflow Execution Engine (`src/core/workflow-executor.ts`)
 - **WorkflowExecutor Class**: Core execution engine with dependency resolution
+- **Step Resolution**: Loads base step config and merges with workflow overrides
 - **Topological Sorting**: Handles step dependencies for parallel execution
 - **Context Management**: Maintains execution state and data flow
-- **Error Handling**: Comprehensive error tracking and logging
 
 #### Plugin Configuration (`src/plugin/`)
 - **index.ts**: Main plugin configuration and lifecycle management
 - **config-types.ts**: TypeScript definitions for plugin options
-- **init-collection-hooks.ts**: Collection hook registration
-- **init-global-hooks.ts**: Global hook registration
-- **init-step-tasks.ts**: Step task registration
+- **trigger-hook.ts**: Unified hook handler for collection and global triggers
 
-#### Collections (`src/collections/`)
-- **Workflow.ts**: Main workflow collection with steps and triggers
-- **WorkflowRuns.ts**: Execution tracking and history
-
-#### Steps Library (`src/steps/`)
-Each step type follows a consistent pattern:
-- `{step-name}.ts`: TaskConfig definition with input/output schemas
-- `{step-name}-handler.ts`: Handler function implementation
-
-Available step types:
-- HTTP Request: External API calls
-- Create Document: Create PayloadCMS documents
-- Read Document: Query PayloadCMS documents
-- Update Document: Modify PayloadCMS documents
-- Delete Document: Remove PayloadCMS documents
-- Send Email: Email notifications via PayloadCMS email system
-
-### JSONPath Data Resolution
-The plugin uses JSONPath Plus for dynamic data interpolation:
-- `$.trigger.doc.id` - Access trigger document data
-- `$.steps.stepName.output` - Access previous step outputs
-- Supports complex queries and transformations
-
-### Dependency Management
-Steps support a `dependencies` field (array of step names) that:
-- Creates execution order through topological sorting
-- Enables parallel execution within dependency batches
-- Prevents circular dependencies
+#### Hook Options (`src/triggers/hook-options.ts`)
+Grouped hook options for better admin UX:
+- Document Lifecycle (afterChange, afterDelete, afterRead)
+- Before Operations (beforeValidate, beforeChange, beforeDelete, beforeRead)
+- Authentication (afterLogin, afterLogout, beforeLogin, etc.)
+- Advanced (beforeOperation, afterOperation, afterError)
 
 ## Development Environment
 
@@ -126,38 +244,18 @@ Steps support a `dependencies` field (array of step names) that:
 - Exports configured for both development and production
 - Peer dependency on PayloadCMS 3.37.0
 
-## Important Implementation Notes
+## Environment Variables
 
-### Endpoint Registration
-Custom endpoints must be registered during plugin configuration, not in onInit hooks. The webhook endpoint pattern:
-```typescript
-config.endpoints.push({
-  path: '/workflows/webhook/:path',
-  method: 'post',
-  handler: async (req) => { /* handler logic */ }
-})
+```bash
+# Log level for the automation plugin
+PAYLOAD_AUTOMATION_LOG_LEVEL=info  # debug | info | warn | error
 ```
-
-### Step Handler Pattern
-All step handlers follow this signature:
-```typescript
-export const stepHandler: TaskHandler<'step-name'> = async ({ input, req }) => {
-  // validation, processing, and execution
-  return {
-    output: { /* results */ },
-    state: 'succeeded' | 'failed'
-  }
-}
-```
-
-### Hook Integration
-The plugin registers hooks for collections and globals specified in the plugin configuration, enabling automatic workflow triggering based on document operations.
 
 ## Dependencies
 
 ### Runtime
 - PayloadCMS 3.37.0 as peer dependency
-- jsonpath-plus for dynamic data resolution
+- JSONata for expression evaluation (serverless-compatible)
 - Node.js ^18.20.2 || >=20.9.0
 - pnpm ^9 || ^10 package manager
 
@@ -165,10 +263,16 @@ The plugin registers hooks for collections and globals specified in the plugin c
 - Next.js 15.4.4 for development server
 - SWC for fast transpilation
 - Various PayloadCMS adapters (SQLite, MongoDB, PostgreSQL)
+- @xyflow/react for visual workflow builder
 
 ## Important Files for Understanding
 
 - `src/plugin/index.ts` - Main plugin configuration and extension logic
-- `src/core/workflow-executor.ts` - Core execution engine with dependency resolution
-- `src/collections/Workflow.ts` - Workflow collection schema and configuration
+- `src/core/expression-engine.ts` - JSONata expression evaluation engine
+- `src/core/workflow-executor.ts` - Core execution engine with step resolution
+- `src/collections/Triggers.ts` - Trigger collection definition
+- `src/collections/Steps.ts` - Step collection definition
+- `src/collections/Workflow.ts` - Workflow collection with relationships
+- `src/collections/WorkflowRuns.ts` - Execution tracking with structured results
+- `src/triggers/hook-options.ts` - Grouped hook options for admin UX
 - `dev/payload.config.ts` - Development configuration showing plugin integration

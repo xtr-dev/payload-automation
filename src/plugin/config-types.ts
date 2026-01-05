@@ -1,21 +1,42 @@
-import type {CollectionConfig, GlobalConfig, TaskConfig} from "payload"
+import type { CollectionConfig, GlobalConfig, TaskConfig } from 'payload'
 
-import type {Trigger} from "../triggers/types.js"
+/**
+ * Plugin configuration for the workflows automation plugin.
+ */
+export type WorkflowsPluginConfig<
+  TCollection extends string = string,
+  TGlobal extends string = string
+> = {
+  /**
+   * Whether the plugin is enabled. Defaults to true.
+   */
+  enabled?: boolean
 
-export type TriggerConfig = (config: WorkflowsPluginConfig) => Trigger
-
-export type WorkflowsPluginConfig<TSlug extends string = string, TGlobal extends string = string> = {
+  /**
+   * Collection triggers configuration.
+   * Keys are collection slugs, values configure which hooks to listen to.
+   * Set to `true` to enable all default hooks (afterChange, afterDelete, afterRead).
+   */
   collectionTriggers?: {
-    [key in TSlug]?: {
+    [key in TCollection]?: {
       [key in keyof CollectionConfig['hooks']]?: true
     } | true
   }
+
+  /**
+   * Global triggers configuration.
+   * Keys are global slugs, values configure which hooks to listen to.
+   * Set to `true` to enable all default hooks (afterChange, afterRead).
+   */
   globalTriggers?: {
     [key in TGlobal]?: {
       [key in keyof GlobalConfig['hooks']]?: true
     } | true
   }
-  enabled?: boolean
+
+  /**
+   * Step task configurations.
+   * These are the step types available for use in workflows.
+   */
   steps: TaskConfig<string>[]
-  triggers?: TriggerConfig[]
 }

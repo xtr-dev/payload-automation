@@ -19,8 +19,8 @@ if (!process.env.ROOT_DIR) {
 }
 
 const buildConfigWithMemoryDB = async () => {
-  // Use MongoDB adapter for testing instead of SQLite
-  const { mongooseAdapter } = await import('@payloadcms/db-mongodb')
+  // Use SQLite adapter for easier local testing
+  const { sqliteAdapter } = await import('@payloadcms/db-sqlite')
 
   return buildConfig({
     admin: {
@@ -77,8 +77,10 @@ const buildConfigWithMemoryDB = async () => {
         ]
       }
     ],
-    db: mongooseAdapter({
-      url: process.env.DATABASE_URI || 'mongodb://localhost:27017/payload-test',
+    db: sqliteAdapter({
+      client: {
+        url: process.env.DATABASE_URI || `file:${path.resolve(dirname, 'data/automation-dev.db')}`,
+      },
     }),
     editor: lexicalEditor(),
     email: testEmailAdapter,

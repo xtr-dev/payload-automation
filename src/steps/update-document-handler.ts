@@ -40,7 +40,7 @@ export const updateDocumentHandler: TaskHandler<'update-document'> = async ({ in
     }
   } catch (error) {
     return {
-      errorName: error instanceof Error ? error.message : 'Failed to update document',
+      errorMessage: error instanceof Error ? error.message : 'Failed to update document',
       state: 'failed'
     }
   }

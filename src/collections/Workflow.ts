@@ -1,13 +1,10 @@
-import type {CollectionConfig} from 'payload'
+import type { CollectionConfig } from 'payload'
 
-import type {WorkflowsPluginConfig} from "../plugin/config-types.js"
-
-import {parameter} from "../fields/parameter.js"
-import {collectionTrigger, globalTrigger} from "../triggers/index.js"
-
-export const createWorkflowCollection: <T extends string>(options: WorkflowsPluginConfig<T>) => CollectionConfig = (options) => {
-  const steps = options.steps || []
-  const triggers = (options.triggers || []).map(t => t(options)).concat(collectionTrigger(options), globalTrigger(options))
+/**
+ * Creates the workflows collection.
+ * Workflows reference triggers and steps via relationships for reusability.
+ */
+export const createWorkflowCollection = (): CollectionConfig => {
   return {
     slug: 'workflows',
     access: {
@@ -17,7 +14,7 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
       update: () => true,
     },
     admin: {
-      defaultColumns: ['name', 'updatedAt'],
+      defaultColumns: ['name', 'enabled', 'updatedAt'],
       description: 'Create and manage automated workflows.',
       group: 'Automation',
       useAsTitle: 'name',
@@ -39,78 +36,207 @@ export const createWorkflowCollection: <T extends string>(options: WorkflowsPlug
         },
       },
       {
-        name: 'triggers',
-        type: 'array',
-        fields: [
-          {
-            name: 'type',
-            type: 'select',
-            options: [
-              ...triggers.map(t => t.slug)
-            ]
-          },
-          {
-            name: 'parameters',
-            type: 'json',
-            admin: {
-              hidden: true,
-            },
-            defaultValue: {}
-          },
-          // Virtual fields for custom triggers
-          ...triggers.flatMap(t => (t.parameters || []).map(p => parameter(t.slug, p as any))),
-          {
-            name: 'condition',
-            type: 'text',
-            admin: {
-              description: 'JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.trigger.doc.status == \'published\'")'
-            },
-            required: false
-          },
-        ]
+        name: 'enabled',
+        type: 'checkbox',
+        admin: {
+          description: 'Enable or disable this workflow',
+          position: 'sidebar',
+        },
+        defaultValue: true,
       },
+      // Triggers - relationship to automation-triggers collection
+      {
+        name: 'triggers',
+        type: 'relationship',
+        admin: {
+          description: 'Triggers that can start this workflow. Uses OR logic - workflow runs if ANY trigger fires.',
+        },
+        hasMany: true,
+        relationTo: 'automation-triggers',
+      },
+      // Steps with workflow-specific configuration
       {
         name: 'steps',
         type: 'array',
+        admin: {
+          description: 'Steps to execute when this workflow runs. Steps execute in order based on dependencies.',
+        },
         fields: [
           {
-            name: 'name',
+            name: 'step',
+            type: 'relationship',
+            admin: {
+              description: 'Select a step from the step library',
+            },
+            relationTo: 'automation-steps',
+            required: true,
+          },
+          {
+            name: 'stepName',
             type: 'text',
-            defaultValue: 'Unnamed Step'
+            admin: {
+              description: 'Override the step name for this workflow instance (optional)',
+            },
           },
           {
-            name: 'type',
-            type: 'select',
-            options: steps.map(t => t.slug)
-          },
-          {
-            name: 'input',
+            name: 'inputOverrides',
             type: 'json',
             admin: {
-              description: 'Step input configuration. Use JSONPath expressions to reference dynamic data (e.g., {"url": "$.trigger.doc.webhookUrl", "data": "$.steps.previousStep.output.result"})'
+              description: 'Override step configuration values for this workflow. Merged with step defaults.',
             },
-            defaultValue: {}
-          },
-          {
-            name: 'dependencies',
-            type: 'text',
-            admin: {
-              description: 'Step names that must complete before this step can run'
-            },
-            hasMany: true,
-            required: false
+            defaultValue: {},
           },
           {
             name: 'condition',
-            type: 'text',
+            type: 'code',
             admin: {
-              description: 'JSONPath expression that must evaluate to true for this step to execute (e.g., "$.trigger.doc.status == \'published\'")'
+              description: 'JSONata expression that must evaluate to true for this step to execute. Leave empty to always run. Example: trigger.operation = "create"',
+              language: 'javascript',
             },
-            required: false
+          },
+          {
+            name: 'dependencies',
+            type: 'array',
+            admin: {
+              description: 'Steps that must complete before this step can run',
+            },
+            fields: [
+              {
+                name: 'stepIndex',
+                type: 'number',
+                admin: {
+                  description: 'Index of the dependent step (0-based)',
+                },
+                required: true,
+              },
+            ],
+          },
+          // Visual builder position
+          {
+            name: 'position',
+            type: 'point',
+            admin: {
+              description: 'Position in the visual workflow builder',
+              hidden: true,
+            },
           },
         ],
-      }
+      },
+      // Global workflow settings
+      {
+        type: 'collapsible',
+        label: 'Error Handling',
+        admin: {
+          initCollapsed: true,
+        },
+        fields: [
+          {
+            name: 'errorHandling',
+            type: 'select',
+            admin: {
+              description: 'How to handle step failures',
+            },
+            defaultValue: 'stop',
+            options: [
+              { label: 'Stop workflow', value: 'stop' },
+              { label: 'Continue to next step', value: 'continue' },
+              { label: 'Retry failed step', value: 'retry' },
+            ],
+          },
+          {
+            name: 'maxRetries',
+            type: 'number',
+            admin: {
+              condition: (_, siblingData) => siblingData?.errorHandling === 'retry',
+              description: 'Maximum number of retry attempts',
+            },
+            defaultValue: 3,
+          },
+          {
+            name: 'retryDelay',
+            type: 'number',
+            admin: {
+              condition: (_, siblingData) => siblingData?.errorHandling === 'retry',
+              description: 'Delay between retries in milliseconds',
+            },
+            defaultValue: 1000,
+          },
+          {
+            name: 'timeout',
+            type: 'number',
+            admin: {
+              description: 'Maximum execution time in milliseconds (0 for no timeout)',
+            },
+            defaultValue: 300000, // 5 minutes
+          },
+        ],
+      },
     ],
+    hooks: {
+      afterChange: [
+        // Update usage counts for triggers and steps
+        async ({ doc, req }) => {
+          const payload = req.payload
+
+          // Update trigger usage counts
+          if (doc.triggers && Array.isArray(doc.triggers)) {
+            for (const triggerId of doc.triggers) {
+              const id = typeof triggerId === 'object' ? triggerId.id : triggerId
+              if (id) {
+                try {
+                  // Count workflows using this trigger
+                  const count = await payload.count({
+                    collection: 'workflows',
+                    where: {
+                      triggers: { contains: id },
+                    },
+                  })
+                  await payload.update({
+                    collection: 'automation-triggers',
+                    id,
+                    data: { usageCount: count.totalDocs },
+                  })
+                } catch {
+                  // Ignore errors - trigger might have been deleted
+                }
+              }
+            }
+          }
+
+          // Update step usage counts
+          if (doc.steps && Array.isArray(doc.steps)) {
+            const stepIds = new Set<string>()
+            for (const workflowStep of doc.steps) {
+              const stepId = typeof workflowStep.step === 'object'
+                ? workflowStep.step.id
+                : workflowStep.step
+              if (stepId) stepIds.add(stepId)
+            }
+
+            for (const stepId of stepIds) {
+              try {
+                // Count workflows using this step
+                const count = await payload.count({
+                  collection: 'workflows',
+                  where: {
+                    'steps.step': { equals: stepId },
+                  },
+                })
+                await payload.update({
+                  collection: 'automation-steps',
+                  id: stepId,
+                  data: { usageCount: count.totalDocs },
+                })
+              } catch {
+                // Ignore errors - step might have been deleted
+              }
+            }
+          }
+
+          return doc
+        },
+      ],
+    },
     versions: {
       drafts: {
         autosave: false,

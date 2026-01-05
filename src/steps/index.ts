@@ -1,3 +1,8 @@
+// Step factory for creating new steps
+export { createStep } from './create-step.js'
+export type { StepDefinition, StepTask } from './create-step.js'
+
+// Built-in steps
 export { CreateDocumentStepTask } from './create-document.js'
 export { createDocumentHandler } from './create-document-handler.js'
 export { DeleteDocumentStepTask } from './delete-document.js'

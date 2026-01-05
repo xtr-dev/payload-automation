@@ -1,2 +1,10 @@
-export { collectionTrigger } from './collection-trigger.js'
-export { globalTrigger } from './global-trigger.js'
+export {
+  collectionHookGroups,
+  collectionHookOptions,
+  globalHookGroups,
+  globalHookOptions,
+  allCollectionHooks,
+  allGlobalHooks
+} from './hook-options.js'
+
+export type { HookOption, HookOptionGroup } from './hook-options.js'

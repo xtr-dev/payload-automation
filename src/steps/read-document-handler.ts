@@ -53,7 +53,7 @@ export const readDocumentHandler: TaskHandler<'read-document'> = async ({ input,
     }
   } catch (error) {
     return {
-      errorName: error instanceof Error ? error.message : 'Failed to read document(s)',
+      errorMessage: error instanceof Error ? error.message : 'Failed to read document(s)',
       state: 'failed'
     }
   }

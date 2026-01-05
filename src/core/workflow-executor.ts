@@ -1,49 +1,79 @@
 import type { Payload, PayloadRequest } from 'payload'
 
-// We need to reference the generated types dynamically since they're not available at build time
-// Using generic types and casting where necessary
+import {
+  evaluateCondition as evalCondition,
+  resolveStepInput as resolveInput,
+  type ExpressionContext
+} from './expression-engine.js'
+
+/**
+ * Type for workflow data from the refactored collection
+ */
 export type PayloadWorkflow = {
-  id: number
+  id: number | string
   name: string
-  description?: null | string
-  triggers?: Array<{
-    type?: null | string
-    condition?: null | string
-    parameters?: {
-      collectionSlug?: null | string
-      operation?: null | string
-      global?: null | string
-      globalOperation?: null | string
-      [key: string]: unknown
-    } | null
-    [key: string]: unknown
-  }> | null
+  description?: string | null
+  enabled?: boolean
+  triggers?: Array<any> | null
   steps?: Array<{
-    type?: null | string
-    name?: null | string
-    input?: unknown
-    dependencies?: null | string[]
-    condition?: null | string
-    [key: string]: unknown
+    id?: string
+    step: any
+    stepName?: string | null
+    inputOverrides?: Record<string, unknown> | null
+    condition?: string | null
+    dependencies?: Array<{ stepIndex: number }> | null
+    position?: { x: number; y: number } | null
   }> | null
+  errorHandling?: 'stop' | 'continue' | 'retry' | null
+  maxRetries?: number | null
+  retryDelay?: number | null
+  timeout?: number | null
   [key: string]: unknown
 }
 
-import Handlebars from 'handlebars'
-
-// Helper type to extract workflow step data from the generated types
-export type WorkflowStep = {
-  name: string // Ensure name is always present for our execution logic
-} & NonNullable<PayloadWorkflow['steps']>[0]
-
-// Helper type to extract workflow trigger data from the generated types
-export type WorkflowTrigger = {
-  type: string // Ensure type is always present for our execution logic
-} & NonNullable<PayloadWorkflow['triggers']>[0]
+/**
+ * Type for a resolved workflow step (with base step data merged)
+ */
+export type ResolvedStep = {
+  stepIndex: number
+  stepId: string | number
+  stepName: string
+  stepType: string
+  config: Record<string, unknown>
+  condition?: string | null
+  dependencies: number[]
+  retryOnFailure?: boolean
+  maxRetries?: number
+  retryDelay?: number
+}
 
 export interface ExecutionContext {
   steps: Record<string, any>
   trigger: Record<string, any>
+}
+
+export interface StepResult {
+  step?: string | number
+  stepName: string
+  stepIndex: number
+  status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
+  startedAt?: string
+  completedAt?: string
+  duration?: number
+  input?: Record<string, unknown>
+  output?: Record<string, unknown>
+  error?: string
+  retryCount?: number
+}
+
+/**
+ * Workflow context stored on jobs created by workflow execution.
+ * Uses relationship IDs that link to the respective collections.
+ */
+export interface WorkflowJobMeta {
+  automationWorkflowId: string | number
+  automationWorkflowRunId: string | number
+  automationTriggerId?: string | number
 }
 
 export class WorkflowExecutor {
@@ -53,470 +83,90 @@ export class WorkflowExecutor {
   ) {}
 
   /**
-   * Convert string values to appropriate types based on common patterns
+   * Resolve workflow steps by loading base step configurations and merging with overrides
    */
-  private convertValueType(value: unknown, key: string): unknown {
-    if (typeof value !== 'string') {
-      return value
+  private async resolveWorkflowSteps(workflow: PayloadWorkflow): Promise<ResolvedStep[]> {
+    const resolvedSteps: ResolvedStep[] = []
+
+    if (!workflow.steps || workflow.steps.length === 0) {
+      return resolvedSteps
     }
 
-    // Type conversion patterns based on field names and values
-    const numericFields = ['timeout', 'retries', 'delay', 'port', 'limit', 'offset', 'count', 'max', 'min']
-    const booleanFields = ['enabled', 'required', 'active', 'success', 'failed', 'complete']
+    for (let i = 0; i < workflow.steps.length; i++) {
+      const workflowStep = workflow.steps[i]
 
-    // Convert numeric fields
-    if (numericFields.some(field => key.toLowerCase().includes(field))) {
-      const numValue = Number(value)
-      if (!isNaN(numValue)) {
-        this.logger.debug({
-          key,
-          originalValue: value,
-          convertedValue: numValue
-        }, 'Auto-converted field to number')
-        return numValue
-      }
-    }
-
-    // Convert boolean fields
-    if (booleanFields.some(field => key.toLowerCase().includes(field))) {
-      if (value === 'true') return true
-      if (value === 'false') return false
-    }
-
-    // Try to parse as number if it looks numeric
-    if (/^\d+$/.test(value)) {
-      const numValue = parseInt(value, 10)
-      this.logger.debug({
-        key,
-        originalValue: value,
-        convertedValue: numValue
-      }, 'Auto-converted numeric string to number')
-      return numValue
-    }
-
-    // Try to parse as float if it looks like a decimal
-    if (/^\d+\.\d+$/.test(value)) {
-      const floatValue = parseFloat(value)
-      this.logger.debug({
-        key,
-        originalValue: value,
-        convertedValue: floatValue
-      }, 'Auto-converted decimal string to number')
-      return floatValue
-    }
-
-    // Return as string if no conversion applies
-    return value
-  }
-
-  /**
-   * Classifies error types based on error messages
-   */
-  private classifyErrorType(errorMessage: string): string {
-    if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
-      return 'timeout'
-    }
-    if (errorMessage.includes('ENOTFOUND') || errorMessage.includes('getaddrinfo')) {
-      return 'dns'
-    }
-    if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('ECONNRESET')) {
-      return 'connection'
-    }
-    if (errorMessage.includes('network') || errorMessage.includes('fetch')) {
-      return 'network'
-    }
-    return 'unknown'
-  }
-
-  /**
-   * Evaluate a step condition using JSONPath
-   */
-  private evaluateStepCondition(condition: string, context: ExecutionContext): boolean {
-    return this.evaluateCondition(condition, context)
-  }
-
-  /**
-   * Execute a single workflow step
-   */
-  private async executeStep(
-    step: WorkflowStep,
-    stepIndex: number,
-    context: ExecutionContext,
-    req: PayloadRequest,
-    workflowRunId?: number | string
-  ): Promise<void> {
-    const stepName = step.name || 'step-' + stepIndex
-
-    this.logger.info({
-      hasStep: 'step' in step,
-      step: JSON.stringify(step),
-      stepName
-    }, 'Executing step')
-
-    // Check step condition if present
-    if (step.condition) {
-      this.logger.debug({
-        condition: step.condition,
-        stepName,
-        availableSteps: Object.keys(context.steps),
-        completedSteps: Object.entries(context.steps)
-          .filter(([_, s]) => s.state === 'succeeded')
-          .map(([name]) => name),
-        triggerType: context.trigger?.type
-      }, 'Evaluating step condition')
-
-      const conditionMet = this.evaluateStepCondition(step.condition, context)
-
-      if (!conditionMet) {
-        this.logger.info({
-          condition: step.condition,
-          stepName,
-          contextSnapshot: JSON.stringify({
-            stepOutputs: Object.entries(context.steps).reduce((acc, [name, step]) => {
-              acc[name] = { state: step.state, hasOutput: !!step.output }
-              return acc
-            }, {} as Record<string, any>),
-            triggerData: context.trigger?.data ? 'present' : 'absent'
-          })
-        }, 'Step condition not met, skipping')
-
-        // Mark step as completed but skipped
-        context.steps[stepName] = {
-          error: undefined,
-          input: undefined,
-          output: { reason: 'Condition not met', skipped: true },
-          state: 'succeeded'
-        }
-
-        // Update workflow run context if needed
-        if (workflowRunId) {
-          await this.updateWorkflowRunContext(workflowRunId, context, req)
-        }
-
-        return
-      }
-
-      this.logger.info({
-        condition: step.condition,
-        stepName,
-        contextSnapshot: JSON.stringify({
-          stepOutputs: Object.entries(context.steps).reduce((acc, [name, step]) => {
-            acc[name] = { state: step.state, hasOutput: !!step.output }
-            return acc
-          }, {} as Record<string, any>),
-          triggerData: context.trigger?.data ? 'present' : 'absent'
-        })
-      }, 'Step condition met, proceeding with execution')
-    }
-
-    // Initialize step context
-    context.steps[stepName] = {
-      error: undefined,
-      input: undefined,
-      output: undefined,
-      state: 'running',
-      _startTime: Date.now() // Track execution start time for independent duration tracking
-    }
-
-    // Move taskSlug declaration outside try block so it's accessible in catch
-    const taskSlug = step.type as string
-
-    try {
-      // Get input configuration from the step
-      const inputConfig = (step.input as Record<string, unknown>) || {}
-
-      // Resolve input data using Handlebars templates
-      const resolvedInput = this.resolveStepInput(inputConfig, context, taskSlug)
-      context.steps[stepName].input = resolvedInput
-
-      if (!taskSlug) {
-        throw new Error(`Step ${stepName} is missing a task type`)
-      }
-
-      this.logger.info({
-        hasInput: !!resolvedInput,
-        hasReq: !!req,
-        stepName,
-        taskSlug
-      }, 'Queueing task')
-
-      const job = await this.payload.jobs.queue({
-        input: resolvedInput,
-        req,
-        task: taskSlug
-      })
-
-      // Run the specific job immediately and wait for completion
-      this.logger.info({ jobId: job.id }, 'Running job immediately using runByID')
-      const runResults = await this.payload.jobs.runByID({
-        id: job.id,
-        req
-      })
-
-      this.logger.info({
-        jobId: job.id,
-        runResult: runResults,
-        hasResult: !!runResults
-      }, 'Job run completed')
-
-      // Give a small delay to ensure job is fully processed
-      await new Promise(resolve => setTimeout(resolve, 100))
-
-      // Get the job result
-      const completedJob = await this.payload.findByID({
-        id: job.id,
-        collection: 'payload-jobs',
-        req
-      })
-
-      this.logger.info({
-        jobId: job.id,
-        totalTried: completedJob.totalTried,
-        hasError: completedJob.hasError,
-        taskStatus: completedJob.taskStatus ? Object.keys(completedJob.taskStatus) : 'null'
-      }, 'Retrieved job results')
-
-      const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
-      const isComplete = taskStatus?.complete === true
-      const hasError = completedJob.hasError || !isComplete
-
-      // Extract error information from job if available
-      let errorMessage: string | undefined
-      if (hasError) {
-        // Try to get error from the latest log entry
-        if (completedJob.log && completedJob.log.length > 0) {
-          const latestLog = completedJob.log[completedJob.log.length - 1]
-          errorMessage = latestLog.error?.message || latestLog.error
-        }
-
-        // Fallback to top-level error
-        if (!errorMessage && completedJob.error) {
-          errorMessage = completedJob.error.message || completedJob.error
-        }
-
-        // Try to get error from task output if available
-        if (!errorMessage && taskStatus?.output?.error) {
-          errorMessage = taskStatus.output.error
-        }
-
-        // Check if task handler returned with state='failed'
-        if (!errorMessage && taskStatus?.state === 'failed') {
-          errorMessage = 'Task handler returned a failed state'
-          // Try to get more specific error from output
-          if (taskStatus.output?.error) {
-            errorMessage = taskStatus.output.error
-          }
-        }
-
-        // Check for network errors in the job data
-        if (!errorMessage && completedJob.result) {
-          const result = completedJob.result
-          if (result.error) {
-            errorMessage = result.error
-          }
-        }
-
-        // Final fallback to generic message with more detail
-        if (!errorMessage) {
-          const jobDetails = {
-            taskSlug,
-            hasError: completedJob.hasError,
-            taskStatus: taskStatus?.complete,
-            totalTried: completedJob.totalTried
-          }
-          errorMessage = `Task ${taskSlug} failed without detailed error information. Job details: ${JSON.stringify(jobDetails)}`
-        }
-      }
-
-      const result: {
-        error: string | undefined
-        output: unknown
-        state: 'failed' | 'succeeded'
-      } = {
-        error: errorMessage,
-        output: taskStatus?.output || {},
-        state: isComplete ? 'succeeded' : 'failed'
-      }
-
-      // Store the output and error
-      context.steps[stepName].output = result.output
-      context.steps[stepName].state = result.state
-      if (result.error) {
-        context.steps[stepName].error = result.error
-      }
-
-      // Independent execution tracking (not dependent on PayloadCMS task status)
-      context.steps[stepName].executionInfo = {
-        completed: true, // Step execution completed (regardless of success/failure)
-        success: result.state === 'succeeded',
-        executedAt: new Date().toISOString(),
-        duration: Date.now() - (context.steps[stepName]._startTime || Date.now())
-      }
-
-      // For failed steps, try to extract detailed error information from the job logs
-      // This approach is more reliable than external storage and persists with the workflow
-      if (result.state === 'failed') {
-        const errorDetails = this.extractErrorDetailsFromJob(completedJob, context.steps[stepName], stepName)
-        if (errorDetails) {
-          context.steps[stepName].errorDetails = errorDetails
-
-          this.logger.info({
-            stepName,
-            errorType: errorDetails.errorType,
-            duration: errorDetails.duration,
-            attempts: errorDetails.attempts
-          }, 'Extracted detailed error information for failed step')
-        }
-      }
-
-      this.logger.debug({context}, 'Step execution context')
-
-      if (result.state !== 'succeeded') {
-        throw new Error(result.error || `Step ${stepName} failed`)
-      }
-
-      this.logger.info({
-        output: result.output,
-        stepName
-      }, 'Step completed')
-
-      // Update workflow run with current step results if workflowRunId is provided
-      if (workflowRunId) {
-        await this.updateWorkflowRunContext(workflowRunId, context, req)
-      }
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      context.steps[stepName].state = 'failed'
-      context.steps[stepName].error = errorMessage
-
-      // Independent execution tracking for failed steps
-      context.steps[stepName].executionInfo = {
-        completed: true, // Execution attempted and completed (even if it failed)
-        success: false,
-        executedAt: new Date().toISOString(),
-        duration: Date.now() - (context.steps[stepName]._startTime || Date.now()),
-        failureReason: errorMessage
-      }
-
-      this.logger.error({
-        error: errorMessage,
-        input: context.steps[stepName].input,
-        stepName,
-        taskSlug
-      }, 'Step execution failed')
-
-      // Update workflow run with current step results if workflowRunId is provided
-      if (workflowRunId) {
+      let baseStep: any
+      if (typeof workflowStep.step === 'object' && workflowStep.step !== null) {
+        baseStep = workflowStep.step
+      } else {
         try {
-          await this.updateWorkflowRunContext(workflowRunId, context, req)
-        } catch (updateError) {
+          baseStep = await this.payload.findByID({
+            collection: 'automation-steps',
+            id: workflowStep.step,
+            depth: 0
+          })
+        } catch (error) {
           this.logger.error({
-            error: updateError instanceof Error ? updateError.message : 'Unknown error',
-            stepName
-          }, 'Failed to update workflow run context after step failure')
+            stepId: workflowStep.step,
+            stepIndex: i,
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }, 'Failed to load step configuration')
+          throw new Error(`Failed to load step ${workflowStep.step}: ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
       }
 
-      throw error
+      const baseConfig = (baseStep.config as Record<string, unknown>) || {}
+      const overrides = (workflowStep.inputOverrides as Record<string, unknown>) || {}
+      const mergedConfig = { ...baseConfig, ...overrides }
+
+      const dependencies = (workflowStep.dependencies || []).map(d => d.stepIndex)
+
+      resolvedSteps.push({
+        stepIndex: i,
+        stepId: baseStep.id,
+        stepName: workflowStep.stepName || baseStep.name || `step-${i}`,
+        stepType: baseStep.type as string,
+        config: mergedConfig,
+        condition: workflowStep.condition,
+        dependencies,
+        retryOnFailure: baseStep.retryOnFailure,
+        maxRetries: baseStep.maxRetries || workflow.maxRetries || 3,
+        retryDelay: baseStep.retryDelay || workflow.retryDelay || 1000
+      })
     }
+
+    return resolvedSteps
   }
-
-  /**
-   * Extracts detailed error information from job logs and input
-   */
-  private extractErrorDetailsFromJob(job: any, stepContext: any, stepName: string) {
-    try {
-      // Get error information from multiple sources
-      const input = stepContext.input || {}
-      const logs = job.log || []
-      const latestLog = logs[logs.length - 1]
-
-      // Extract error message from job error or log
-      const errorMessage = job.error?.message || latestLog?.error?.message || 'Unknown error'
-
-      // For timeout scenarios, check if it's a timeout based on duration and timeout setting
-      let errorType = this.classifyErrorType(errorMessage)
-
-      // Special handling for HTTP timeouts - if task failed and duration exceeds timeout, it's likely a timeout
-      if (errorType === 'unknown' && input.timeout && stepContext.executionInfo?.duration) {
-        const timeoutMs = parseInt(input.timeout) || 30000
-        const actualDuration = stepContext.executionInfo.duration
-
-        // If execution duration is close to or exceeds timeout, classify as timeout
-        if (actualDuration >= (timeoutMs * 0.9)) { // 90% of timeout threshold
-          errorType = 'timeout'
-          this.logger.debug({
-            timeoutMs,
-            actualDuration,
-            stepName
-          }, 'Classified error as timeout based on duration analysis')
-        }
-      }
-
-      // Calculate duration from execution info if available
-      const duration = stepContext.executionInfo?.duration || 0
-
-      // Extract attempt count from logs
-      const attempts = job.totalTried || 1
-
-      return {
-        stepId: `${stepName}-${Date.now()}`,
-        errorType,
-        duration,
-        attempts,
-        finalError: errorMessage,
-        context: {
-          url: input.url,
-          method: input.method,
-          timeout: input.timeout,
-          statusCode: latestLog?.output?.status,
-          headers: input.headers
-        },
-        timestamp: new Date().toISOString()
-      }
-    } catch (error) {
-      this.logger.warn({
-        error: error instanceof Error ? error.message : 'Unknown error',
-        stepName
-      }, 'Failed to extract error details from job')
-      return null
-    }
-  }
-
 
   /**
    * Resolve step execution order based on dependencies
    */
-  private resolveExecutionOrder(steps: WorkflowStep[]): WorkflowStep[][] {
-    const stepMap = new Map<string, WorkflowStep>()
-    const dependencyGraph = new Map<string, string[]>()
-    const indegree = new Map<string, number>()
+  private resolveExecutionOrder(steps: ResolvedStep[]): ResolvedStep[][] {
+    const indegree = new Map<number, number>()
+    const dependents = new Map<number, number[]>()
 
-    // Build the step map and dependency graph
     for (const step of steps) {
-      const stepName = step.name || `step-${steps.indexOf(step)}`
-      const dependencies = step.dependencies || []
-
-      stepMap.set(stepName, { ...step, name: stepName, dependencies })
-      dependencyGraph.set(stepName, dependencies)
-      indegree.set(stepName, dependencies.length)
+      indegree.set(step.stepIndex, step.dependencies.length)
+      dependents.set(step.stepIndex, [])
     }
 
-    // Topological sort to determine execution batches
-    const executionBatches: WorkflowStep[][] = []
-    const processed = new Set<string>()
+    for (const step of steps) {
+      for (const depIndex of step.dependencies) {
+        const deps = dependents.get(depIndex) || []
+        deps.push(step.stepIndex)
+        dependents.set(depIndex, deps)
+      }
+    }
+
+    const executionBatches: ResolvedStep[][] = []
+    const processed = new Set<number>()
 
     while (processed.size < steps.length) {
-      const currentBatch: WorkflowStep[] = []
+      const currentBatch: ResolvedStep[] = []
 
-      // Find all steps with no remaining dependencies
-      for (const [stepName, inDegree] of indegree.entries()) {
-        if (inDegree === 0 && !processed.has(stepName)) {
-          const step = stepMap.get(stepName)
-          if (step) {
-            currentBatch.push(step)
-          }
+      for (const step of steps) {
+        if (!processed.has(step.stepIndex) && indegree.get(step.stepIndex) === 0) {
+          currentBatch.push(step)
         }
       }
 
@@ -526,15 +176,10 @@ export class WorkflowExecutor {
 
       executionBatches.push(currentBatch)
 
-      // Update indegrees for next iteration
       for (const step of currentBatch) {
-        processed.add(step.name)
-
-        // Reduce indegree for steps that depend on completed steps
-        for (const [otherStepName, dependencies] of dependencyGraph.entries()) {
-          if (dependencies.includes(step.name) && !processed.has(otherStepName)) {
-            indegree.set(otherStepName, (indegree.get(otherStepName) || 0) - 1)
-          }
+        processed.add(step.stepIndex)
+        for (const depIndex of dependents.get(step.stepIndex) || []) {
+          indegree.set(depIndex, (indegree.get(depIndex) || 1) - 1)
         }
       }
     }
@@ -542,114 +187,264 @@ export class WorkflowExecutor {
     return executionBatches
   }
 
-
   /**
-   * Resolve step input using Handlebars templates with automatic type conversion
+   * Execute a single workflow step
    */
-  private resolveStepInput(config: Record<string, unknown>, context: ExecutionContext, stepType?: string): Record<string, unknown> {
-    const resolved: Record<string, unknown> = {}
+  private async executeStep(
+    step: ResolvedStep,
+    context: ExecutionContext,
+    req: PayloadRequest,
+    stepResults: StepResult[],
+    jobMeta: WorkflowJobMeta
+  ): Promise<StepResult> {
+    const result: StepResult = {
+      step: step.stepId,
+      stepName: step.stepName,
+      stepIndex: step.stepIndex,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      retryCount: 0
+    }
 
-    this.logger.debug({
-      configKeys: Object.keys(config),
-      contextSteps: Object.keys(context.steps),
-      triggerType: context.trigger?.type,
-      stepType
-    }, 'Starting step input resolution with Handlebars')
+    this.logger.info({
+      stepName: step.stepName,
+      stepType: step.stepType,
+      stepIndex: step.stepIndex
+    }, 'Executing step')
 
-    for (const [key, value] of Object.entries(config)) {
-      if (typeof value === 'string') {
-        // Check if the string contains Handlebars templates
-        if (value.includes('{{') && value.includes('}}')) {
-          this.logger.debug({
-            key,
-            template: value,
-            availableSteps: Object.keys(context.steps),
-            hasTriggerData: !!context.trigger?.data,
-            hasTriggerDoc: !!context.trigger?.doc
-          }, 'Processing Handlebars template')
+    // Check step condition if present
+    if (step.condition) {
+      const conditionMet = await this.evaluateCondition(step.condition, context)
+      if (!conditionMet) {
+        this.logger.info({
+          stepName: step.stepName,
+          condition: step.condition
+        }, 'Step condition not met, skipping')
 
-          try {
-            const template = Handlebars.compile(value)
-            const result = template(context)
+        result.status = 'skipped'
+        result.completedAt = new Date().toISOString()
+        result.output = { reason: 'Condition not met', skipped: true }
 
-            this.logger.debug({
-              key,
-              template: value,
-              result: JSON.stringify(result).substring(0, 200),
-              resultType: typeof result
-            }, 'Handlebars template resolved successfully')
-
-            resolved[key] = this.convertValueType(result, key)
-          } catch (error) {
-            this.logger.warn({
-              error: error instanceof Error ? error.message : 'Unknown error',
-              key,
-              template: value,
-              contextSnapshot: JSON.stringify(context).substring(0, 500)
-            }, 'Failed to resolve Handlebars template')
-            resolved[key] = value // Keep original value if resolution fails
-          }
-        } else {
-          // Regular string, apply type conversion
-          resolved[key] = this.convertValueType(value, key)
+        context.steps[step.stepName] = {
+          state: 'skipped',
+          output: result.output
         }
-      } else if (typeof value === 'object' && value !== null) {
-        // Recursively resolve nested objects
-        this.logger.debug({
-          key,
-          nestedKeys: Object.keys(value as Record<string, unknown>)
-        }, 'Recursively resolving nested object')
 
-        resolved[key] = this.resolveStepInput(value as Record<string, unknown>, context, stepType)
-      } else {
-        // Keep literal values as-is
-        resolved[key] = value
+        return result
       }
     }
 
-    this.logger.debug({
-      resolvedKeys: Object.keys(resolved),
-      originalKeys: Object.keys(config)
-    }, 'Step input resolution completed')
+    // Resolve input using JSONata expressions
+    const resolvedInput = await this.resolveStepInput(step.config, context)
+    result.input = resolvedInput
 
-    return resolved
+    context.steps[step.stepName] = {
+      state: 'running',
+      input: resolvedInput
+    }
+
+    try {
+      const job = await this.payload.jobs.queue({
+        input: resolvedInput,
+        req,
+        task: step.stepType,
+      })
+
+      // Update the job with automation context fields
+      // This allows tracking which workflow run triggered this job
+      await this.payload.update({
+        collection: 'payload-jobs',
+        id: job.id,
+        data: {
+          automationWorkflow: jobMeta.automationWorkflowId,
+          automationWorkflowRun: jobMeta.automationWorkflowRunId,
+          automationTrigger: jobMeta.automationTriggerId,
+          automationStepName: step.stepName,
+        },
+        req,
+      })
+
+      // Run the job and capture the result directly from runByID
+      // This is important because PayloadCMS may delete jobs on completion (deleteJobOnComplete: true by default)
+      const runResult = await this.payload.jobs.runByID({
+        id: job.id,
+        req
+      })
+
+      // Check the job status from the run result
+      // runByID returns { jobStatus: { [jobId]: { status: 'success' | 'error' | ... } }, ... }
+      const jobStatus = (runResult as any)?.jobStatus?.[job.id]
+      const jobSucceeded = jobStatus?.status === 'success'
+
+      if (jobSucceeded) {
+        // Job completed successfully - try to get output from the job if it still exists
+        // Note: Job may have been deleted if deleteJobOnComplete is true
+        let output: Record<string, unknown> = {}
+        try {
+          const completedJob = await this.payload.findByID({
+            id: job.id,
+            collection: 'payload-jobs',
+            req
+          })
+          const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
+          output = taskStatus?.output || {}
+        } catch {
+          // Job was deleted after completion - this is expected behavior with deleteJobOnComplete: true
+          // The job succeeded, so we proceed without the output
+          this.logger.debug({ stepName: step.stepName }, 'Job was deleted after successful completion (deleteJobOnComplete)')
+        }
+
+        result.status = 'succeeded'
+        result.output = output
+        result.completedAt = new Date().toISOString()
+        result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
+      } else {
+        // Job failed - try to get error details from the job
+        let errorMessage = 'Task failed'
+        try {
+          const completedJob = await this.payload.findByID({
+            id: job.id,
+            collection: 'payload-jobs',
+            req
+          })
+          const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
+          if (completedJob.log && completedJob.log.length > 0) {
+            const latestLog = completedJob.log[completedJob.log.length - 1]
+            errorMessage = latestLog.error?.message || latestLog.error || errorMessage
+          }
+          if (taskStatus?.output?.errorMessage) {
+            errorMessage = taskStatus.output.errorMessage
+          }
+        } catch {
+          // Job may have been deleted - use the job status from run result
+          errorMessage = `Task failed with status: ${jobStatus?.status || 'unknown'}`
+        }
+        throw new Error(errorMessage)
+      }
+
+      context.steps[step.stepName] = {
+        state: 'succeeded',
+        input: resolvedInput,
+        output: result.output
+      }
+
+      this.logger.info({
+        stepName: step.stepName,
+        duration: result.duration
+      }, 'Step completed successfully')
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      result.status = 'failed'
+      result.error = errorMessage
+      result.completedAt = new Date().toISOString()
+      result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
+
+      context.steps[step.stepName] = {
+        state: 'failed',
+        input: resolvedInput,
+        error: errorMessage
+      }
+
+      this.logger.error({
+        stepName: step.stepName,
+        error: errorMessage
+      }, 'Step execution failed')
+
+      throw error
+    }
+
+    return result
   }
 
   /**
-   * Safely serialize an object, handling circular references and non-serializable values
+   * Resolve step input using JSONata expressions
+   */
+  private async resolveStepInput(
+    config: Record<string, unknown>,
+    context: ExecutionContext
+  ): Promise<Record<string, unknown>> {
+    try {
+      return await resolveInput(config, context as ExpressionContext, { timeout: 5000 })
+    } catch (error) {
+      this.logger.warn({
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Failed to resolve step input, using raw config')
+      return config
+    }
+  }
+
+  /**
+   * Evaluate a condition using JSONata
+   */
+  public async evaluateCondition(condition: string, context: ExecutionContext): Promise<boolean> {
+    try {
+      return await evalCondition(condition, context as ExpressionContext, { timeout: 5000 })
+    } catch (error) {
+      this.logger.warn({
+        condition,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Failed to evaluate condition')
+      return false
+    }
+  }
+
+  /**
+   * Safely serialize an object for storage
    */
   private safeSerialize(obj: unknown): unknown {
     const seen = new WeakSet()
 
-    const serialize = (value: unknown): unknown => {
+    // Keys to completely exclude from serialization
+    const excludeKeys = new Set([
+      'table',
+      'schema',
+      '_',
+      '__',
+      'payload', // Exclude payload instance (contains entire config)
+      'res', // Exclude response object
+      'transactionID',
+      'i18n',
+      'fallbackLocale',
+    ])
+
+    // For req object, only keep these useful debugging properties
+    const reqAllowedKeys = new Set([
+      'payloadAPI', // 'local', 'REST', or 'GraphQL'
+      'locale',
+      'user', // authenticated user
+      'method', // HTTP method
+      'url', // request URL
+    ])
+
+    const serialize = (value: unknown, parentKey?: string): unknown => {
       if (value === null || typeof value !== 'object') {
         return value
       }
-
       if (seen.has(value)) {
         return '[Circular Reference]'
       }
-
       seen.add(value)
 
       if (Array.isArray(value)) {
-        return value.map(serialize)
+        return value.map((v) => serialize(v))
       }
 
       const result: Record<string, unknown> = {}
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
         try {
-          // Skip non-serializable properties that are likely internal database objects
-          if (key === 'table' || key === 'schema' || key === '_' || key === '__') {
+          if (excludeKeys.has(key)) {
             continue
           }
-          result[key] = serialize(val)
+          // Special handling for req object - only include allowed keys
+          if (parentKey === 'req' && !reqAllowedKeys.has(key)) {
+            continue
+          }
+          result[key] = serialize(val, key)
         } catch {
-          // Skip properties that can't be accessed or serialized
           result[key] = '[Non-serializable]'
         }
       }
-
       return result
     }
 
@@ -657,319 +452,188 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Update workflow run with current context
-   */
-  private async updateWorkflowRunContext(
-    workflowRunId: number | string,
-    context: ExecutionContext,
-    req: PayloadRequest
-  ): Promise<void> {
-    const serializeContext = () => ({
-      steps: this.safeSerialize(context.steps),
-      trigger: {
-        type: context.trigger.type,
-        collection: context.trigger.collection,
-        data: this.safeSerialize(context.trigger.data),
-        doc: this.safeSerialize(context.trigger.doc),
-        operation: context.trigger.operation,
-        previousDoc: this.safeSerialize(context.trigger.previousDoc),
-        triggeredAt: context.trigger.triggeredAt,
-        user: context.trigger.req?.user
-      }
-    })
-
-    await this.payload.update({
-      id: workflowRunId,
-      collection: 'workflow-runs',
-      data: {
-        context: serializeContext()
-      },
-      req
-    })
-  }
-
-  /**
-   * Evaluate a condition using Handlebars templates and comparison operators
-   */
-  public evaluateCondition(condition: string, context: ExecutionContext): boolean {
-    this.logger.debug({
-      condition,
-      contextKeys: Object.keys(context),
-      triggerType: context.trigger?.type,
-      triggerData: context.trigger?.data,
-      triggerDoc: context.trigger?.doc ? 'present' : 'absent'
-    }, 'Starting condition evaluation')
-
-    try {
-      // Check if this is a comparison expression
-      const comparisonMatch = condition.match(/^(.+?)\s*(==|!=|>|<|>=|<=)\s*(.+)$/)
-
-      if (comparisonMatch) {
-        const [, leftExpr, operator, rightExpr] = comparisonMatch
-
-        // Evaluate left side (could be Handlebars template or JSONPath)
-        const leftValue = this.resolveConditionValue(leftExpr.trim(), context)
-
-        // Evaluate right side (could be Handlebars template, JSONPath, or literal)
-        const rightValue = this.resolveConditionValue(rightExpr.trim(), context)
-
-        this.logger.debug({
-          condition,
-          leftExpr: leftExpr.trim(),
-          leftValue,
-          operator,
-          rightExpr: rightExpr.trim(),
-          rightValue,
-          leftType: typeof leftValue,
-          rightType: typeof rightValue
-        }, 'Evaluating comparison condition')
-
-        // Perform comparison
-        let result: boolean
-        switch (operator) {
-          case '!=':
-            result = leftValue !== rightValue
-            break
-          case '<':
-            result = Number(leftValue) < Number(rightValue)
-            break
-          case '<=':
-            result = Number(leftValue) <= Number(rightValue)
-            break
-          case '==':
-            result = leftValue === rightValue
-            break
-          case '>':
-            result = Number(leftValue) > Number(rightValue)
-            break
-          case '>=':
-            result = Number(leftValue) >= Number(rightValue)
-            break
-          default:
-            throw new Error(`Unknown comparison operator: ${operator}`)
-        }
-
-        this.logger.debug({
-          condition,
-          result,
-          leftValue,
-          rightValue,
-          operator
-        }, 'Comparison condition evaluation completed')
-
-        return result
-      } else {
-        // Treat as template or JSONPath boolean evaluation
-        const result = this.resolveConditionValue(condition, context)
-
-        this.logger.debug({
-          condition,
-          result,
-          resultType: Array.isArray(result) ? 'array' : typeof result,
-          resultLength: Array.isArray(result) ? result.length : undefined
-        }, 'Boolean evaluation result')
-
-        // Handle different result types
-        let finalResult: boolean
-        if (Array.isArray(result)) {
-          finalResult = result.length > 0 && Boolean(result[0])
-        } else {
-          finalResult = Boolean(result)
-        }
-
-        this.logger.debug({
-          condition,
-          finalResult,
-          originalResult: result
-        }, 'Boolean condition evaluation completed')
-
-        return finalResult
-      }
-    } catch (error) {
-      this.logger.warn({
-        condition,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        errorStack: error instanceof Error ? error.stack : undefined
-      }, 'Failed to evaluate condition')
-
-      // If condition evaluation fails, assume false
-      return false
-    }
-  }
-
-  /**
-   * Resolve a condition value using Handlebars templates or JSONPath
-   */
-  private resolveConditionValue(expr: string, context: ExecutionContext): any {
-    // Handle string literals
-    if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
-      return expr.slice(1, -1) // Remove quotes
-    }
-
-    // Handle boolean literals
-    if (expr === 'true') {return true}
-    if (expr === 'false') {return false}
-
-    // Handle number literals
-    if (/^-?\d+(?:\.\d+)?$/.test(expr)) {
-      return Number(expr)
-    }
-
-    // Handle Handlebars templates
-    if (expr.includes('{{') && expr.includes('}}')) {
-      try {
-        const template = Handlebars.compile(expr)
-        return template(context)
-      } catch (error) {
-        this.logger.warn({
-          error: error instanceof Error ? error.message : 'Unknown error',
-          expr
-        }, 'Failed to resolve Handlebars condition')
-        return false
-      }
-    }
-
-
-    // Return as string if nothing else matches
-    return expr
-  }
-
-  /**
    * Execute a workflow with the given context
    */
-  async execute(workflow: PayloadWorkflow, context: ExecutionContext, req: PayloadRequest): Promise<void> {
-    this.logger.info({
-      workflowId: workflow.id,
-      workflowName: workflow.name
-    }, 'Starting workflow execution')
-
-    const serializeContext = () => ({
-      steps: this.safeSerialize(context.steps),
-      trigger: {
-        type: context.trigger.type,
-        collection: context.trigger.collection,
-        data: this.safeSerialize(context.trigger.data),
-        doc: this.safeSerialize(context.trigger.doc),
-        operation: context.trigger.operation,
-        previousDoc: this.safeSerialize(context.trigger.previousDoc),
-        triggeredAt: context.trigger.triggeredAt,
-        user: context.trigger.req?.user
-      }
-    })
-
+  async execute(
+    workflow: PayloadWorkflow,
+    context: ExecutionContext,
+    req: PayloadRequest,
+    firedTrigger?: any
+  ): Promise<void> {
     this.logger.info({
       workflowId: workflow.id,
       workflowName: workflow.name,
-      contextSummary: {
-        triggerType: context.trigger.type,
-        triggerCollection: context.trigger.collection,
-        triggerOperation: context.trigger.operation,
-        hasDoc: !!context.trigger.doc,
-        userEmail: context.trigger.req?.user?.email
-      }
-    }, 'About to create workflow run record')
+      triggerId: firedTrigger?.id,
+      triggerName: firedTrigger?.name
+    }, 'Starting workflow execution')
 
-    // Create a workflow run record
-    let workflowRun;
-    try {
-      workflowRun = await this.payload.create({
-        collection: 'workflow-runs',
-        data: {
-          context: serializeContext(),
-          startedAt: new Date().toISOString(),
-          status: 'running',
-          triggeredBy: context.trigger.req?.user?.email || 'system',
-          workflow: workflow.id,
-          workflowVersion: 1 // Default version since generated type doesn't have _version field
-        },
-        req
+    const resolvedSteps = await this.resolveWorkflowSteps(workflow)
+    const stepResults: StepResult[] = []
+
+    for (const step of resolvedSteps) {
+      stepResults.push({
+        step: step.stepId,
+        stepName: step.stepName,
+        stepIndex: step.stepIndex,
+        status: 'pending'
       })
+    }
 
-      this.logger.info({
-        workflowRunId: workflowRun.id,
-        workflowId: workflow.id,
-        workflowName: workflow.name
-      }, 'Workflow run record created successfully')
-    } catch (error) {
-      this.logger.error({
-        error: error instanceof Error ? error.message : 'Unknown error',
-        errorStack: error instanceof Error ? error.stack : undefined,
-        workflowId: workflow.id,
-        workflowName: workflow.name
-      }, 'Failed to create workflow run record')
-      throw error
+    const workflowRun = await this.payload.create({
+      collection: 'workflow-runs',
+      data: {
+        workflow: workflow.id,
+        workflowVersion: 1,
+        firedTrigger: firedTrigger?.id,
+        triggerData: this.safeSerialize(context.trigger),
+        status: 'running',
+        startedAt: new Date().toISOString(),
+        triggeredBy: context.trigger.req?.user?.email || 'system',
+        stepResults,
+        context: this.safeSerialize(context),
+        inputs: this.safeSerialize(context.trigger),
+        logs: [{
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          message: 'Workflow execution started'
+        }]
+      },
+      req
+    })
+
+    this.logger.info({
+      workflowRunId: workflowRun.id,
+      workflowId: workflow.id
+    }, 'Workflow run record created')
+
+    // Create job metadata for tracking workflow context in payload-jobs
+    const jobMeta: WorkflowJobMeta = {
+      automationWorkflowId: workflow.id,
+      automationWorkflowRunId: workflowRun.id,
+      automationTriggerId: firedTrigger?.id,
     }
 
     try {
-      // Resolve execution order based on dependencies
-      const executionBatches = this.resolveExecutionOrder(workflow.steps as WorkflowStep[] || [])
+      const executionBatches = this.resolveExecutionOrder(resolvedSteps)
 
       this.logger.info({
-        batchSizes: executionBatches.map(batch => batch.length),
-        totalBatches: executionBatches.length
+        batchCount: executionBatches.length,
+        batchSizes: executionBatches.map(b => b.length)
       }, 'Resolved step execution order')
 
-      // Execute each batch in sequence, but steps within each batch in parallel
       for (let batchIndex = 0; batchIndex < executionBatches.length; batchIndex++) {
         const batch = executionBatches[batchIndex]
 
         this.logger.info({
           batchIndex,
           stepCount: batch.length,
-          stepNames: batch.map(s => s.name)
+          stepNames: batch.map(s => s.stepName)
         }, 'Executing batch')
 
-        // Execute all steps in this batch in parallel
-        const batchPromises = batch.map((step, stepIndex) =>
-          this.executeStep(step, stepIndex, context, req, workflowRun.id)
-        )
+        const batchPromises = batch.map(async (step) => {
+          try {
+            const result = await this.executeStep(step, context, req, stepResults, jobMeta)
+            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+            if (idx !== -1) {
+              stepResults[idx] = result
+            }
+            return result
+          } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+            if (idx !== -1) {
+              stepResults[idx] = {
+                ...stepResults[idx],
+                status: 'failed',
+                error: errorMessage,
+                completedAt: new Date().toISOString()
+              }
+            }
 
-        // Wait for all steps in the current batch to complete
+            if (workflow.errorHandling === 'stop') {
+              throw error
+            }
+            this.logger.warn({
+              stepName: step.stepName,
+              error: errorMessage
+            }, 'Step failed but continuing due to error handling setting')
+          }
+        })
+
         await Promise.all(batchPromises)
 
-        this.logger.info({
-          batchIndex,
-          stepCount: batch.length
-        }, 'Batch completed')
+        await this.payload.update({
+          id: workflowRun.id,
+          collection: 'workflow-runs',
+          data: {
+            stepResults,
+            context: this.safeSerialize(context)
+          },
+          req
+        })
       }
 
-      // Update workflow run as completed
+      const outputs: Record<string, unknown> = {}
+      for (const result of stepResults) {
+        if (result.status === 'succeeded' && result.output) {
+          outputs[result.stepName] = result.output
+        }
+      }
+
       await this.payload.update({
         id: workflowRun.id,
         collection: 'workflow-runs',
         data: {
+          status: 'completed',
           completedAt: new Date().toISOString(),
-          context: serializeContext(),
-          status: 'completed'
+          stepResults,
+          context: this.safeSerialize(context),
+          outputs,
+          logs: [
+            ...(workflowRun.logs || []),
+            {
+              timestamp: new Date().toISOString(),
+              level: 'info',
+              message: 'Workflow execution completed successfully'
+            }
+          ]
         },
         req
       })
 
       this.logger.info({
-        runId: workflowRun.id,
-        workflowId: workflow.id,
-        workflowName: workflow.name
+        workflowRunId: workflowRun.id,
+        workflowId: workflow.id
       }, 'Workflow execution completed')
 
     } catch (error) {
-      // Update workflow run as failed
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+
       await this.payload.update({
         id: workflowRun.id,
         collection: 'workflow-runs',
         data: {
+          status: 'failed',
           completedAt: new Date().toISOString(),
-          context: serializeContext(),
-          error: error instanceof Error ? error.message : 'Unknown error',
-          status: 'failed'
+          stepResults,
+          context: this.safeSerialize(context),
+          error: errorMessage,
+          logs: [
+            ...(workflowRun.logs || []),
+            {
+              timestamp: new Date().toISOString(),
+              level: 'error',
+              message: `Workflow execution failed: ${errorMessage}`
+            }
+          ]
         },
         req
       })
 
       this.logger.error({
-        error: error instanceof Error ? error.message : 'Unknown error',
-        runId: workflowRun.id,
+        workflowRunId: workflowRun.id,
         workflowId: workflow.id,
-        workflowName: workflow.name
+        error: errorMessage
       }, 'Workflow execution failed')
 
       throw error

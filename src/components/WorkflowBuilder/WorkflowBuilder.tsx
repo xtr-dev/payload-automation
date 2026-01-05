@@ -118,7 +118,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
   const onConnect = useCallback((params: Connection) => {
     if (readonly) return
     
-    setEdges((eds) => addEdge({
+    setEdges((eds: Edge[]) => addEdge({
       ...params,
       type: 'smoothstep'
     }, eds))
@@ -146,14 +146,14 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
       }
     }
 
-    setNodes((nds) => [...nds, newStep])
+    setNodes((nds: Node[]) => [...nds, newStep])
   }, [setNodes, readonly])
 
   // Handle updating a node's data
   const handleNodeUpdate = useCallback((nodeId: string, newData: Partial<Node['data']>) => {
-    setNodes((nds) => 
-      nds.map((node) => 
-        node.id === nodeId 
+    setNodes((nds: Node[]) =>
+      nds.map((node: Node) =>
+        node.id === nodeId
           ? { ...node, data: { ...node.data, ...newData } }
           : node
       )
@@ -165,11 +165,11 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
     if (!workflow || !onSave) return
 
     // Convert nodes and edges back to workflow format
-    const updatedSteps = nodes.map((node) => {
+    const updatedSteps = nodes.map((node: Node) => {
       // Find dependencies from edges
       const dependencies = edges
-        .filter(edge => edge.target === node.id)
-        .map(edge => edge.source)
+        .filter((edge: Edge) => edge.target === node.id)
+        .map((edge: Edge) => edge.source)
 
       return {
         name: node.id,
@@ -244,7 +244,7 @@ export const WorkflowBuilder: React.FC<WorkflowBuilderProps> = ({
           <StepConfigurationForm
             selectedNode={selectedNode}
             availableStepTypes={availableStepTypes}
-            availableSteps={nodes.map(node => node.id)}
+            availableSteps={nodes.map((node: Node) => node.id)}
             onNodeUpdate={handleNodeUpdate}
             onClose={() => setSelectedNode(null)}
           />

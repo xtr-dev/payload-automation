@@ -75,7 +75,6 @@
     "@payloadcms/ui": "3.45.0",
     "@playwright/test": "^1.52.0",
     "@swc/cli": "0.6.0",
-    "@types/handlebars": "^4.1.0",
     "@types/nock": "^11.1.0",
     "@types/node": "^22.5.4",
     "@types/node-cron": "^3.0.11",
@@ -136,7 +135,8 @@
   "registry": "https://registry.npmjs.org/",
   "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184",
   "dependencies": {
-    "handlebars": "^4.7.8",
+    "@xyflow/react": "^12.10.0",
+    "jsonata": "^2.1.0",
     "node-cron": "^4.2.1",
     "pino": "^9.9.0"
   }
