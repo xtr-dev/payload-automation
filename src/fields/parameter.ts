@@ -20,10 +20,15 @@ export const parameter = (slug: string, field: {name: string} & Field): Field =>
     ],
     beforeChange: [
       ({ siblingData, value }) => {
-        if (!siblingData.parameters) {
-          siblingData.parameters = {}
+        // Only set the parameter if the virtual field has a defined value.
+        // This preserves directly-passed parameters (e.g., from seeding) when
+        // the virtual field is not used.
+        if (value !== undefined) {
+          if (!siblingData.parameters) {
+            siblingData.parameters = {}
+          }
+          siblingData.parameters[field.name] = value
         }
-        siblingData.parameters[field.name] = value
         return undefined // Virtual field, don't store directly
       }
     ]
