@@ -1,6 +1,6 @@
 {
   "name": "@xtr-dev/payload-automation",
-  "version": "0.0.41",
+  "version": "0.0.42",
   "description": "PayloadCMS Automation Plugin - Comprehensive workflow automation system with visual workflow building, execution tracking, and step types",
   "license": "MIT",
   "type": "module",
@@ -136,6 +136,7 @@
   "registry": "https://registry.npmjs.org/",
   "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184",
   "dependencies": {
+    "@xyflow/react": "^12.10.0",
     "handlebars": "^4.7.8",
     "node-cron": "^4.2.1",
     "pino": "^9.9.0"
