@@ -1,6 +1,6 @@
 {
   "name": "@xtr-dev/payload-automation",
-  "version": "0.0.40",
+  "version": "0.0.41",
   "description": "PayloadCMS Automation Plugin - Comprehensive workflow automation system with visual workflow building, execution tracking, and step types",
   "license": "MIT",
   "type": "module",
@@ -90,7 +90,7 @@
     "eslint": "^9.23.0",
     "graphql": "^16.8.1",
     "mongodb-memory-server": "10.1.4",
-    "next": "15.4.4",
+    "next": "15.4.8",
     "nock": "^14.0.10",
     "payload": "3.45.0",
     "react": "19.1.0",
