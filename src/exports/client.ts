@@ -4,6 +4,26 @@
 export { StatusCell } from '../components/StatusCell.js'
 export { ErrorDisplay } from '../components/ErrorDisplay.js'
 
-// Future client components can be added here:
-// export { default as WorkflowDashboard } from '../components/WorkflowDashboard/index.js'
-// export { default as WorkflowBuilder } from '../components/WorkflowBuilder/index.js'
+// Workflow Visualizer - read-only workflow visualization with execution status
+export {
+  WorkflowVisualizer,
+  ExecutionStepNode
+} from '../components/WorkflowVisualizer/index.js'
+
+export type {
+  WorkflowVisualizerProps,
+  ExecutionStatusData,
+  StepResult,
+  ExecutionStepNodeData,
+  ExecutionStatus
+} from '../components/WorkflowVisualizer/index.js'
+
+// Workflow Test Runner hooks
+export { useExecutionStream } from '../components/WorkflowTestRunner/hooks/useExecutionStream.js'
+
+export type {
+  UseExecutionStreamOptions,
+  ExecutionStreamState,
+  ExecutionStreamData,
+  StepResultEvent
+} from '../components/WorkflowTestRunner/hooks/useExecutionStream.js'

@@ -39,6 +39,11 @@
       "import": "./dist/exports/helpers.js",
       "types": "./dist/exports/helpers.d.ts",
       "default": "./dist/exports/helpers.js"
+    },
+    "./steps": {
+      "import": "./dist/steps/index.js",
+      "types": "./dist/steps/index.d.ts",
+      "default": "./dist/steps/index.js"
     }
   },
   "main": "dist/index.js",

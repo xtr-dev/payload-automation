@@ -1,6 +1,18 @@
 // View exports for workflow plugin
-// Currently no custom views, but this export exists for future extensibility
+// Admin panel views and full-featured components
 
-// export { default as WorkflowDashboard } from '../components/WorkflowDashboard/index.js'
-// export { default as WorkflowBuilder } from '../components/WorkflowBuilder/index.js'
-// export { default as WorkflowStepsField } from '../components/WorkflowStepsField/index.js'
+// Workflow Test Runner - Combined visualizer + test panel for admin use
+export {
+  WorkflowTestRunner,
+  TestDataEditor,
+  ExecutionLog
+} from '../components/WorkflowTestRunner/index.js'
+
+export type {
+  WorkflowTestRunnerProps,
+  TestDataEditorProps,
+  TriggerInfo,
+  ExecutionLogProps,
+  StepResultInfo,
+  LogEntry
+} from '../components/WorkflowTestRunner/index.js'
