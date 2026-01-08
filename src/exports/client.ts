@@ -3,6 +3,7 @@
 
 export { StatusCell } from '../components/StatusCell.js'
 export { ErrorDisplay } from '../components/ErrorDisplay.js'
+export { ReadOnlyBanner } from '../components/ReadOnlyBanner.js'
 
 // Workflow Visualizer - read-only workflow visualization with execution status
 export {

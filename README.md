@@ -63,8 +63,7 @@ import {
 } from '@xtr-dev/payload-automation/client'
 
 // Built-in step definitions
-import {
-  HttpRequestStepTask,
+import { HttpRequestStepTask,
   CreateDocumentStepTask,
   UpdateDocumentStepTask,
   DeleteDocumentStepTask,
@@ -75,8 +74,59 @@ import {
 import { createStep } from '@xtr-dev/payload-automation/steps'
 
 // Types
-import type { WorkflowsPluginConfig } from '@xtr-dev/payload-automation'
+import type { WorkflowsPluginConfig, SeedWorkflow } from '@xtr-dev/payload-automation'
 ```
+
+## Seeding Template Workflows
+
+Provide read-only example workflows for users to learn from and reference:
+
+```typescript
+import type { SeedWorkflow } from '@xtr-dev/payload-automation'
+
+const exampleWorkflows: SeedWorkflow[] = [
+  {
+    slug: 'example-welcome-email',
+    name: 'Example: Send Welcome Email',
+    description: 'Send email when user is created',
+    triggers: [
+      {
+        type: 'collection',
+        parameters: {
+          collection: 'users',
+          hook: 'afterCreate',
+        },
+      },
+    ],
+    steps: [
+      {
+        name: 'Send Email',
+        type: 'send-email',
+        input: {
+          to: '$.trigger.doc.email',
+          subject: 'Welcome!',
+          text: 'Thanks for joining us!',
+        },
+      },
+    ],
+  },
+]
+
+workflowsPlugin({
+  seedWorkflows: exampleWorkflows,
+  // ... other config
+})
+```
+
+Seeded workflows:
+- Are automatically created on first startup
+- Use slug as unique identifier (stable across renames)
+- Automatically update when definition changes in code
+- Cannot be edited or deleted via UI or API
+- Show a warning banner in the admin panel
+- Can be duplicated to create editable versions
+
+See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for detailed documentation.
 
 ## Workflow Visualizer
 

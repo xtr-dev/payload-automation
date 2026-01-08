@@ -7,9 +7,71 @@ import sharp from 'sharp'
 import { fileURLToPath } from 'url'
 
 import {workflowsPlugin} from "../src/plugin/index.js"
+import type {SeedWorkflow} from "../src/plugin/config-types.js"
 import {CreateDocumentStepTask,HttpRequestStepTask} from "../src/steps/index.js"
 import { testEmailAdapter } from './helpers/testEmailAdapter.js'
 import { seed } from './seed.js'
+
+// Example seed workflows - these will be created as read-only templates
+const exampleWorkflows: SeedWorkflow[] = [
+  {
+    slug: 'example-log-post-changes',
+    name: 'Example: Log Post Changes',
+    description: 'Automatically create an audit log entry whenever a post is created or updated',
+    triggers: [
+      {
+        type: 'collection',
+        parameters: {
+          collection: 'posts',
+          hook: 'afterChange',
+        },
+      },
+    ],
+    steps: [
+      {
+        name: 'Create Audit Log',
+        type: 'create-document',
+        input: {
+          collection: 'auditLog',
+          data: {
+            post: '$.trigger.doc.id',
+            message: 'Post was modified',
+            user: '$.trigger.context.req.user.id',
+          },
+        },
+      },
+    ],
+  },
+  {
+    slug: 'example-webhook-notification',
+    name: 'Example: External Webhook Notification',
+    description: 'Send a webhook notification to an external service when a new post is published',
+    triggers: [
+      {
+        type: 'collection',
+        parameters: {
+          collection: 'posts',
+          hook: 'afterCreate',
+        },
+      },
+    ],
+    steps: [
+      {
+        name: 'Send Webhook',
+        type: 'http-request',
+        input: {
+          url: 'https://webhook.site/your-unique-id',
+          method: 'POST',
+          body: {
+            event: 'post.created',
+            postId: '$.trigger.doc.id',
+            content: '$.trigger.doc.content',
+          },
+        },
+      },
+    ],
+  },
+]
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -109,6 +171,7 @@ const buildConfigWithMemoryDB = async () => {
         globalTriggers: {
           settings: true
         },
+        seedWorkflows: exampleWorkflows,
         steps: [
           HttpRequestStepTask,
           CreateDocumentStepTask

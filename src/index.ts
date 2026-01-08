@@ -13,6 +13,7 @@ export type {
   CustomTriggerOptions,
   ExecutionContext,
   TriggerResult,
+  SeedWorkflow,
   WorkflowLoggingConfig
 } from './types/index.js'
 

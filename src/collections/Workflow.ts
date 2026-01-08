@@ -9,12 +9,24 @@ export const createWorkflowCollection = (): CollectionConfig => {
     slug: 'workflows',
     access: {
       create: () => true,
-      delete: () => true,
+      delete: ({ req, data }) => {
+        // Prevent deletion of read-only workflows
+        if (data?.readOnly === true) {
+          return false
+        }
+        return true
+      },
       read: () => true,
-      update: () => true,
+      update: ({ req, data }) => {
+        // Prevent updates to read-only workflows
+        if (data?.readOnly === true) {
+          return false
+        }
+        return true
+      },
     },
     admin: {
-      defaultColumns: ['name', 'enabled', 'updatedAt'],
+      defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
       description: 'Create and manage automated workflows.',
       group: 'Automation',
       useAsTitle: 'name',
@@ -27,6 +39,36 @@ export const createWorkflowCollection = (): CollectionConfig => {
           description: 'Human-readable name for the workflow',
         },
         required: true,
+      },
+      {
+        name: 'slug',
+        type: 'text',
+        admin: {
+          description: 'URL-safe unique identifier for this workflow',
+          position: 'sidebar',
+        },
+        index: true,
+        unique: true,
+      },
+      {
+        name: 'readOnly',
+        type: 'checkbox',
+        admin: {
+          description: 'Read-only workflows cannot be edited or deleted. This is typically used for seeded template workflows.',
+          position: 'sidebar',
+          readOnly: true,
+        },
+        defaultValue: false,
+      },
+      {
+        name: 'readOnlyBanner',
+        type: 'ui',
+        admin: {
+          components: {
+            Field: '@xtr-dev/payload-automation/client#ReadOnlyBanner',
+          },
+          condition: (data) => data?.readOnly === true,
+        },
       },
       {
         name: 'description',
