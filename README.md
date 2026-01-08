@@ -1,5 +1,7 @@
 # @xtr-dev/payload-automation
 
+[![npm version](https://badge.fury.io/js/@xtr-dev%2Fpayload-automation.svg)](https://www.npmjs.com/package/@xtr-dev/payload-automation)
+
 A workflow automation plugin for PayloadCMS 3.x. Run steps in workflows triggered by document changes or webhooks.
 
 ⚠️ **Pre-release Warning**: This package is currently in active development (v0.0.x). Breaking changes may occur before v1.0.0. Not recommended for production use.
