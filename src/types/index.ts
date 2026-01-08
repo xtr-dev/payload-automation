@@ -31,11 +31,13 @@ export interface ExecutionContext {
 // These interfaces have been removed to avoid duplication and inconsistencies
 // Import them from 'payload' or the generated payload-types.ts file instead
 
+export type { WorkflowsPluginConfig, SeedWorkflow } from '../plugin/config-types.js'
+
 /**
  * Logging configuration options for the workflows plugin.
  * @deprecated Use the full WorkflowsPluginConfig from '@xtr-dev/payload-automation/server' instead.
  */
 export interface WorkflowLoggingConfig {
-  level?: 'debug' | 'info' | 'warn' | 'error'
-  enabled?: boolean
+    level?: 'debug' | 'info' | 'warn' | 'error'
+    enabled?: boolean
 }
