@@ -200,6 +200,68 @@ export const workflowsPlugin =
         // Log trigger configuration
         logger.info(`Plugin configuration: ${Object.keys(pluginOptions.collectionTriggers || {}).length} collection triggers, ${Object.keys(pluginOptions.globalTriggers || {}).length} global triggers, ${pluginOptions.steps?.length || 0} steps`)
 
+        // Seed workflows if configured
+        if (pluginOptions.seedWorkflows && pluginOptions.seedWorkflows.length > 0) {
+          logger.info(`Seeding ${pluginOptions.seedWorkflows.length} workflows...`)
+
+          for (const seedWorkflow of pluginOptions.seedWorkflows) {
+            try {
+              // Check if workflow already exists by slug
+              const existingWorkflow = await payload.find({
+                collection: 'workflows',
+                where: {
+                  slug: {
+                    equals: seedWorkflow.slug,
+                  },
+                },
+                limit: 1,
+              })
+
+              if (existingWorkflow.docs.length > 0) {
+                const existing = existingWorkflow.docs[0]
+
+                // Detect changes by comparing workflow definition
+                const stepsChanged = JSON.stringify(existing.steps) !== JSON.stringify(seedWorkflow.steps)
+                const triggersChanged = JSON.stringify(existing.triggers) !== JSON.stringify(seedWorkflow.triggers)
+                const nameChanged = existing.name !== seedWorkflow.name
+                const descriptionChanged = existing.description !== seedWorkflow.description
+
+                const hasChanges = stepsChanged || triggersChanged || nameChanged || descriptionChanged
+
+                if (hasChanges) {
+                  logger.info(`Updating seeded workflow '${seedWorkflow.slug}': ${seedWorkflow.name}`)
+
+                  await payload.update({
+                    collection: 'workflows',
+                    id: existing.id,
+                    data: {
+                      ...seedWorkflow,
+                      readOnly: true,
+                    },
+                  })
+
+                  logger.info(`Updated workflow: ${seedWorkflow.name}`)
+                } else {
+                  logger.debug(`Workflow '${seedWorkflow.slug}' is up to date, skipping`)
+                }
+              } else {
+                // Create the workflow as read-only
+                await payload.create({
+                  collection: 'workflows',
+                  data: {
+                    ...seedWorkflow,
+                    readOnly: true,
+                  },
+                })
+
+                logger.info(`Seeded workflow: ${seedWorkflow.name}`)
+              }
+            } catch (error) {
+              logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
+            }
+          }
+        }
+
         logger.info('Plugin initialized successfully - all hooks registered')
       }
 

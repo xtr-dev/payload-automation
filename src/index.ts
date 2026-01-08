@@ -12,7 +12,8 @@ export type {
   CustomTriggerOptions,
   ExecutionContext,
   TriggerResult,
-  WorkflowsPluginConfig
+  WorkflowsPluginConfig,
+  SeedWorkflow
 } from './types/index.js'
 
 // Server-side functions are NOT re-exported here to avoid bundling issues

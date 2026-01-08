@@ -3,6 +3,7 @@
 
 export { StatusCell } from '../components/StatusCell.js'
 export { ErrorDisplay } from '../components/ErrorDisplay.js'
+export { ReadOnlyBanner } from '../components/ReadOnlyBanner.js'
 
 // Future client components can be added here:
 // export { default as WorkflowDashboard } from '../components/WorkflowDashboard/index.js'
