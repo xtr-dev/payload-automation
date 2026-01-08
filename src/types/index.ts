@@ -31,11 +31,5 @@ export interface ExecutionContext {
 // These interfaces have been removed to avoid duplication and inconsistencies
 // Import them from 'payload' or the generated payload-types.ts file instead
 
-export interface WorkflowsPluginConfig {
-  collections?: string[]
-  globals?: string[]
-  logging?: {
-    level?: 'debug' | 'info' | 'warn' | 'error'
-    enabled?: boolean
-  }
-}
+// Re-export plugin config types
+export type { WorkflowsPluginConfig, SeedWorkflow } from '../plugin/config-types.js'
