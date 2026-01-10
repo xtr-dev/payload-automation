@@ -59,7 +59,7 @@ const exampleWorkflows: SeedWorkflow[] = [
     steps: [
       {
         name: 'Send Webhook',
-        type: 'http-request',
+        type: 'http-request-step',
         input: {
           url: 'https://webhook.site/your-unique-id',
           method: 'POST',
