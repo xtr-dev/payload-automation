@@ -1,6 +1,6 @@
 {
   "name": "@xtr-dev/payload-automation",
-  "version": "0.0.45",
+  "version": "0.0.46",
   "description": "PayloadCMS Automation Plugin - Comprehensive workflow automation system with visual workflow building, execution tracking, and step types",
   "license": "MIT",
   "type": "module",
