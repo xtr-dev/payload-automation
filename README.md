@@ -55,23 +55,8 @@ export default buildConfig({
 // Main plugin
 import { workflowsPlugin } from '@xtr-dev/payload-automation'
 
-// Client components (for custom UIs)
-import {
-  WorkflowVisualizer,
-  useExecutionStream,
-  type ExecutionStatus
-} from '@xtr-dev/payload-automation/client'
-
-// Built-in step definitions
-import { HttpRequestStepTask,
-  CreateDocumentStepTask,
-  UpdateDocumentStepTask,
-  DeleteDocumentStepTask,
-  ReadDocumentStepTask,
-} from '@xtr-dev/payload-automation/steps'
-
-// Step factory for custom steps
-import { createStep } from '@xtr-dev/payload-automation/steps'
+// Client components
+import { StatusCell, ErrorDisplay } from '@xtr-dev/payload-automation/client'
 
 // Types
 import type { WorkflowsPluginConfig, SeedWorkflow } from '@xtr-dev/payload-automation'
@@ -91,11 +76,12 @@ const exampleWorkflows: SeedWorkflow[] = [
     description: 'Send email when user is created',
     triggers: [
       {
-        type: 'collection',
+        type: 'collection-hook',
         parameters: {
-          collection: 'users',
-          hook: 'afterCreate',
+          collectionSlug: 'users',
+          hook: 'afterChange',
         },
+        condition: 'trigger.operation = "create"',
       },
     ],
     steps: [
@@ -128,48 +114,7 @@ Seeded workflows:
 
 See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for detailed documentation.
 
-## Workflow Visualizer
-
-Display workflows in your frontend with real-time execution status:
-
-```tsx
-import { WorkflowVisualizer } from '@xtr-dev/payload-automation/client'
-
-function WorkflowDemo({ workflow }) {
-  return (
-    <WorkflowVisualizer
-      workflow={{
-        name: workflow.name,
-        steps: workflow.steps.map(step => ({
-          stepName: step.name,
-          stepType: step.type,
-          description: step.description,
-          dependencies: step.dependencies,
-        })),
-      }}
-      executionStatus={{
-        status: 'running',  // 'pending' | 'running' | 'completed' | 'failed'
-        stepResults: [
-          { stepIndex: 0, status: 'succeeded', duration: 150 },
-          { stepIndex: 1, status: 'running' },
-          { stepIndex: 2, status: 'pending' },
-        ],
-      }}
-      height={500}
-      showMiniMap={false}
-      showControls={true}
-    />
-  )
-}
-```
-
-The visualizer automatically:
-- Positions nodes based on dependencies (layered layout)
-- Shows step descriptions and types
-- Animates execution status with color-coded states
-- Displays duration for completed steps
-
-## Built-in Steps
+## Step Types
 
 ### HTTP Request
 Call external APIs with full configuration:

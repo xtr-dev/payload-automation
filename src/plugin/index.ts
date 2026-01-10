@@ -8,7 +8,6 @@ import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
-import { handleTestRun, handleExecutionStream, handleGetRunStatus } from '../api/handlers.js'
 
 export { getLogger } from './logger.js'
 
@@ -47,29 +46,6 @@ export const workflowsPlugin =
     }
 
     applyCollectionsConfig<TSlug>(pluginOptions, config)
-
-    // Register automation API endpoints
-    if (!config.endpoints) {
-      config.endpoints = []
-    }
-
-    config.endpoints.push(
-      {
-        path: '/automation/test-run',
-        method: 'post',
-        handler: handleTestRun
-      },
-      {
-        path: '/automation/workflow-runs/:id/stream',
-        method: 'get',
-        handler: handleExecutionStream
-      },
-      {
-        path: '/automation/workflow-runs/:id',
-        method: 'get',
-        handler: handleGetRunStatus
-      }
-    )
 
     const logger = getConfigLogger()
 

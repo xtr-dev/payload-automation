@@ -1,6 +1,17 @@
 import type {CollectionConfig, GlobalConfig, TaskConfig} from "payload"
 
-import type {Trigger} from "../triggers/types.js"
+/**
+ * Trigger definition for custom trigger configurations.
+ */
+export interface Trigger {
+    slug: string
+    label?: string
+    parameters?: Array<{
+        name: string
+        type: string
+        required?: boolean
+    }>
+}
 
 export type TriggerConfig = (config: WorkflowsPluginConfig) => Trigger
 
@@ -61,4 +72,15 @@ export type WorkflowsPluginConfig<
      * These are the step types available for use in workflows.
      */
     steps: TaskConfig<string>[]
+
+    /**
+     * Seed workflows to create on plugin initialization.
+     * These workflows are read-only and serve as templates.
+     */
+    seedWorkflows?: SeedWorkflow[]
+
+    /**
+     * Custom trigger configurations.
+     */
+    triggers?: TriggerConfig[]
 }
