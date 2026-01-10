@@ -20,9 +20,9 @@ const exampleWorkflows: SeedWorkflow[] = [
     description: 'Automatically create an audit log entry whenever a post is created or updated',
     triggers: [
       {
-        type: 'collection',
+        type: 'collection-hook',
         parameters: {
-          collection: 'posts',
+          collectionSlug: 'posts',
           hook: 'afterChange',
         },
       },
@@ -48,11 +48,12 @@ const exampleWorkflows: SeedWorkflow[] = [
     description: 'Send a webhook notification to an external service when a new post is published',
     triggers: [
       {
-        type: 'collection',
+        type: 'collection-hook',
         parameters: {
-          collection: 'posts',
-          hook: 'afterCreate',
+          collectionSlug: 'posts',
+          hook: 'afterChange',
         },
+        condition: 'trigger.operation = "create"',
       },
     ],
     steps: [
