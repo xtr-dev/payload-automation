@@ -3,51 +3,53 @@
 import payloadEsLintConfig from '@payloadcms/eslint-config'
 
 export const defaultESLintIgnores = [
-  '**/.temp',
-  '**/.*', // ignore all dotfiles
-  '**/.git',
-  '**/.hg',
-  '**/.pnp.*',
-  '**/.svn',
-  '**/playwright.config.ts',
-  '**/vitest.config.js',
-  '**/tsconfig.tsbuildinfo',
-  '**/README.md',
-  '**/eslint.config.js',
-  '**/payload-types.ts',
-  '**/dist/',
-  '**/.yarn/',
-  '**/build/',
-  '**/node_modules/',
-  '**/temp/',
+    '**/.temp',
+    '**/.*', // ignore all dotfiles
+    '**/.git',
+    '**/.hg',
+    '**/.pnp.*',
+    '**/.svn',
+    '**/playwright.config.ts',
+    '**/vitest.config.js',
+    '**/tsconfig.tsbuildinfo',
+    '**/README.md',
+    '**/eslint.config.js',
+    '**/payload-types.ts',
+    '**/dist/',
+    '**/.yarn/',
+    '**/build/',
+    '**/node_modules/',
+    '**/temp/',
 ]
 
 export default [
-  ...payloadEsLintConfig,
-  {
-    rules: {
-      'no-restricted-exports': 'off',
-      'no-console': 'off',
-      'perfectionist/sort-object-types': 'off',
-      'perfectionist/sort-objects': 'off',
-      'perfectionist/sort-exports': 'off',
-      'perfectionist/sort-imports': 'off',
-      'perfectionist/sort-switch-case': 'off',
-      'perfectionist/sort-interfaces': 'off'
-    },
-  },
-  {
-    languageOptions: {
-      parserOptions: {
-        sourceType: 'module',
-        ecmaVersion: 'latest',
-        projectService: {
-          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40,
-          allowDefaultProject: ['scripts/*.ts', '*.js', '*.mjs', '*.spec.ts', '*.d.ts'],
+    ...payloadEsLintConfig.map(config => {
+        if (!config.rules) return config
+        return {
+            ...config,
+            rules: Object.entries(config.rules)
+                .filter(([key, value]) => !key.startsWith('perfectionist/'))
+                .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {}),
+        }
+    }),
+    {
+        rules: {
+            'no-restricted-exports': 'off',
+            'no-console': 'off',
         },
-        // projectService: true,
-        tsconfigRootDir: import.meta.dirname,
-      },
     },
-  },
+    {
+        languageOptions: {
+            parserOptions: {
+                sourceType: 'module',
+                ecmaVersion: 'latest',
+                projectService: {
+                    maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40,
+                    allowDefaultProject: ['scripts/*.ts', '*.js', '*.mjs', '*.spec.ts', '*.d.ts'],
+                },
+                // projectService: true,
+                tsconfigRootDir: import.meta.dirname,
+            },
+        },
+    },
 ]
