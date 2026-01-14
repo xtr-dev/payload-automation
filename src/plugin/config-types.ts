@@ -83,4 +83,10 @@ export type WorkflowsPluginConfig<
      * Custom trigger configurations.
      */
     triggers?: TriggerConfig[]
+
+    /**
+     * Logging configuration.
+     * Set to true to enable debug logging.
+     */
+    debug?: boolean
 }

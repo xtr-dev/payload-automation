@@ -5,6 +5,8 @@ import {
   resolveStepInput as resolveInput,
   type ExpressionContext
 } from './expression-engine.js'
+import {getPluginConfig} from "../plugin/get-plugin-config.js";
+import {WorkflowsPluginConfig} from "../plugin/config-types.js";
 
 /**
  * Type for workflow data from the refactored collection
@@ -77,10 +79,14 @@ export interface WorkflowJobMeta {
 }
 
 export class WorkflowExecutor {
+  private config: WorkflowsPluginConfig<string, string>;
+
   constructor(
     private payload: Payload,
     private logger: Payload['logger']
-  ) {}
+  ) {
+    this.config = getPluginConfig(payload)
+  }
 
   /**
    * Resolve workflow steps by loading base step configurations and merging with overrides
@@ -250,6 +256,10 @@ export class WorkflowExecutor {
         task: step.stepType,
       })
 
+      if (this.config.debug) {
+        this.logger.debug(`Queued job for step '${step.stepName}':`, job)
+      }
+
       // Update the job with automation context fields
       // This allows tracking which workflow run triggered this job
       await this.payload.update({
@@ -270,6 +280,10 @@ export class WorkflowExecutor {
         id: job.id,
         req
       })
+
+      if (this.config.debug) {
+        this.logger.debug(`Run result for step '${step.stepName}':`, runResult)
+      }
 
       // Check the job status from the run result
       // runByID returns { jobStatus: { [jobId]: { status: 'success' | 'error' | ... } }, ... }

@@ -358,5 +358,13 @@ export const workflowsPlugin =
       )
     }
 
+    if (!config.custom) {
+      config.custom = {}
+    }
+    if (!config.custom.pluginConfigs) {
+      config.custom.pluginConfigs = {}
+    }
+    config.custom.pluginConfigs['@xtr-dev/payload-automation'] = pluginOptions
+
     return config
   }
