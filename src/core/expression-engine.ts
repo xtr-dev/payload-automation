@@ -231,8 +231,8 @@ export async function transform(
       } catch (e) {
         if (options.debug && options.logger) {
           options.logger.info(
+              e instanceof Error ? e.message : e,
             'Failed to evaluate expression:',
-            e instanceof Error ? e.message : e
           )
         }
         // If it fails to evaluate, return as literal string
