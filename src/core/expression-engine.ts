@@ -220,14 +220,10 @@ export async function transform(
   if (typeof template === 'string') {
     // Check if it looks like a JSONata expression (starts with common patterns)
     if (
-      template.startsWith('{') ||
-      template.startsWith('[') ||
-      template.startsWith('$') ||
-      template.includes('.') ||
-      template.includes('(')
+      template.startsWith('{{')
     ) {
       try {
-        return await evaluate(template, context, options)
+        return await evaluate(template.trim().slice(2, -2), context, options)
       } catch (e) {
         if (options.debug && options.logger) {
           options.logger.info(
