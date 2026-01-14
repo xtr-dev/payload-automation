@@ -257,7 +257,7 @@ export class WorkflowExecutor {
       })
 
       if (this.config.debug) {
-        this.logger.info(`Queued job for step '${step.stepName}':`, job)
+        this.logger.info(job, `Queued job for step '${step.stepName}'`)
       }
 
       // Update the job with automation context fields
@@ -282,7 +282,7 @@ export class WorkflowExecutor {
       })
 
       if (this.config.debug) {
-        this.logger.info(`Run result for step '${step.stepName}':`, runResult)
+        this.logger.info(runResult, `Run result for step '${step.stepName}'`)
       }
 
       // Check the job status from the run result
