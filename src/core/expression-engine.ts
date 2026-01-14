@@ -1,4 +1,5 @@
 import jsonata from 'jsonata'
+import type {Payload} from "payload";
 
 /**
  * Expression engine using JSONata for safe, sandboxed expression evaluation.
@@ -30,6 +31,8 @@ export interface ExpressionContext {
 export interface EvaluateOptions {
   /** Timeout in milliseconds (default: 5000) */
   timeout?: number
+  debug?: boolean
+  logger?: Payload['logger']
 }
 
 // Cache compiled expressions for performance
@@ -225,7 +228,13 @@ export async function transform(
     ) {
       try {
         return await evaluate(template, context, options)
-      } catch {
+      } catch (e) {
+        if (options.debug && options.logger) {
+          options.logger.info(
+            'Failed to evaluate expression:',
+            e instanceof Error ? e.message : e
+          )
+        }
         // If it fails to evaluate, return as literal string
         return template
       }

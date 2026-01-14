@@ -379,7 +379,11 @@ export class WorkflowExecutor {
     context: ExecutionContext
   ): Promise<Record<string, unknown>> {
     try {
-      return await resolveInput(config, context as ExpressionContext, { timeout: 5000 })
+      return await resolveInput(config, context as ExpressionContext, {
+        timeout: 5000,
+        debug: this.config.debug,
+        logger: this.logger
+      })
     } catch (error) {
       this.logger.warn({
         error: error instanceof Error ? error.message : 'Unknown error'
