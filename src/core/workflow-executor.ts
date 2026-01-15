@@ -20,10 +20,11 @@ export type PayloadWorkflow = {
   steps?: Array<{
     id?: string
     step: any
+    slug: string
     stepName?: string | null
     inputOverrides?: Record<string, unknown> | null
     condition?: string | null
-    dependencies?: Array<{ stepIndex: number }> | null
+    dependencies?: Array<{ slug: string }> | null
     position?: { x: number; y: number } | null
   }> | null
   errorHandling?: 'stop' | 'continue' | 'retry' | null
@@ -38,12 +39,13 @@ export type PayloadWorkflow = {
  */
 export type ResolvedStep = {
   stepIndex: number
+  slug: string
   stepId: string | number
   stepName: string
   stepType: string
   config: Record<string, unknown>
   condition?: string | null
-  dependencies: number[]
+  dependencies: string[]
   retryOnFailure?: boolean
   maxRetries?: number
   retryDelay?: number
@@ -56,6 +58,7 @@ export interface ExecutionContext {
 
 export interface StepResult {
   step?: string | number
+  slug: string
   stepName: string
   stepIndex: number
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped'
@@ -125,10 +128,11 @@ export class WorkflowExecutor {
       const overrides = (workflowStep.inputOverrides as Record<string, unknown>) || {}
       const mergedConfig = { ...baseConfig, ...overrides }
 
-      const dependencies = (workflowStep.dependencies || []).map(d => d.stepIndex)
+      const dependencies = (workflowStep.dependencies || []).map(d => d.slug)
 
       resolvedSteps.push({
         stepIndex: i,
+        slug: workflowStep.slug,
         stepId: baseStep.id,
         stepName: workflowStep.stepName || baseStep.name || `step-${i}`,
         stepType: baseStep.type as string,
@@ -148,30 +152,45 @@ export class WorkflowExecutor {
    * Resolve step execution order based on dependencies
    */
   private resolveExecutionOrder(steps: ResolvedStep[]): ResolvedStep[][] {
-    const indegree = new Map<number, number>()
-    const dependents = new Map<number, number[]>()
+    // Create a map from slug to step for lookups
+    const stepBySlug = new Map<string, ResolvedStep>()
+    for (const step of steps) {
+      stepBySlug.set(step.slug, step)
+    }
+
+    // Validate all dependencies exist
+    for (const step of steps) {
+      for (const depSlug of step.dependencies) {
+        if (!stepBySlug.has(depSlug)) {
+          throw new Error(`Step "${step.slug}" depends on non-existent step "${depSlug}"`)
+        }
+      }
+    }
+
+    const indegree = new Map<string, number>()
+    const dependents = new Map<string, string[]>()
 
     for (const step of steps) {
-      indegree.set(step.stepIndex, step.dependencies.length)
-      dependents.set(step.stepIndex, [])
+      indegree.set(step.slug, step.dependencies.length)
+      dependents.set(step.slug, [])
     }
 
     for (const step of steps) {
-      for (const depIndex of step.dependencies) {
-        const deps = dependents.get(depIndex) || []
-        deps.push(step.stepIndex)
-        dependents.set(depIndex, deps)
+      for (const depSlug of step.dependencies) {
+        const deps = dependents.get(depSlug) || []
+        deps.push(step.slug)
+        dependents.set(depSlug, deps)
       }
     }
 
     const executionBatches: ResolvedStep[][] = []
-    const processed = new Set<number>()
+    const processed = new Set<string>()
 
     while (processed.size < steps.length) {
       const currentBatch: ResolvedStep[] = []
 
       for (const step of steps) {
-        if (!processed.has(step.stepIndex) && indegree.get(step.stepIndex) === 0) {
+        if (!processed.has(step.slug) && indegree.get(step.slug) === 0) {
           currentBatch.push(step)
         }
       }
@@ -183,9 +202,9 @@ export class WorkflowExecutor {
       executionBatches.push(currentBatch)
 
       for (const step of currentBatch) {
-        processed.add(step.stepIndex)
-        for (const depIndex of dependents.get(step.stepIndex) || []) {
-          indegree.set(depIndex, (indegree.get(depIndex) || 1) - 1)
+        processed.add(step.slug)
+        for (const depSlug of dependents.get(step.slug) || []) {
+          indegree.set(depSlug, (indegree.get(depSlug) || 1) - 1)
         }
       }
     }
@@ -205,6 +224,7 @@ export class WorkflowExecutor {
   ): Promise<StepResult> {
     const result: StepResult = {
       step: step.stepId,
+      slug: step.slug,
       stepName: step.stepName,
       stepIndex: step.stepIndex,
       status: 'running',
@@ -491,6 +511,7 @@ export class WorkflowExecutor {
     for (const step of resolvedSteps) {
       stepResults.push({
         step: step.stepId,
+        slug: step.slug,
         stepName: step.stepName,
         stepIndex: step.stepIndex,
         status: 'pending'

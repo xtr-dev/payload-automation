@@ -301,17 +301,25 @@ export const workflowsPlugin =
               logger.debug(`Created trigger: ${triggerName}`)
             }
 
+            // Helper to generate slug from name
+            const slugify = (str: string): string =>
+              str.toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/^-+|-+$/g, '')
+
             // Create steps in automation-steps collection and build workflow steps array
             const workflowSteps: Array<{
               step: string | number
+              slug: string
               stepName: string
               inputOverrides: Record<string, unknown>
               condition?: string
-              dependencies?: Array<{ stepName: string }>
+              dependencies?: Array<{ slug: string }>
             }> = []
 
             for (const stepDef of seedWorkflow.steps) {
               const stepName = `${seedWorkflow.name} - ${stepDef.name}`
+              const stepSlug = stepDef.slug || slugify(stepDef.name)
 
               // Create step in automation-steps collection
               const step = await payload.create({
@@ -327,10 +335,11 @@ export const workflowsPlugin =
               // Add to workflow steps with relationship ID
               workflowSteps.push({
                 step: step.id,
+                slug: stepSlug,
                 stepName: stepDef.name,
                 inputOverrides: stepDef.input || {},
                 condition: stepDef.condition,
-                dependencies: stepDef.dependencies?.map(dep => ({ stepName: dep })),
+                dependencies: stepDef.dependencies?.map(dep => ({ slug: dep })),
               })
             }
 

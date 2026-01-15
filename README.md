@@ -111,6 +111,7 @@ const exampleWorkflows: SeedWorkflow[] = [
     steps: [
       {
         name: 'Validate Order',
+        slug: 'validate-order',  // Unique identifier for this step
         type: 'http-request-step',
         input: {
           url: 'https://api.example.com/validate',
@@ -123,6 +124,7 @@ const exampleWorkflows: SeedWorkflow[] = [
       },
       {
         name: 'Check Inventory',
+        slug: 'check-inventory',
         type: 'http-request-step',
         input: {
           url: 'https://api.example.com/inventory/check',
@@ -131,11 +133,12 @@ const exampleWorkflows: SeedWorkflow[] = [
             items: '{{trigger.doc.items}}',
           },
         },
-        // This step runs only after Validate Order succeeds
-        dependencies: ['Validate Order'],
+        // Dependencies reference other steps by slug
+        dependencies: ['validate-order'],
       },
       {
         name: 'Create Shipment',
+        slug: 'create-shipment',
         type: 'create-document',
         input: {
           collection: 'shipments',
@@ -146,18 +149,19 @@ const exampleWorkflows: SeedWorkflow[] = [
           },
         },
         // This step waits for both validation and inventory check
-        dependencies: ['Validate Order', 'Check Inventory'],
+        dependencies: ['validate-order', 'check-inventory'],
       },
       {
         name: 'Send Confirmation Email',
+        slug: 'send-email',
         type: 'send-email',
         input: {
           to: '{{trigger.doc.customer.email}}',
           subject: 'Order Confirmed',
           text: 'Your order {{trigger.doc.id}} has been confirmed!',
         },
-        // Only send email after shipment is created
-        dependencies: ['Create Shipment'],
+        // Dependencies reference step slugs
+        dependencies: ['create-shipment'],
       },
     ],
   },
@@ -181,7 +185,7 @@ See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for detailed docume
 
 ## Step Dependencies
 
-Steps can declare dependencies on other steps to control execution order. The workflow executor uses topological sorting to determine the optimal execution order.
+Steps can declare dependencies on other steps to control execution order. Dependencies reference steps by their **slug** (not by name or index), making them stable across renames and reordering.
 
 ### How Dependencies Work
 
@@ -189,6 +193,7 @@ Steps can declare dependencies on other steps to control execution order. The wo
 - **Sequential Execution**: Steps with dependencies wait for their dependencies to complete successfully
 - **Multiple Dependencies**: A step can depend on multiple other steps (all must succeed)
 - **Failure Handling**: If a dependency fails, the dependent step is skipped
+- **Slug-based**: Dependencies reference step `slug` fields, not names or positions
 
 ### Example: Parallel and Sequential Steps
 
@@ -196,18 +201,21 @@ Steps can declare dependencies on other steps to control execution order. The wo
 steps: [
   {
     name: 'Fetch User Data',
+    slug: 'fetch-user',
     type: 'http-request-step',
     // No dependencies - runs immediately
   },
   {
     name: 'Fetch Order Data',
+    slug: 'fetch-orders',
     type: 'http-request-step',
-    // No dependencies - runs in parallel with Fetch User Data
+    // No dependencies - runs in parallel with fetch-user
   },
   {
     name: 'Generate Report',
+    slug: 'generate-report',
     type: 'http-request-step',
-    dependencies: ['Fetch User Data', 'Fetch Order Data'],
+    dependencies: ['fetch-user', 'fetch-orders'],  // Reference by slug
     // Waits for both API calls to complete
     input: {
       url: 'https://api.example.com/reports',
@@ -227,8 +235,9 @@ Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps
 ```typescript
 {
   name: 'Process Result',
+  slug: 'process-result',
   type: 'create-document',
-  dependencies: ['API Call'],
+  dependencies: ['api-call'],  // Reference by slug
   input: {
     collection: 'results',
     data: {

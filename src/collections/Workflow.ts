@@ -114,6 +114,14 @@ export const createWorkflowCollection = (): CollectionConfig => {
             required: true,
           },
           {
+            name: 'slug',
+            type: 'text',
+            required: true,
+            admin: {
+              description: 'Unique identifier for this step within the workflow. Used for dependencies.',
+            },
+          },
+          {
             name: 'stepName',
             type: 'text',
             admin: {
@@ -140,14 +148,14 @@ export const createWorkflowCollection = (): CollectionConfig => {
             name: 'dependencies',
             type: 'array',
             admin: {
-              description: 'Steps that must complete before this step can run',
+              description: 'Steps that must complete before this step can run. Reference steps by their slug.',
             },
             fields: [
               {
-                name: 'stepIndex',
-                type: 'number',
+                name: 'slug',
+                type: 'text',
                 admin: {
-                  description: 'Index of the dependent step (0-based)',
+                  description: 'Slug of the dependent step',
                 },
                 required: true,
               },

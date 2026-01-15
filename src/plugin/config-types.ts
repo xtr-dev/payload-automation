@@ -26,9 +26,10 @@ export type SeedWorkflow = {
   }>
   steps: Array<{
     name: string
+    slug?: string  // Optional: auto-generated from name if not provided
     type: string
     input?: Record<string, any>
-    dependencies?: string[]
+    dependencies?: string[]  // Array of step slugs
     condition?: string
   }>
 }

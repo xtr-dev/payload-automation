@@ -115,6 +115,7 @@ export const seed = async (payload: Payload) => {
       steps: [
         {
           step: logChangeStep.id,
+          slug: 'log-change',
           stepName: 'Log Change',
         }
       ],
@@ -133,6 +134,7 @@ export const seed = async (payload: Payload) => {
       steps: [
         {
           step: notifyStep.id,
+          slug: 'send-notification',
           stepName: 'Send Publish Notification',
         }
       ],
