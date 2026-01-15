@@ -14,6 +14,7 @@ A workflow automation plugin for PayloadCMS 3.x. Build visual workflows triggere
 - 📊 Track workflow execution history
 - 🔧 HTTP requests, document operations, email sending
 - 🔗 Use data from previous steps in templates
+- ⚙️ Step dependencies with parallel and sequential execution
 
 ## Installation
 
@@ -93,6 +94,73 @@ const exampleWorkflows: SeedWorkflow[] = [
       },
     ],
   },
+  {
+    slug: 'example-order-processing',
+    name: 'Example: Order Processing Pipeline',
+    description: 'Process order with validation, inventory check, and notifications',
+    triggers: [
+      {
+        type: 'collection-hook',
+        parameters: {
+          collectionSlug: 'orders',
+          hook: 'afterChange',
+        },
+        condition: 'trigger.operation = "create"',
+      },
+    ],
+    steps: [
+      {
+        name: 'Validate Order',
+        type: 'http-request-step',
+        input: {
+          url: 'https://api.example.com/validate',
+          method: 'POST',
+          body: {
+            orderId: '{{trigger.doc.id}}',
+            items: '{{trigger.doc.items}}',
+          },
+        },
+      },
+      {
+        name: 'Check Inventory',
+        type: 'http-request-step',
+        input: {
+          url: 'https://api.example.com/inventory/check',
+          method: 'POST',
+          body: {
+            items: '{{trigger.doc.items}}',
+          },
+        },
+        // This step runs only after Validate Order succeeds
+        dependencies: ['Validate Order'],
+      },
+      {
+        name: 'Create Shipment',
+        type: 'create-document',
+        input: {
+          collection: 'shipments',
+          data: {
+            orderId: '{{trigger.doc.id}}',
+            status: 'pending',
+            items: '{{trigger.doc.items}}',
+          },
+        },
+        // This step waits for both validation and inventory check
+        dependencies: ['Validate Order', 'Check Inventory'],
+      },
+      {
+        name: 'Send Confirmation Email',
+        type: 'send-email',
+        input: {
+          to: '{{trigger.doc.customer.email}}',
+          subject: 'Order Confirmed',
+          text: 'Your order {{trigger.doc.id}} has been confirmed!',
+        },
+        // Only send email after shipment is created
+        dependencies: ['Create Shipment'],
+      },
+    ],
+  },
 ]
 
 workflowsPlugin({
@@ -110,6 +178,67 @@ Seeded workflows:
 - Can be duplicated to create editable versions
 
 See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for detailed documentation.
+
+## Step Dependencies
+
+Steps can declare dependencies on other steps to control execution order. The workflow executor uses topological sorting to determine the optimal execution order.
+
+### How Dependencies Work
+
+- **Parallel Execution**: Steps without dependencies run in parallel
+- **Sequential Execution**: Steps with dependencies wait for their dependencies to complete successfully
+- **Multiple Dependencies**: A step can depend on multiple other steps (all must succeed)
+- **Failure Handling**: If a dependency fails, the dependent step is skipped
+
+### Example: Parallel and Sequential Steps
+
+```typescript
+steps: [
+  {
+    name: 'Fetch User Data',
+    type: 'http-request-step',
+    // No dependencies - runs immediately
+  },
+  {
+    name: 'Fetch Order Data',
+    type: 'http-request-step',
+    // No dependencies - runs in parallel with Fetch User Data
+  },
+  {
+    name: 'Generate Report',
+    type: 'http-request-step',
+    dependencies: ['Fetch User Data', 'Fetch Order Data'],
+    // Waits for both API calls to complete
+    input: {
+      url: 'https://api.example.com/reports',
+      body: {
+        user: '{{steps.FetchUserData.output.user}}',
+        orders: '{{steps.FetchOrderData.output.orders}}',
+      },
+    },
+  },
+]
+```
+
+### Accessing Step Output
+
+Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps:
+
+```typescript
+{
+  name: 'Process Result',
+  type: 'create-document',
+  dependencies: ['API Call'],
+  input: {
+    collection: 'results',
+    data: {
+      // Access output from the "API Call" step
+      apiResponse: '{{steps.APICall.output.data}}',
+      status: '{{steps.APICall.output.status}}',
+    },
+  },
+}
+```
 
 ## Step Types
 
