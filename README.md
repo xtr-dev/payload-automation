@@ -153,12 +153,13 @@ Send notifications via PayloadCMS email adapter:
 
 ## Custom Steps
 
-Create reusable step types with the `createStep` factory:
+Create custom steps using PayloadCMS `TaskConfig`:
 
 ```typescript
-import { createStep } from '@xtr-dev/payload-automation/steps'
+import type { TaskConfig } from 'payload'
 
-export const SlackNotificationStep = createStep({
+// Define the step configuration
+export const SlackNotificationStep: TaskConfig<'slack-notification'> = {
   slug: 'slack-notification',
   label: 'Send Slack Message',
 
@@ -172,42 +173,40 @@ export const SlackNotificationStep = createStep({
     { name: 'timestamp', type: 'text' },
   ],
 
-  visual: {
-    icon: '💬',
-    color: '#4A154B',
-  },
+  handler: async ({ input, req }) => {
+    try {
+      const response = await fetch('https://slack.com/api/chat.postMessage', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.SLACK_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          channel: input.channel,
+          text: input.message,
+        }),
+      })
 
-  validate: (input) => {
-    if (!input.channel?.startsWith('#')) {
-      throw new Error('Channel must start with #')
+      const data = await response.json()
+
+      return {
+        output: {
+          messageId: data.message.ts,
+          timestamp: new Date().toISOString(),
+        },
+        state: 'succeeded'
+      }
+    } catch (error) {
+      return {
+        output: {},
+        state: 'failed',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      }
     }
   },
+}
 
-  execute: async (input, req) => {
-    const response = await fetch('https://slack.com/api/chat.postMessage', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.SLACK_TOKEN}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        channel: input.channel,
-        text: input.message,
-      }),
-    })
-
-    const data = await response.json()
-    return {
-      messageId: data.message.ts,
-      timestamp: new Date().toISOString(),
-    }
-  },
-})
-```
-
-Register custom steps in the plugin config:
-
-```typescript
+// Register in plugin config
 workflowsPlugin({
   steps: [SlackNotificationStep],
 })

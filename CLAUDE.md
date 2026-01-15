@@ -170,24 +170,38 @@ Common built-in functions:
 
 ### Creating Steps
 
-Steps can be created using the `createStep` factory:
+Steps are created using PayloadCMS `TaskConfig`:
 
 ```typescript
-import { createStep } from '@xtr-dev/payload-automation/steps'
+import type { TaskConfig } from 'payload'
 
-export const myStep = createStep({
+export const myStep: TaskConfig<'my-step'> = {
   slug: 'my-step',
   label: 'My Custom Step',
   inputSchema: [{ name: 'url', type: 'text', required: true }],
   outputSchema: [{ name: 'result', type: 'json' }],
-  validate: (input) => {
-    if (!input.url) throw new Error('URL is required')
-  },
-  execute: async (input, req) => {
-    const response = await fetch(input.url as string)
-    return { result: await response.json() }
+  handler: async ({ input, req }) => {
+    try {
+      if (!input.url) {
+        throw new Error('URL is required')
+      }
+
+      const response = await fetch(input.url as string)
+      const result = await response.json()
+
+      return {
+        output: { result },
+        state: 'succeeded'
+      }
+    } catch (error) {
+      return {
+        output: {},
+        state: 'failed',
+        errorMessage: error instanceof Error ? error.message : 'Unknown error'
+      }
+    }
   }
-})
+}
 ```
 
 ### Collections
