@@ -8,15 +8,12 @@ A workflow automation plugin for PayloadCMS 3.x. Build visual workflows triggere
 
 ## Features
 
-- **Visual Workflow Builder** - Drag-and-drop workflow editor in PayloadCMS admin
-- **Workflow Visualizer** - React component for displaying workflows with real-time execution status
-- **Collection Triggers** - Run workflows when documents are created, updated, or deleted
-- **Webhook Triggers** - Trigger workflows via HTTP endpoints
-- **Step Dependencies** - Define execution order with parallel and sequential steps
-- **Execution Tracking** - Full history with step-by-step results, duration, and logs
-- **Built-in Steps** - HTTP requests, document CRUD, email sending
-- **Custom Steps** - Create your own step types with the step factory
-- **JSONata Expressions** - Powerful data transformation between steps
+- 🔄 Visual workflow builder in PayloadCMS admin
+- ⚡ Run workflows when documents are created/updated/deleted
+- 🎯 Trigger workflows via webhooks
+- 📊 Track workflow execution history
+- 🔧 HTTP requests, document operations, email sending
+- 🔗 Use data from previous steps in templates
 
 ## Installation
 
@@ -30,20 +27,20 @@ npm install @xtr-dev/payload-automation
 
 ```typescript
 import { buildConfig } from 'payload'
-import { workflowsPlugin } from '@xtr-dev/payload-automation'
+import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
 
 export default buildConfig({
+  // ... your config
   plugins: [
     workflowsPlugin({
-      enabled: true,
       collectionTriggers: {
-        orders: true,  // Enable all hooks for orders
-        users: {
-          afterChange: true,  // Only specific hooks
+        posts: true,    // Enable all CRUD triggers for posts
+        users: { 
+          create: true, // Only enable create trigger for users
+          update: true
         }
       },
-      // Register custom steps
-      steps: [myCustomStep],
+      enabled: true,
     }),
   ],
 })
@@ -52,10 +49,10 @@ export default buildConfig({
 ## Imports
 
 ```typescript
-// Main plugin
-import { workflowsPlugin } from '@xtr-dev/payload-automation'
+// Server plugin
+import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
 
-// Client components
+// Client components  
 import { StatusCell, ErrorDisplay } from '@xtr-dev/payload-automation/client'
 
 // Types
@@ -89,7 +86,7 @@ const exampleWorkflows: SeedWorkflow[] = [
         name: 'Send Email',
         type: 'send-email',
         input: {
-          to: '$.trigger.doc.email',
+          to: '{{trigger.doc.email}}',
           subject: 'Welcome!',
           text: 'Thanks for joining us!',
         },
