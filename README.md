@@ -113,6 +113,8 @@ See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for detailed docume
 
 ## Step Types
 
+> **Note:** Steps are just regular [PayloadCMS tasks](https://payloadcms.com/docs/jobs/overview). This plugin uses Payload's built-in job queue system, so you can leverage all of Payload's task features including retries, scheduling, and monitoring. Any `TaskConfig` you create is a valid step.
+
 ### HTTP Request
 Call external APIs with full configuration:
 
@@ -153,7 +155,7 @@ Send notifications via PayloadCMS email adapter:
 
 ## Custom Steps
 
-Create custom steps using PayloadCMS `TaskConfig`:
+Steps are standard PayloadCMS tasks, so creating custom steps is just defining a `TaskConfig`. No proprietary APIs to learn:
 
 ```typescript
 import type { TaskConfig } from 'payload'
