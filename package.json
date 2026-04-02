@@ -66,14 +66,14 @@
     "test:int": "vitest"
   },
   "devDependencies": {
-    "@payloadcms/db-mongodb": "3.45.0",
-    "@payloadcms/db-postgres": "3.45.0",
-    "@payloadcms/db-sqlite": "3.45.0",
-    "@payloadcms/eslint-config": "3.9.0",
-    "@payloadcms/next": "3.45.0",
-    "@payloadcms/richtext-lexical": "3.45.0",
-    "@payloadcms/ui": "3.45.0",
-    "@playwright/test": "^1.52.0",
+    "@payloadcms/db-mongodb": "3.81.0",
+    "@payloadcms/db-postgres": "3.81.0",
+    "@payloadcms/db-sqlite": "3.81.0",
+    "@payloadcms/eslint-config": "3.28.0",
+    "@payloadcms/next": "3.81.0",
+    "@payloadcms/richtext-lexical": "3.81.0",
+    "@payloadcms/ui": "3.81.0",
+    "@playwright/test": "^1.59.1",
     "@swc/cli": "0.6.0",
     "@types/handlebars": "^4.1.0",
     "@types/nock": "^11.1.0",
@@ -86,9 +86,9 @@
     "eslint": "^9.23.0",
     "graphql": "^16.8.1",
     "mongodb-memory-server": "10.1.4",
-    "next": "15.4.8",
+    "next": "15.5.14",
     "nock": "^14.0.10",
-    "payload": "3.45.0",
+    "payload": "3.81.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "rimraf": "3.0.2",
@@ -99,7 +99,7 @@
     "vitest": "^3.1.2"
   },
   "peerDependencies": {
-    "payload": "^3.45.0"
+    "payload": "^3.79.1"
   },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
@@ -137,7 +137,7 @@
   "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184",
   "dependencies": {
     "@xyflow/react": "^12.10.0",
-    "handlebars": "^4.7.8",
+    "handlebars": "^4.7.9",
     "jsonata": "^2.1.0",
     "node-cron": "^4.2.1",
     "pino": "^9.9.0"

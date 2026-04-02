@@ -256,7 +256,7 @@ Grouped hook options for better admin UX:
 - **TypeScript** for type generation with strict settings
 - **copyfiles** for asset management
 - Exports configured for both development and production
-- Peer dependency on PayloadCMS 3.37.0
+- Peer dependency on PayloadCMS 3.79.1+
 
 ## Environment Variables
 
@@ -268,7 +268,7 @@ PAYLOAD_AUTOMATION_LOG_LEVEL=info  # debug | info | warn | error
 ## Dependencies
 
 ### Runtime
-- PayloadCMS 3.37.0 as peer dependency
+- PayloadCMS 3.79.1+ as peer dependency
 - JSONata for expression evaluation (serverless-compatible)
 - Node.js ^18.20.2 || >=20.9.0
 - pnpm ^9 || ^10 package manager
