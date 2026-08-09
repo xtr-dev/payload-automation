@@ -92,6 +92,26 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Record a step's state in the expression context under both its slug and its
+   * display name. Slug is the stable identifier everywhere else in the plugin —
+   * dependencies resolve by slug in resolveExecutionOrder — but output references
+   * used to be keyed by name only, so `{{steps.<slug>.output}}` silently resolved
+   * to nothing (the engine returns the unevaluated `{{...}}` string as a literal
+   * on failure) while `dependencies: ['<slug>']` worked. The name stays as a key
+   * so workflows written against it keep resolving.
+   */
+  private setStepContext(
+    context: ExecutionContext,
+    step: ResolvedStep,
+    entry: Record<string, unknown>
+  ): void {
+    context.steps[step.slug] = entry
+    if (step.stepName && step.stepName !== step.slug) {
+      context.steps[step.stepName] = entry
+    }
+  }
+
+  /**
    * Resolve workflow steps by loading base step configurations and merging with overrides
    */
   private async resolveWorkflowSteps(workflow: PayloadWorkflow): Promise<ResolvedStep[]> {
@@ -251,10 +271,10 @@ export class WorkflowExecutor {
         result.completedAt = new Date().toISOString()
         result.output = { reason: 'Condition not met', skipped: true }
 
-        context.steps[step.stepName] = {
+        this.setStepContext(context, step, {
           state: 'skipped',
           output: result.output
-        }
+        })
 
         return result
       }
@@ -264,10 +284,10 @@ export class WorkflowExecutor {
     const resolvedInput = await this.resolveStepInput(step.config, context)
     result.input = resolvedInput
 
-    context.steps[step.stepName] = {
+    this.setStepContext(context, step, {
       state: 'running',
       input: resolvedInput
-    }
+    })
 
     try {
       const job = await this.payload.jobs.queue({
@@ -356,11 +376,11 @@ export class WorkflowExecutor {
         throw new Error(errorMessage)
       }
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'succeeded',
         input: resolvedInput,
         output: result.output
-      }
+      })
 
       this.logger.info({
         stepName: step.stepName,
@@ -374,11 +394,11 @@ export class WorkflowExecutor {
       result.completedAt = new Date().toISOString()
       result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'failed',
         input: resolvedInput,
         error: errorMessage
-      }
+      })
 
       this.logger.error({
         stepName: step.stepName,

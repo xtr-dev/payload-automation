@@ -220,8 +220,8 @@ steps: [
     input: {
       url: 'https://api.example.com/reports',
       body: {
-        user: '{{steps.FetchUserData.output.user}}',
-        orders: '{{steps.FetchOrderData.output.orders}}',
+        user: '{{steps.`fetch-user`.output.user}}',
+        orders: '{{steps.`fetch-orders`.output.orders}}',
       },
     },
   },
@@ -230,7 +230,7 @@ steps: [
 
 ### Accessing Step Output
 
-Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps:
+Use `{{steps.<slug>.output.<field>}}` to reference data from completed steps — the same slug that dependencies use. Slugs containing a hyphen must be backtick-quoted, because JSONata parses an unquoted `-` as subtraction:
 
 ```typescript
 {
@@ -241,9 +241,9 @@ Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps
   input: {
     collection: 'results',
     data: {
-      // Access output from the "API Call" step
-      apiResponse: '{{steps.APICall.output.data}}',
-      status: '{{steps.APICall.output.status}}',
+      // Access output from the step with slug "api-call"
+      apiResponse: '{{steps.`api-call`.output.data}}',
+      status: '{{steps.`api-call`.output.status}}',
     },
   },
 }
@@ -363,8 +363,10 @@ Use `{{expression}}` syntax for dynamic values. [JSONata](https://jsonata.org) p
 - `trigger.doc` - The document that triggered the workflow
 - `trigger.type` - Trigger type ('collection' | 'global')
 - `trigger.collection` - Collection slug for collection triggers
-- `steps.<stepName>.output` - Output from a completed step
-- `steps.<stepName>.state` - Step state ('succeeded' | 'failed' | 'pending' | 'skipped')
+- `steps.<slug>.output` - Output from a completed step (also available under the step's display name)
+- `steps.<slug>.state` - Step state ('succeeded' | 'failed' | 'pending' | 'skipped')
+
+Hyphenated slugs must be backtick-quoted in expressions, e.g. `` steps.`fetch-user`.output ``, because JSONata parses an unquoted `-` as subtraction.
 
 ### Examples
 
