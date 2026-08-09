@@ -71,8 +71,12 @@ export type WorkflowsPluginConfig<
     /**
      * Step task configurations.
      * These are the step types available for use in workflows.
+     * Optional: without it the plugin still registers its collections and
+     * trigger hooks, but no step types exist until some are passed in.
+     * The built-in tasks (HttpRequestStepTask etc.) are exported from
+     * '@xtr-dev/payload-automation/server' and must be passed explicitly.
      */
-    steps: TaskConfig<string>[]
+    steps?: TaskConfig<string>[]
 
     /**
      * Seed workflows to create on plugin initialization.
