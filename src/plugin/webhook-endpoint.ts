@@ -143,6 +143,13 @@ export const webhookEndpoint: Endpoint = {
           continue
         }
 
+        // The secret's only job is authenticating the caller, which happened
+        // above. Anything in the context is stored verbatim on the
+        // workflow-runs record and readable by every JSONata expression as
+        // trigger.firedTrigger.*, so the secret must not travel past this
+        // point — observed leaking into triggerData on 2026-08-14.
+        const { webhookSecret: _webhookSecret, ...safeTrigger } = firedTrigger
+
         // The live req is deliberately NOT part of this context: JSONata
         // evaluates against it raw, and req.payload would hand expressions the
         // whole Payload instance. Headers are excluded for the same reason —
@@ -157,7 +164,7 @@ export const webhookEndpoint: Endpoint = {
             // "[Circular Reference]", so sharing one object between body and
             // doc would store the run's doc as that placeholder string.
             doc: structuredClone(body),
-            firedTrigger,
+            firedTrigger: safeTrigger,
             query,
             triggeredAt: new Date().toISOString(),
             webhookPath: requestedPath,
@@ -195,7 +202,7 @@ export const webhookEndpoint: Endpoint = {
         }
 
         try {
-          await executor.execute(workflow as unknown as PayloadWorkflow, context, req, firedTrigger)
+          await executor.execute(workflow as unknown as PayloadWorkflow, context, req, safeTrigger)
           results.push({
             status: 'triggered',
             workflowId: String(workflow.id),
