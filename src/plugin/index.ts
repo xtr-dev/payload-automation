@@ -8,6 +8,7 @@ import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
+import { webhookEndpoint } from './webhook-endpoint.js'
 
 export { getLogger } from './logger.js'
 
@@ -46,6 +47,13 @@ export const workflowsPlugin =
     }
 
     applyCollectionsConfig<TSlug>(pluginOptions, config)
+
+    // Registered at config time, not in onInit — Payload only serves endpoints
+    // that exist on the config before init runs.
+    if (!config.endpoints) {
+      config.endpoints = []
+    }
+    config.endpoints.push(webhookEndpoint)
 
     const logger = getConfigLogger()
 
@@ -290,6 +298,7 @@ export const workflowsPlugin =
                   triggerData.schedule = triggerDef.parameters.schedule
                 } else if (triggerDef.type === 'webhook') {
                   triggerData.webhookPath = triggerDef.parameters.webhookPath
+                  triggerData.webhookSecret = triggerDef.parameters.webhookSecret
                 }
               }
 

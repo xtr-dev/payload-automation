@@ -354,15 +354,35 @@ workflowsPlugin({
 })
 ```
 
+## Webhook Triggers
+
+Workflows can be started from outside your app over HTTP. Create a trigger of type **Webhook** in the `automation-triggers` collection, give it a path and a secret, and reference it from a workflow. The plugin serves the endpoint at:
+
+```
+POST /api/automation/webhooks/<webhookPath>
+```
+
+Every request must carry the trigger's secret, either in an `X-Webhook-Secret` header or as an `Authorization: Bearer` token — requests without a valid secret are rejected with a 401 and start nothing:
+
+```bash
+curl -X POST https://your-app.com/api/automation/webhooks/my-webhook \
+  -H "X-Webhook-Secret: your-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"orderId": "abc-123"}'
+```
+
+The JSON request body is available to expressions as `trigger.doc` (and `trigger.body`), query parameters as `trigger.query`. The response lists each workflow the call reached and whether it was `triggered`, `skipped` (trigger condition evaluated false), or `failed`. Each execution is recorded in `workflow-runs` like any other trigger.
+
 ## JSONata Expressions
 
 Use `{{expression}}` syntax for dynamic values. [JSONata](https://jsonata.org) provides powerful data transformation.
 
 ### Available Context
 
-- `trigger.doc` - The document that triggered the workflow
-- `trigger.type` - Trigger type ('collection' | 'global')
+- `trigger.doc` - The document that triggered the workflow (for webhooks: the JSON request body)
+- `trigger.type` - Trigger type ('collection' | 'global' | 'webhook')
 - `trigger.collection` - Collection slug for collection triggers
+- `trigger.query` - Query parameters for webhook triggers
 - `steps.<stepName>.output` - Output from a completed step
 - `steps.<stepName>.state` - Step state ('succeeded' | 'failed' | 'pending' | 'skipped')
 

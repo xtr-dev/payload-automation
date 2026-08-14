@@ -132,8 +132,18 @@ export const createTriggersCollection = <T extends string>(
         type: 'text',
         admin: {
           condition: (_, siblingData) => siblingData?.type === 'webhook',
-          description: 'The URL path for this webhook (e.g., "my-webhook")',
+          description:
+            'Single path segment for this webhook. The endpoint is served at POST /api/automation/webhooks/<path>',
           placeholder: 'my-webhook',
+        },
+      },
+      {
+        name: 'webhookSecret',
+        type: 'text',
+        admin: {
+          condition: (_, siblingData) => siblingData?.type === 'webhook',
+          description:
+            'Shared secret the caller must send in the X-Webhook-Secret header (or as an Authorization bearer token). Requests without it are rejected.',
         },
       },
       // Condition configuration
@@ -193,6 +203,11 @@ export const createTriggersCollection = <T extends string>(
             }
             if (data?.type === 'webhook' && !data?.webhookPath) {
               throw new Error('Webhook path is required for webhook triggers')
+            }
+            // Without a secret the endpoint would start workflows for anyone
+            // who can reach it, so a webhook trigger cannot be saved open.
+            if (data?.type === 'webhook' && !data?.webhookSecret) {
+              throw new Error('Webhook secret is required for webhook triggers')
             }
           }
           return data
