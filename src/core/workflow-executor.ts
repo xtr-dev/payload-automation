@@ -118,7 +118,7 @@ export class WorkflowExecutor {
     if (step.stepName && step.stepName !== step.slug) {
       const existingSlug = owners.get(step.stepName)
       if (existingSlug && existingSlug !== step.slug) {
-        this.logger.debug({
+        this.logger.warn({
           contextKey: step.stepName,
           existingSlug,
           stepSlug: step.slug
@@ -128,6 +128,28 @@ export class WorkflowExecutor {
 
       context.steps[step.stepName] = entry
       owners.set(step.stepName, step.slug)
+    }
+  }
+
+  /**
+   * Claim every step's own slug as its context-key owner before any batch runs.
+   * Batches execute concurrently (see `execute`), and a step only calls
+   * setStepContext for the first time partway through its own execution — so
+   * without this, a step whose display name equals another step's not-yet-run
+   * slug could transiently win that key and have a third step's expression
+   * silently resolve against the wrong step's data. All slugs are known from
+   * `resolvedSteps` before batch execution begins, so they can all be claimed
+   * upfront instead of racing to claim themselves at execution time.
+   */
+  private seedStepContextOwners(context: ExecutionContext, steps: ResolvedStep[]): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    for (const step of steps) {
+      owners.set(step.slug, step.slug)
     }
   }
 
@@ -546,6 +568,7 @@ export class WorkflowExecutor {
     }, 'Starting workflow execution')
 
     const resolvedSteps = await this.resolveWorkflowSteps(workflow)
+    this.seedStepContextOwners(context, resolvedSteps)
     const stepResults: StepResult[] = []
 
     for (const step of resolvedSteps) {
