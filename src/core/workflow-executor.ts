@@ -83,6 +83,7 @@ export interface WorkflowJobMeta {
 
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
+  private stepContextOwners = new WeakMap<ExecutionContext, Map<string, string>>()
 
   constructor(
     private payload: Payload,
@@ -105,9 +106,28 @@ export class WorkflowExecutor {
     step: ResolvedStep,
     entry: Record<string, unknown>
   ): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
     context.steps[step.slug] = entry
+    owners.set(step.slug, step.slug)
+
     if (step.stepName && step.stepName !== step.slug) {
+      const existingSlug = owners.get(step.stepName)
+      if (existingSlug && existingSlug !== step.slug) {
+        this.logger.debug({
+          contextKey: step.stepName,
+          existingSlug,
+          stepSlug: step.slug
+        }, 'Skipping step name context alias because it collides with another step slug')
+        return
+      }
+
       context.steps[step.stepName] = entry
+      owners.set(step.stepName, step.slug)
     }
   }
 
