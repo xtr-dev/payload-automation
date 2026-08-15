@@ -14,11 +14,13 @@ import { WorkflowExecutor } from '../core/workflow-executor.js'
 export const WEBHOOK_ENDPOINT_PATH = '/automation/webhooks/:webhookPath'
 
 /**
- * Stored webhookPath values may have been entered with or without a leading
- * slash ("my-webhook" vs "/my-webhook") — the admin field never enforced a
- * shape. Compare both sides normalized so neither spelling silently 404s.
+ * Stored webhookPath values may be entered with or without a leading/trailing
+ * slash ("my-webhook" vs "/my-webhook") — the Triggers collection normalizes
+ * new saves through this same function, but documents written before that
+ * validation existed may still hold the un-normalized spelling. Compare both
+ * sides normalized so neither spelling silently 404s.
  */
-const normalizeWebhookPath = (path: string): string =>
+export const normalizeWebhookPath = (path: string): string =>
   path.trim().replace(/^\/+/, '').replace(/\/+$/, '')
 
 /**
