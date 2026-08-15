@@ -247,9 +247,18 @@ export const workflowsPlugin =
       if (pluginOptions.seedWorkflows && pluginOptions.seedWorkflows.length > 0) {
         logger.info(`Seeding ${pluginOptions.seedWorkflows.length} workflows...`)
 
+        // Helper to generate slug from name
+        const slugify = (str: string): string =>
+          str.toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+
         for (const seedWorkflow of pluginOptions.seedWorkflows) {
           try {
-            // Check if workflow already exists by slug
+            // Find any previously seeded workflow by its stable slug. Local
+            // API calls in this block pass overrideAccess: true throughout -
+            // the workflow access control now scopes update/delete to
+            // non-readOnly documents, and seeded workflows are readOnly.
             const existingWorkflow = await payload.find({
               collection: 'workflows',
               where: {
@@ -258,12 +267,10 @@ export const workflowsPlugin =
                 },
               },
               limit: 1,
+              overrideAccess: true,
             })
 
-            if (existingWorkflow.docs.length > 0) {
-              logger.debug(`Workflow '${seedWorkflow.slug}' already exists, skipping seed`)
-              continue
-            }
+            const previousWorkflow = existingWorkflow.docs[0]
 
             // Create triggers in automation-triggers collection
             const triggerIds: (string | number)[] = []
@@ -296,16 +303,11 @@ export const workflowsPlugin =
               const trigger = await payload.create({
                 collection: 'automation-triggers',
                 data: triggerData,
+                overrideAccess: true,
               })
               triggerIds.push(trigger.id)
               logger.debug(`Created trigger: ${triggerName}`)
             }
-
-            // Helper to generate slug from name
-            const slugify = (str: string): string =>
-              str.toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '')
 
             // Create steps in automation-steps collection and build workflow steps array
             const workflowSteps: Array<{
@@ -329,6 +331,7 @@ export const workflowsPlugin =
                   type: stepDef.type,
                   config: stepDef.input || {},
                 },
+                overrideAccess: true,
               })
               logger.debug(`Created step: ${stepName}`)
 
@@ -343,6 +346,57 @@ export const workflowsPlugin =
               })
             }
 
+            if (previousWorkflow) {
+              // Reconcile: point the existing workflow (found by its stable
+              // slug) at the freshly created triggers/steps, then remove the
+              // records it used to reference. Deleting only after the
+              // workflow no longer points at them keeps a restart from
+              // accumulating orphaned automation-triggers/automation-steps
+              // rows every time a seed definition changes.
+              type RelationValue = string | number | { id: string | number }
+              const staleTriggerIds = (
+                (previousWorkflow as { triggers?: RelationValue[] }).triggers || []
+              ).map((t) => (typeof t === 'object' ? t.id : t))
+              const staleStepIds = (
+                (previousWorkflow as { steps?: Array<{ step: RelationValue }> }).steps || []
+              ).map(({ step }) => (typeof step === 'object' ? step.id : step))
+
+              await payload.update({
+                collection: 'workflows',
+                id: previousWorkflow.id,
+                data: {
+                  name: seedWorkflow.name,
+                  description: seedWorkflow.description,
+                  triggers: triggerIds,
+                  steps: workflowSteps,
+                  readOnly: true,
+                },
+                overrideAccess: true,
+              })
+
+              for (const staleId of staleTriggerIds) {
+                await payload.delete({
+                  collection: 'automation-triggers',
+                  id: staleId,
+                  overrideAccess: true,
+                }).catch((error) => {
+                  logger.debug(`Could not remove stale trigger ${String(staleId)}: ${String(error)}`)
+                })
+              }
+              for (const staleId of staleStepIds) {
+                await payload.delete({
+                  collection: 'automation-steps',
+                  id: staleId,
+                  overrideAccess: true,
+                }).catch((error) => {
+                  logger.debug(`Could not remove stale step ${String(staleId)}: ${String(error)}`)
+                })
+              }
+
+              logger.info(`Updated seeded workflow: ${seedWorkflow.name}`)
+              continue
+            }
+
             // Create the workflow with relationship IDs
             await payload.create({
               collection: 'workflows',
@@ -354,6 +408,7 @@ export const workflowsPlugin =
                 steps: workflowSteps,
                 readOnly: true,
               },
+              overrideAccess: true,
             })
 
             logger.info(`Seeded workflow: ${seedWorkflow.name}`)

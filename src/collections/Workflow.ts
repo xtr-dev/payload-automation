@@ -9,21 +9,14 @@ export const createWorkflowCollection = (): CollectionConfig => {
     slug: 'workflows',
     access: {
       create: () => true,
-      delete: ({ req, data }) => {
-        // Prevent deletion of read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
+      // Returning a Where clause (rather than inspecting `data`) scopes the
+      // operation to the document's PERSISTED readOnly value. `data` is the
+      // incoming request body - omitting or clearing `readOnly` in a PATCH
+      // must not be enough to unlock a seeded workflow, and delete requests
+      // carry no `data` at all, so a data-based check can't refuse them.
+      delete: () => ({ readOnly: { not_equals: true } }),
       read: () => true,
-      update: ({ req, data }) => {
-        // Prevent updates to read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
+      update: () => ({ readOnly: { not_equals: true } }),
     },
     admin: {
       defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
