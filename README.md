@@ -220,8 +220,8 @@ steps: [
     input: {
       url: 'https://api.example.com/reports',
       body: {
-        user: '{{steps.FetchUserData.output.user}}',
-        orders: '{{steps.FetchOrderData.output.orders}}',
+        user: '{{steps.`Fetch User Data`.output.user}}',
+        orders: '{{steps.`Fetch Order Data`.output.orders}}',
       },
     },
   },
@@ -230,7 +230,9 @@ steps: [
 
 ### Accessing Step Output
 
-Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps:
+Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps, where
+`<stepName>` is the step's `name` field exactly as configured — not its `slug`. If the name
+contains a space or other character JSONata treats as special, quote it with backticks:
 
 ```typescript
 {
@@ -241,9 +243,9 @@ Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps
   input: {
     collection: 'results',
     data: {
-      // Access output from the "API Call" step
-      apiResponse: '{{steps.APICall.output.data}}',
-      status: '{{steps.APICall.output.status}}',
+      // Access output from the "API Call" step (dependency's `name`, quoted because it has a space)
+      apiResponse: '{{steps.`API Call`.output.data}}',
+      status: '{{steps.`API Call`.output.status}}',
     },
   },
 }
