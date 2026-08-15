@@ -2,29 +2,30 @@
 // This file contains NO runtime code and can be safely bundled
 
 export interface CustomTriggerOptions {
-  workflowId: string
-  triggerData?: any
-  req?: any // PayloadRequest type, but avoiding import to keep this client-safe
+  /** Data to pass to the workflow execution context. */
+  data?: Record<string, unknown>
+  /** PayloadRequest, kept as `any` so this client-safe entry does not import Payload. */
+  req?: any
+  /** The slug of the custom trigger to execute. */
+  slug: string
+  /** Optional user information for tracking who triggered the workflow. */
+  user?: {
+    email?: string
+    id?: string
+  }
 }
 
 export interface TriggerResult {
-  success: boolean
-  runId?: string
   error?: string
+  runId: number | string
+  status: 'failed' | 'triggered'
+  workflowId: string
+  workflowName: string
 }
 
 export interface ExecutionContext {
-  trigger: {
-    type: string
-    doc?: any
-    data?: any
-  }
-  steps: Record<string, {
-    output?: any
-    state: 'pending' | 'running' | 'succeeded' | 'failed'
-  }>
-  payload: any // Payload instance
-  req: any // PayloadRequest
+  steps: Record<string, any>
+  trigger: Record<string, any>
 }
 
 // NOTE: Workflow, WorkflowStep, and WorkflowTrigger types are now imported from the generated PayloadCMS types
@@ -35,7 +36,9 @@ export type { WorkflowsPluginConfig, SeedWorkflow } from '../plugin/config-types
 
 /**
  * Logging configuration options for the workflows plugin.
- * @deprecated Use the full WorkflowsPluginConfig from '@xtr-dev/payload-automation/server' instead.
+ * @deprecated Set `enabled` with WorkflowsPluginConfig. Configure log level with
+ * the PAYLOAD_AUTOMATION_LOG_LEVEL environment variable; WorkflowsPluginConfig
+ * does not provide a `level` option.
  */
 export interface WorkflowLoggingConfig {
     level?: 'debug' | 'info' | 'warn' | 'error'
