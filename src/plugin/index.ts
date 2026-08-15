@@ -6,6 +6,7 @@ import { createTriggersCollection } from '../collections/Triggers.js'
 import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
+import { allCollectionHooks, allGlobalHooks } from '../triggers/hook-options.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 
@@ -73,6 +74,11 @@ export const workflowsPlugin =
           : triggerConfig
 
         Object.entries(hooksToRegister).forEach(([hookName, enabled]) => {
+          if (!allCollectionHooks.includes(hookName)) {
+            logger.warn(`Unknown hook '${hookName}' for collection '${collectionSlug}' — valid hooks are: ${allCollectionHooks.join(', ')}`)
+            return
+          }
+
           if (!enabled) {
             return
           }
@@ -125,6 +131,11 @@ export const workflowsPlugin =
           : triggerConfig
 
         Object.entries(hooksToRegister).forEach(([hookName, enabled]) => {
+          if (!allGlobalHooks.includes(hookName)) {
+            logger.warn(`Unknown hook '${hookName}' for global '${globalSlug}' — valid hooks are: ${allGlobalHooks.join(', ')}`)
+            return
+          }
+
           if (!enabled) {
             return
           }
