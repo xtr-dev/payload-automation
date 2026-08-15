@@ -1,4 +1,5 @@
 import jsonata from 'jsonata'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type {Payload} from "payload";
 
 /**
@@ -54,9 +55,10 @@ interface TimeboxState {
   timeout: number
 }
 
-// Timebox state lives beside the cached expression rather than in it, so
-// evaluate() can reset the clock per call while the hooks stay registered once.
-const timeboxStates = new WeakMap<jsonata.Expression, TimeboxState>()
+// Compiled expressions are cached and shared by concurrent callers. Keep the
+// mutable deadline/depth state in the async context of each evaluate() call so
+// one caller can never re-arm another caller's timebox.
+const timeboxStateStorage = new AsyncLocalStorage<TimeboxState>()
 
 /**
  * Interrupt evaluation from inside jsonata. A Promise.race timeout cannot do
@@ -66,9 +68,12 @@ const timeboxStates = new WeakMap<jsonata.Expression, TimeboxState>()
  * point where a synchronous runaway can be made to throw.
  */
 function timeboxExpression(expr: jsonata.Expression): void {
-  const state: TimeboxState = { depth: 0, time: Date.now(), timeout: DEFAULT_TIMEOUT }
-
   const checkRunaway = () => {
+    const state = timeboxStateStorage.getStore()
+    if (!state) {
+      return
+    }
+
     if (state.depth > MAX_DEPTH) {
       throw new Error(
         `Expression evaluation exceeded maximum recursion depth of ${MAX_DEPTH} — check for non-terminating recursion`
@@ -82,15 +87,23 @@ function timeboxExpression(expr: jsonata.Expression): void {
   // jsonata 2.x looks these hooks up by symbol; assign() passes the key through
   // to the environment unchanged, its string-only type is just too narrow.
   expr.assign(Symbol.for('jsonata.__evaluate_entry') as unknown as string, () => {
+    const state = timeboxStateStorage.getStore()
+    if (!state) {
+      return
+    }
+
     state.depth++
     checkRunaway()
   })
   expr.assign(Symbol.for('jsonata.__evaluate_exit') as unknown as string, () => {
+    const state = timeboxStateStorage.getStore()
+    if (!state) {
+      return
+    }
+
     state.depth--
     checkRunaway()
   })
-
-  timeboxStates.set(expr, state)
 }
 
 /**
@@ -110,7 +123,9 @@ function compileExpression(expression: string): jsonata.Expression {
     // Manage cache size
     if (expressionCache.size >= MAX_CACHE_SIZE) {
       const firstKey = expressionCache.keys().next().value
-      if (firstKey) expressionCache.delete(firstKey)
+      if (firstKey) {
+        expressionCache.delete(firstKey)
+      }
     }
 
     expressionCache.set(expression, compiled)
@@ -217,15 +232,10 @@ export async function evaluate(
 
   const compiled = compileExpression(expression)
 
-  // Re-arm the timebox for this call — the state outlives the call because the
-  // compiled expression is cached. Concurrent evaluations of the same cached
-  // expression share it, so an overlapping call can extend the earlier one's
-  // deadline by at most its own timeout; the race below still bounds that case.
-  const timeboxState = timeboxStates.get(compiled)
-  if (timeboxState) {
-    timeboxState.depth = 0
-    timeboxState.time = Date.now()
-    timeboxState.timeout = timeout
+  const timeboxState: TimeboxState = {
+    depth: 0,
+    time: Date.now(),
+    timeout,
   }
 
   // The race only reaches expressions that yield to the event loop (the timebox
@@ -238,7 +248,7 @@ export async function evaluate(
 
   try {
     return await Promise.race([
-      compiled.evaluate(context),
+      timeboxStateStorage.run(timeboxState, () => compiled.evaluate(context)),
       timeoutPromise
     ])
   } finally {
