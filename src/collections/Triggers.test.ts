@@ -53,4 +53,69 @@ describe('automation-triggers webhookPath validation', () => {
       })
     ).rejects.toThrow('Webhook path must be a single path segment without whitespace')
   })
+
+  it('rejects a webhook trigger with no path at all', async () => {
+    await expect(
+      validate({
+        data: { type: 'webhook', webhookSecret: 'secret' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Webhook path is required for webhook triggers')
+  })
+})
+
+describe('automation-triggers required-field validation', () => {
+  it('rejects a collection-hook trigger with no collectionSlug', async () => {
+    await expect(
+      validate({
+        data: { type: 'collection-hook', hook: 'afterChange' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Collection is required for collection hook triggers')
+  })
+
+  it('rejects a global-hook trigger with no globalSlug', async () => {
+    await expect(
+      validate({
+        data: { type: 'global-hook', hook: 'afterChange' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Global is required for global hook triggers')
+  })
+
+  it('rejects a collection-hook trigger with no hook type', async () => {
+    await expect(
+      validate({
+        data: { type: 'collection-hook', collectionSlug: 'posts' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Hook type is required')
+  })
+
+  it('rejects a global-hook trigger with no hook type', async () => {
+    await expect(
+      validate({
+        data: { type: 'global-hook', globalSlug: 'settings' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Hook type is required')
+  })
+
+  it('rejects a scheduled trigger with no schedule', async () => {
+    await expect(
+      validate({
+        data: { type: 'scheduled' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Schedule is required for scheduled triggers')
+  })
+
+  it('rejects a webhook trigger with no webhookSecret', async () => {
+    await expect(
+      validate({
+        data: { type: 'webhook', webhookPath: 'my-webhook' },
+        operation: 'create',
+      })
+    ).rejects.toThrow('Webhook secret is required for webhook triggers')
+  })
 })
