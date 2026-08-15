@@ -253,7 +253,45 @@ export const workflowsPlugin =
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '')
 
+        // workflow-runs.firedTrigger and stepResults[].step keep relationships
+        // to automation-triggers/automation-steps documents after a workflow
+        // is reconciled to new ones. A stale record referenced by a past run
+        // must not be deleted, or that run's "what fired me" / "what did step
+        // 2 do" becomes unresolvable - see the reseed test with an existing run.
+        const isTriggerReferencedByRun = async (triggerId: string | number): Promise<boolean> => {
+          const result = await payload.find({
+            collection: 'workflow-runs',
+            where: { firedTrigger: { equals: triggerId } },
+            limit: 1,
+            depth: 0,
+            overrideAccess: true,
+          })
+          return result.docs.length > 0
+        }
+        const isStepReferencedByRun = async (stepId: string | number): Promise<boolean> => {
+          const result = await payload.find({
+            collection: 'workflow-runs',
+            where: { 'stepResults.step': { equals: stepId } },
+            limit: 1,
+            depth: 0,
+            overrideAccess: true,
+          })
+          return result.docs.length > 0
+        }
+
         for (const seedWorkflow of pluginOptions.seedWorkflows) {
+          // Tracks records created for THIS iteration so a failed workflow
+          // create/update can roll them back instead of leaking them as
+          // orphans (they aren't referenced by anything yet - the workflow
+          // write that would point to them is what failed).
+          const createdTriggerIds: (string | number)[] = []
+          const createdStepIds: (string | number)[] = []
+          // Flips once the workflow create/update lands, i.e. once
+          // createdTriggerIds/createdStepIds are actually referenced by a
+          // live workflow. A later failure (e.g. the stale-cleanup lookups
+          // below) must not roll these back at that point - that would
+          // delete records the just-written workflow now points to.
+          let workflowWritten = false
           try {
             // Find any previously seeded workflow by its stable slug. Local
             // API calls in this block pass overrideAccess: true throughout -
@@ -306,6 +344,7 @@ export const workflowsPlugin =
                 overrideAccess: true,
               })
               triggerIds.push(trigger.id)
+              createdTriggerIds.push(trigger.id)
               logger.debug(`Created trigger: ${triggerName}`)
             }
 
@@ -333,6 +372,7 @@ export const workflowsPlugin =
                 },
                 overrideAccess: true,
               })
+              createdStepIds.push(step.id)
               logger.debug(`Created step: ${stepName}`)
 
               // Add to workflow steps with relationship ID
@@ -352,7 +392,11 @@ export const workflowsPlugin =
               // records it used to reference. Deleting only after the
               // workflow no longer points at them keeps a restart from
               // accumulating orphaned automation-triggers/automation-steps
-              // rows every time a seed definition changes.
+              // rows every time a seed definition changes. A stale record
+              // still named by a past workflow-runs.firedTrigger or
+              // stepResults[].step is kept instead of deleted, so that run's
+              // provenance stays resolvable even though the workflow itself
+              // has moved on.
               type RelationValue = string | number | { id: string | number }
               const staleTriggerIds = (
                 (previousWorkflow as { triggers?: RelationValue[] }).triggers || []
@@ -373,23 +417,32 @@ export const workflowsPlugin =
                 },
                 overrideAccess: true,
               })
+              workflowWritten = true
 
               for (const staleId of staleTriggerIds) {
+                if (await isTriggerReferencedByRun(staleId)) {
+                  logger.debug(`Preserving stale trigger ${String(staleId)}: referenced by an existing workflow run`)
+                  continue
+                }
                 await payload.delete({
                   collection: 'automation-triggers',
                   id: staleId,
                   overrideAccess: true,
                 }).catch((error) => {
-                  logger.debug(`Could not remove stale trigger ${String(staleId)}: ${String(error)}`)
+                  logger.warn(`Could not remove stale trigger ${String(staleId)}: ${String(error)}`)
                 })
               }
               for (const staleId of staleStepIds) {
+                if (await isStepReferencedByRun(staleId)) {
+                  logger.debug(`Preserving stale step ${String(staleId)}: referenced by an existing workflow run`)
+                  continue
+                }
                 await payload.delete({
                   collection: 'automation-steps',
                   id: staleId,
                   overrideAccess: true,
                 }).catch((error) => {
-                  logger.debug(`Could not remove stale step ${String(staleId)}: ${String(error)}`)
+                  logger.warn(`Could not remove stale step ${String(staleId)}: ${String(error)}`)
                 })
               }
 
@@ -410,9 +463,35 @@ export const workflowsPlugin =
               },
               overrideAccess: true,
             })
+            workflowWritten = true
 
             logger.info(`Seeded workflow: ${seedWorkflow.name}`)
           } catch (error) {
+            // Roll back trigger/step records created this iteration, but only
+            // if the workflow write that would reference them never landed -
+            // once it has, these are live records a workflow points to, and
+            // a later failure (e.g. in the stale-cleanup lookups) must not
+            // delete them.
+            if (!workflowWritten) {
+              for (const id of createdTriggerIds) {
+                await payload.delete({
+                  collection: 'automation-triggers',
+                  id,
+                  overrideAccess: true,
+                }).catch(() => {
+                  // best-effort rollback; the outer error below is already the one that matters
+                })
+              }
+              for (const id of createdStepIds) {
+                await payload.delete({
+                  collection: 'automation-steps',
+                  id,
+                  overrideAccess: true,
+                }).catch(() => {
+                  // best-effort rollback; the outer error below is already the one that matters
+                })
+              }
+            }
             logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
           }
         }

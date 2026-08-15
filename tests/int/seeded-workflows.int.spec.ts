@@ -137,6 +137,72 @@ describe('seeded workflow reconciliation', () => {
       payload.findByID({ collection: 'automation-steps', id: originalStepId, overrideAccess: true })
     ).rejects.toThrow()
   })
+
+  it('preserves stale trigger/step records still referenced by an existing workflow run', async () => {
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [workflowV1] }))
+
+    const initial = await payload.find({
+      collection: 'workflows',
+      where: { slug: { equals: workflowV1.slug } },
+      depth: 0,
+      overrideAccess: true,
+    })
+    const firstVersion = initial.docs[0] as Record<string, any>
+    const originalTriggerId = firstVersion.triggers[0]
+    const originalStepId = firstVersion.steps[0].step
+
+    // Record a run that actually fired from the v1 trigger and executed the
+    // v1 step, the way a real execution would. Reconciling the workflow to
+    // v2 must not strand this run's references.
+    await payload.create({
+      collection: 'workflow-runs',
+      data: {
+        workflow: firstVersion.id,
+        firedTrigger: originalTriggerId,
+        status: 'completed',
+        startedAt: new Date().toISOString(),
+        triggeredBy: 'test',
+        stepResults: [
+          { step: originalStepId, stepName: 'Step One', stepIndex: 0, status: 'succeeded' },
+        ],
+      },
+      overrideAccess: true,
+    })
+
+    await payload.destroy()
+    payload = undefined
+
+    // Restart against the same database with an updated definition under the same slug.
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [workflowV2] }))
+
+    const afterReseed = await payload.find({
+      collection: 'workflows',
+      where: { slug: { equals: workflowV2.slug } },
+      depth: 0,
+      overrideAccess: true,
+    })
+    const updated = afterReseed.docs[0] as Record<string, any>
+    // The workflow moves on to new triggers/steps exactly as in the
+    // unreferenced case above...
+    expect(updated.triggers[0]).not.toBe(originalTriggerId)
+    expect(updated.steps[0].step).not.toBe(originalStepId)
+
+    // ...but the historical run must still be able to resolve what it
+    // actually fired from and executed, unlike the unreferenced case.
+    const preservedTrigger = await payload.findByID({
+      collection: 'automation-triggers',
+      id: originalTriggerId,
+      overrideAccess: true,
+    })
+    expect(preservedTrigger.id).toBe(originalTriggerId)
+
+    const preservedStep = await payload.findByID({
+      collection: 'automation-steps',
+      id: originalStepId,
+      overrideAccess: true,
+    })
+    expect(preservedStep.id).toBe(originalStepId)
+  })
 })
 
 describe('workflow readOnly access control', () => {
