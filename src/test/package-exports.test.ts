@@ -22,17 +22,26 @@ async function readPackageJson(): Promise<PackageJson> {
   return JSON.parse(raw) as PackageJson
 }
 
-function exportTargets(exportsField: unknown): Array<{ subpath: string; target: string }> {
+// Every condition of every subpath, not just import/default - a conditional
+// export object can name a "types" target that nothing here ever resolves,
+// which is exactly how a stale or misspelled .d.ts path would go unnoticed.
+function exportTargets(
+  exportsField: unknown
+): Array<{ subpath: string; condition: string; target: string }> {
   const entries = Object.entries(exportsField as Record<string, unknown>)
-  return entries.map(([subpath, value]) => {
-    const target =
-      typeof value === 'string'
-        ? value
-        : ((value as Record<string, string>).import ?? (value as Record<string, string>).default)
-    if (!target) {
-      throw new Error(`export "${subpath}" has no import/default target to resolve`)
+  return entries.flatMap(([subpath, value]) => {
+    if (typeof value === 'string') {
+      return [{ subpath, condition: 'default', target: value }]
     }
-    return { subpath, target }
+    const conditions = value as Record<string, string>
+    if (Object.keys(conditions).length === 0) {
+      throw new Error(`export "${subpath}" has no conditions to resolve`)
+    }
+    return Object.entries(conditions).map(([condition, target]) => ({
+      subpath,
+      condition,
+      target
+    }))
   })
 }
 
@@ -54,13 +63,27 @@ function exportedTypeNames(indexSource: string): string[] {
 }
 
 describe.skipIf(!existsSync(distDir))('published entry points (dist/)', () => {
-  it('resolves every subpath declared in package.json "exports"', async () => {
+  it('resolves every subpath declared in package.json "exports", every condition', async () => {
     const pkg = await readPackageJson()
     const targets = exportTargets(pkg.exports)
     expect(targets.length).toBeGreaterThan(0)
+    // Guards the guard: if every condition collapsed to "import"/"default"
+    // again, the "types" gap this test closes would reopen silently.
+    expect(targets.some((t) => t.condition === 'types')).toBe(true)
 
-    for (const { subpath, target } of targets) {
+    for (const { subpath, condition, target } of targets) {
       const resolved = path.join(rootDir, target)
+
+      if (condition === 'types') {
+        // A .d.ts file is not an ES module a runtime `import()` can load -
+        // what "resolves" for a consumer's TypeScript compiler is that the
+        // file exists at the declared path.
+        expect(existsSync(resolved), `export "${subpath}" (types) -> ${target} should exist`).toBe(
+          true
+        )
+        continue
+      }
+
       try {
         await import(pathToFileURL(resolved).href)
       } catch (error) {
@@ -87,16 +110,20 @@ describe.skipIf(!existsSync(distDir))('published entry points (dist/)', () => {
     const pkg = await readPackageJson()
     const mainTarget = path.join(rootDir, pkg.main)
     const source = await readFile(mainTarget, 'utf8')
-    const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\/\/.*$/gm, '')
 
-    // src/index.ts declares only `export type { ... }`, which swc erases to a
-    // bare `export {}` - no `from '...'` clause survives. A value export
-    // (e.g. re-exporting workflowsPlugin) would reintroduce one and pull
-    // pino/node-cron/handlebars into a client bundle importing from '.'.
-    expect(withoutComments).not.toMatch(/\bfrom\s+['"]\.\//)
-    for (const runtimeModule of ['./core', './plugin', './steps', './components']) {
-      expect(withoutComments).not.toContain(runtimeModule)
-    }
+    // Strip both block comments and `//` comments wherever they occur (not
+    // just on their own line, so a trailing `statement; // comment` doesn't
+    // survive), then collapse whitespace so formatting can't hide code.
+    const withoutComments = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+    const collapsed = withoutComments.replace(/\s+/g, '')
+
+    // src/index.ts declares only `export type { ... }`, which swc erases to
+    // exactly `export {};` - nothing else survives. This asserts the actual
+    // invariant (no runtime code/exports at all) rather than a list of ways
+    // it might be violated: a local `export const x = ...`, a side effect
+    // like `console.log(...)`, or `export { x } from 'some-package'` would
+    // all leave the root non-type-only and all fail this exact-match.
+    expect(collapsed).toMatch(/^export\{\};?$/)
   })
 
   it('carries every name exported from src/index.ts in dist/index.d.ts', async () => {
