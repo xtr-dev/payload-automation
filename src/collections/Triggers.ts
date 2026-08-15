@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
+import { normalizeWebhookPath } from '../plugin/webhook-endpoint.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
 
 /**
@@ -204,12 +205,17 @@ export const createTriggersCollection = <T extends string>(
             if (data?.type === 'webhook' && !data?.webhookPath) {
               throw new Error('Webhook path is required for webhook triggers')
             }
-            if (
-              data?.type === 'webhook' &&
-              typeof data.webhookPath === 'string' &&
-              /[\/\s]/.test(data.webhookPath)
-            ) {
-              throw new Error('Webhook path must be a single path segment without whitespace')
+            // The runtime endpoint matches paths after stripping leading/trailing
+            // slashes (normalizeWebhookPath), so "/my-webhook" and "my-webhook"
+            // are the same trigger. Normalize before validating and store the
+            // normalized form, rather than rejecting a spelling the endpoint
+            // itself accepts.
+            if (data?.type === 'webhook' && typeof data.webhookPath === 'string') {
+              const normalizedPath = normalizeWebhookPath(data.webhookPath)
+              if (!normalizedPath || /[/\s]/.test(normalizedPath)) {
+                throw new Error('Webhook path must be a single path segment without whitespace')
+              }
+              data.webhookPath = normalizedPath
             }
             // Without a secret the endpoint would start workflows for anyone
             // who can reach it, so a webhook trigger cannot be saved open.
