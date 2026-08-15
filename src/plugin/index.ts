@@ -282,10 +282,10 @@ export const workflowsPlugin =
               if (triggerDef.parameters) {
                 if (triggerDef.type === 'collection-hook') {
                   triggerData.collectionSlug = triggerDef.parameters.collectionSlug
-                  triggerData.hook = triggerDef.parameters.hook
+                  triggerData.collectionHook = triggerDef.parameters.hook
                 } else if (triggerDef.type === 'global-hook') {
                   triggerData.globalSlug = triggerDef.parameters.globalSlug
-                  triggerData.hook = triggerDef.parameters.hook
+                  triggerData.globalHook = triggerDef.parameters.hook
                 } else if (triggerDef.type === 'scheduled') {
                   triggerData.schedule = triggerDef.parameters.schedule
                 } else if (triggerDef.type === 'webhook') {
