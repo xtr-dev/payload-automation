@@ -63,7 +63,8 @@
     "prepublishOnly": "pnpm clean && pnpm build",
     "test": "pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
-    "test:int": "vitest"
+    "test:int": "vitest",
+    "test:pack-types": "node --test test/main-entry-types.test.mjs"
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "3.81.0",
