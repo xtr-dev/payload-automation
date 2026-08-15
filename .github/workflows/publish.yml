@@ -35,6 +35,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Check published types against Payload peer floor
+        run: pnpm test:types:peer-floor
+
       - name: Check if should publish
         id: version-check
         run: |
