@@ -204,6 +204,13 @@ export const createTriggersCollection = <T extends string>(
             if (data?.type === 'webhook' && !data?.webhookPath) {
               throw new Error('Webhook path is required for webhook triggers')
             }
+            if (
+              data?.type === 'webhook' &&
+              typeof data.webhookPath === 'string' &&
+              /[\/\s]/.test(data.webhookPath)
+            ) {
+              throw new Error('Webhook path must be a single path segment without whitespace')
+            }
             // Without a secret the endpoint would start workflows for anyone
             // who can reach it, so a webhook trigger cannot be saved open.
             if (data?.type === 'webhook' && !data?.webhookSecret) {
