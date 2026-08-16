@@ -7,6 +7,7 @@ import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
+import { reconcileStaleRecords } from './reconcile-stale-records.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 
 export { getLogger } from './logger.js'
@@ -419,53 +420,26 @@ export const workflowsPlugin =
               })
               workflowWritten = true
 
-              for (const staleId of staleTriggerIds) {
-                // The reference check itself is wrapped so a query failure on
-                // one stale id (a transient find() error) can't propagate to
-                // the outer try/catch - that would both mislabel a successful
-                // reconcile as "Failed to seed workflow" and abandon every
-                // stale id still left in this loop, unchecked and undeleted.
-                // Treat a failed check like "referenced": leave it in place
-                // rather than risk deleting a record a run still points to.
-                let referenced: boolean
-                try {
-                  referenced = await isTriggerReferencedByRun(staleId)
-                } catch (error) {
-                  logger.warn(`Could not determine whether stale trigger ${String(staleId)} is referenced by a run; leaving it in place: ${String(error)}`)
-                  continue
-                }
-                if (referenced) {
-                  logger.debug(`Preserving stale trigger ${String(staleId)}: referenced by an existing workflow run`)
-                  continue
-                }
-                await payload.delete({
+              await reconcileStaleRecords(staleTriggerIds, {
+                kind: 'trigger',
+                isReferenced: isTriggerReferencedByRun,
+                remove: (id) => payload.delete({
                   collection: 'automation-triggers',
-                  id: staleId,
+                  id,
                   overrideAccess: true,
-                }).catch((error) => {
-                  logger.warn(`Could not remove stale trigger ${String(staleId)}: ${String(error)}`)
-                })
-              }
-              for (const staleId of staleStepIds) {
-                let referenced: boolean
-                try {
-                  referenced = await isStepReferencedByRun(staleId)
-                } catch (error) {
-                  logger.warn(`Could not determine whether stale step ${String(staleId)} is referenced by a run; leaving it in place: ${String(error)}`)
-                  continue
-                }
-                if (referenced) {
-                  logger.debug(`Preserving stale step ${String(staleId)}: referenced by an existing workflow run`)
-                  continue
-                }
-                await payload.delete({
+                }),
+                logger,
+              })
+              await reconcileStaleRecords(staleStepIds, {
+                kind: 'step',
+                isReferenced: isStepReferencedByRun,
+                remove: (id) => payload.delete({
                   collection: 'automation-steps',
-                  id: staleId,
+                  id,
                   overrideAccess: true,
-                }).catch((error) => {
-                  logger.warn(`Could not remove stale step ${String(staleId)}: ${String(error)}`)
-                })
-              }
+                }),
+                logger,
+              })
 
               logger.info(`Updated seeded workflow: ${seedWorkflow.name}`)
               continue

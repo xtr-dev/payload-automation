@@ -7,7 +7,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url))
 export default defineConfig({
   cacheDir: path.resolve(dirname, 'node_modules/.vite'),
   test: {
-    include: ['tests/int/**/*.int.spec.ts'],
+    include: ['tests/int/**/*.int.spec.ts', 'tests/unit/**/*.spec.ts'],
     hookTimeout: 60000,
     testTimeout: 60000,
     // @payloadcms/drizzle caches the last-pushed schema at module scope and
