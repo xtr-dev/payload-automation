@@ -101,10 +101,16 @@ const seedWorkflowMatches = (existing: AnyRecord, seedWorkflow: SeedWorkflow): b
   if (existingSteps.length !== seedWorkflow.steps.length) {
     return false
   }
-  for (let i = 0; i < seedWorkflow.steps.length; i++) {
-    const stepDef = seedWorkflow.steps[i]
+  const existingStepsBySlug = new Map<string, AnyRecord>()
+  for (const entry of existingSteps) {
+    if (entry?.slug) {
+      existingStepsBySlug.set(entry.slug, entry)
+    }
+  }
+  for (const stepDef of seedWorkflow.steps) {
     const desiredSlug = stepDef.slug || slugify(stepDef.name)
-    if (!stepEntryMatches(existingSteps[i], stepDef, desiredSlug)) {
+    const existingEntry = existingStepsBySlug.get(desiredSlug)
+    if (!existingEntry || !stepEntryMatches(existingEntry, stepDef, desiredSlug)) {
       return false
     }
   }
@@ -204,7 +210,12 @@ const reconcileTriggers = async (
   return { items: triggerIds, createdIds, staleIds }
 }
 
-// Same reconciliation strategy as reconcileTriggers, applied to steps.
+// Reconciles steps the same way reconcileTriggers does, but matched by the
+// stable per-step `slug` rather than array position: steps carry a slug for
+// exactly this reason (f3d78a4, "step order can change without affecting
+// references"), and matching by index instead means inserting, removing or
+// reordering a step shifts every later step's stored entry off by one,
+// recreating all of them even though their definitions never changed.
 const reconcileSteps = async (
   payload: Payload,
   existingSteps: AnyRecord[],
@@ -215,17 +226,25 @@ const reconcileSteps = async (
   const createdIds: (number | string)[] = []
   const staleIds: (number | string)[] = []
 
+  const existingBySlug = new Map<string, AnyRecord>()
+  for (const entry of existingSteps) {
+    if (entry?.slug) {
+      existingBySlug.set(entry.slug, entry)
+    }
+  }
+  const reusedIds = new Set<number | string>()
+
   try {
-    for (let i = 0; i < seedWorkflow.steps.length; i++) {
-      const stepDef = seedWorkflow.steps[i]
+    for (const stepDef of seedWorkflow.steps) {
       const desiredSlug = stepDef.slug || slugify(stepDef.name)
-      const existingEntry = existingSteps[i]
+      const existingEntry = existingBySlug.get(desiredSlug)
       const desiredInput = stepDef.input || {}
       const dependencies = stepDef.dependencies?.map((dep) => ({ slug: dep }))
 
       if (existingEntry && stepEntryMatches(existingEntry, stepDef, desiredSlug)) {
         const stepId = idOf(existingEntry.step)
         if (stepId !== undefined) {
+          reusedIds.add(stepId)
           workflowSteps.push({
             step: stepId,
             slug: desiredSlug,
@@ -258,16 +277,15 @@ const reconcileSteps = async (
         condition: stepDef.condition,
         dependencies,
       })
-
-      const staleId = idOf(existingEntry?.step)
-      if (staleId !== undefined) {
-        staleIds.push(staleId)
-      }
     }
 
-    for (let i = seedWorkflow.steps.length; i < existingSteps.length; i++) {
-      const staleId = idOf(existingSteps[i]?.step)
-      if (staleId !== undefined) {
+    // Any existing step doc not reused above is either superseded by a
+    // freshly created replacement (its slug still exists in the seed, but
+    // content differed) or genuinely removed from the seed definition.
+    // Either way it's stale.
+    for (const entry of existingSteps) {
+      const staleId = idOf(entry?.step)
+      if (staleId !== undefined && !reusedIds.has(staleId)) {
         staleIds.push(staleId)
       }
     }
