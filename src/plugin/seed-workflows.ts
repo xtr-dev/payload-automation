@@ -101,16 +101,16 @@ const seedWorkflowMatches = (existing: AnyRecord, seedWorkflow: SeedWorkflow): b
   if (existingSteps.length !== seedWorkflow.steps.length) {
     return false
   }
-  const existingStepsBySlug = new Map<string, AnyRecord>()
-  for (const entry of existingSteps) {
-    if (entry?.slug) {
-      existingStepsBySlug.set(entry.slug, entry)
-    }
-  }
-  for (const stepDef of seedWorkflow.steps) {
+  // Compared positionally, not just by slug: `steps` is a stored order, and a
+  // pure reorder in the seed definition (same slugs, same content, swapped
+  // positions) must be seen as a mismatch so it reaches reconcileSteps and
+  // gets written, rather than passing because every slug still matches
+  // *something* in the existing array.
+  for (let i = 0; i < seedWorkflow.steps.length; i++) {
+    const stepDef = seedWorkflow.steps[i]
     const desiredSlug = stepDef.slug || slugify(stepDef.name)
-    const existingEntry = existingStepsBySlug.get(desiredSlug)
-    if (!existingEntry || !stepEntryMatches(existingEntry, stepDef, desiredSlug)) {
+    const existingEntry = existingSteps[i]
+    if (!existingEntry || existingEntry.slug !== desiredSlug || !stepEntryMatches(existingEntry, stepDef, desiredSlug)) {
       return false
     }
   }
