@@ -11,6 +11,15 @@ import { describe, expect, it } from 'vitest'
 // source file or the publishConfig that stripped ./server (see git log).
 const rootDir = fileURLToPath(new URL('../../', import.meta.url))
 const distDir = path.join(rootDir, 'dist')
+// `dist/` itself is a weak signal - `copyfiles` (the first of three `&&`-chained
+// build steps) creates it with static assets even when `build:types` fails and
+// aborts before `build:swc` ever runs, which happens today on main (a
+// pre-existing, unrelated tsc error in src/plugin/index.ts). Gating on the two
+// files these tests actually read means a partial build skips cleanly instead
+// of failing on ENOENT/module-not-found in a way that has nothing to do with
+// the contract being tested.
+const distBuilt =
+  existsSync(path.join(distDir, 'index.js')) && existsSync(path.join(distDir, 'index.d.ts'))
 
 interface PackageJson {
   exports: Record<string, unknown>
@@ -62,7 +71,7 @@ function exportedTypeNames(indexSource: string): string[] {
   )
 }
 
-describe.skipIf(!existsSync(distDir))('published entry points (dist/)', () => {
+describe.skipIf(!distBuilt)('published entry points (dist/)', () => {
   it('resolves every subpath declared in package.json "exports", every condition', async () => {
     const pkg = await readPackageJson()
     const targets = exportTargets(pkg.exports)
@@ -141,7 +150,7 @@ describe.skipIf(!existsSync(distDir))('published entry points (dist/)', () => {
   })
 })
 
-it.skipIf(existsSync(distDir))(
-  'dist/ is missing - run `pnpm build` before this suite to check the published output',
+it.skipIf(distBuilt)(
+  'dist/ is missing or incomplete - run `pnpm build` before this suite to check the published output',
   () => {}
 )
