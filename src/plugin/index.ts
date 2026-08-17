@@ -8,6 +8,7 @@ import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
 import { reconcileStaleRecords } from './reconcile-stale-records.js'
+import { removeWithPendingFlag } from './remove-with-pending-flag.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 
 export { getLogger } from './logger.js'
@@ -244,6 +245,67 @@ export const workflowsPlugin =
       const globalCount = Object.keys(pluginOptions.globalTriggers || {}).length
       const stepCount = pluginOptions.steps?.length || 0
 
+      // workflow-runs.firedTrigger and stepResults[].step keep relationships
+      // to automation-triggers/automation-steps documents after a workflow
+      // is reconciled to new ones. A stale record referenced by a past run
+      // must not be deleted, or that run's "what fired me" / "what did step
+      // 2 do" becomes unresolvable - see the reseed test with an existing run.
+      const isTriggerReferencedByRun = async (triggerId: string | number): Promise<boolean> => {
+        const result = await payload.find({
+          collection: 'workflow-runs',
+          where: { firedTrigger: { equals: triggerId } },
+          limit: 1,
+          depth: 0,
+          overrideAccess: true,
+        })
+        return result.docs.length > 0
+      }
+      const isStepReferencedByRun = async (stepId: string | number): Promise<boolean> => {
+        const result = await payload.find({
+          collection: 'workflow-runs',
+          where: { 'stepResults.step': { equals: stepId } },
+          limit: 1,
+          depth: 0,
+          overrideAccess: true,
+        })
+        return result.docs.length > 0
+      }
+
+      // Retry deletions flagged pendingDeletion by a previous restart. Runs
+      // unconditionally (not gated on seedWorkflows being configured this
+      // restart) so a record flagged while seeding was enabled still gets
+      // cleaned up after seeding is turned off.
+      const pendingTriggers = await payload.find({
+        collection: 'automation-triggers',
+        where: { pendingDeletion: { equals: true } },
+        limit: 0,
+        depth: 0,
+        overrideAccess: true,
+      })
+      if (pendingTriggers.docs.length > 0) {
+        await reconcileStaleRecords(pendingTriggers.docs.map((doc) => doc.id), {
+          kind: 'trigger',
+          isReferenced: isTriggerReferencedByRun,
+          remove: removeWithPendingFlag({ payload, collection: 'automation-triggers' }),
+          logger,
+        })
+      }
+      const pendingSteps = await payload.find({
+        collection: 'automation-steps',
+        where: { pendingDeletion: { equals: true } },
+        limit: 0,
+        depth: 0,
+        overrideAccess: true,
+      })
+      if (pendingSteps.docs.length > 0) {
+        await reconcileStaleRecords(pendingSteps.docs.map((doc) => doc.id), {
+          kind: 'step',
+          isReferenced: isStepReferencedByRun,
+          remove: removeWithPendingFlag({ payload, collection: 'automation-steps' }),
+          logger,
+        })
+      }
+
       // Seed workflows if configured
       if (pluginOptions.seedWorkflows && pluginOptions.seedWorkflows.length > 0) {
         logger.info(`Seeding ${pluginOptions.seedWorkflows.length} workflows...`)
@@ -253,32 +315,6 @@ export const workflowsPlugin =
           str.toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
             .replace(/^-+|-+$/g, '')
-
-        // workflow-runs.firedTrigger and stepResults[].step keep relationships
-        // to automation-triggers/automation-steps documents after a workflow
-        // is reconciled to new ones. A stale record referenced by a past run
-        // must not be deleted, or that run's "what fired me" / "what did step
-        // 2 do" becomes unresolvable - see the reseed test with an existing run.
-        const isTriggerReferencedByRun = async (triggerId: string | number): Promise<boolean> => {
-          const result = await payload.find({
-            collection: 'workflow-runs',
-            where: { firedTrigger: { equals: triggerId } },
-            limit: 1,
-            depth: 0,
-            overrideAccess: true,
-          })
-          return result.docs.length > 0
-        }
-        const isStepReferencedByRun = async (stepId: string | number): Promise<boolean> => {
-          const result = await payload.find({
-            collection: 'workflow-runs',
-            where: { 'stepResults.step': { equals: stepId } },
-            limit: 1,
-            depth: 0,
-            overrideAccess: true,
-          })
-          return result.docs.length > 0
-        }
 
         for (const seedWorkflow of pluginOptions.seedWorkflows) {
           // Tracks records created for THIS iteration so a failed workflow
@@ -423,21 +459,13 @@ export const workflowsPlugin =
               await reconcileStaleRecords(staleTriggerIds, {
                 kind: 'trigger',
                 isReferenced: isTriggerReferencedByRun,
-                remove: (id) => payload.delete({
-                  collection: 'automation-triggers',
-                  id,
-                  overrideAccess: true,
-                }),
+                remove: removeWithPendingFlag({ payload, collection: 'automation-triggers' }),
                 logger,
               })
               await reconcileStaleRecords(staleStepIds, {
                 kind: 'step',
                 isReferenced: isStepReferencedByRun,
-                remove: (id) => payload.delete({
-                  collection: 'automation-steps',
-                  id,
-                  overrideAccess: true,
-                }),
+                remove: removeWithPendingFlag({ payload, collection: 'automation-steps' }),
                 logger,
               })
 

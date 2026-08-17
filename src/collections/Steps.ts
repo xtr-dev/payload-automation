@@ -150,6 +150,21 @@ export const createStepsCollection = (
         },
         defaultValue: 0,
       },
+      // Set when a reseed found this step unreferenced by any workflow and
+      // payload.delete() threw. Left true (rather than left silent) so the
+      // next restart's reconcile pass knows to retry the deletion instead
+      // of losing track of it the moment the workflow that used to
+      // reference it was already repointed away.
+      {
+        name: 'pendingDeletion',
+        type: 'checkbox',
+        admin: {
+          description: 'This step is no longer referenced by any workflow but could not be deleted automatically. It will be retried on the next restart.',
+          readOnly: true,
+          position: 'sidebar',
+        },
+        defaultValue: false,
+      },
     ],
     hooks: {
       beforeChange: [

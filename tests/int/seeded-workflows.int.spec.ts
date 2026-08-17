@@ -203,6 +203,78 @@ describe('seeded workflow reconciliation', () => {
     })
     expect(preservedStep.id).toBe(originalStepId)
   })
+
+  it('retries a record left flagged pendingDeletion by a previous restart, with no seed workflow to reconcile it via', async () => {
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [] }))
+
+    // Simulate exactly what a previous restart's reconcile leaves behind
+    // when payload.delete() throws on a genuinely stale record: nothing
+    // references it - not a workflow, not a run - yet it still exists,
+    // flagged pendingDeletion:true instead of silently forgotten. Nothing
+    // in THIS restart's seed config names it either, so a diff against a
+    // seed workflow's previous triggers/steps could never rediscover it;
+    // only a direct query for the flag can.
+    const orphanTrigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'Orphaned trigger', type: 'manual', pendingDeletion: true },
+      overrideAccess: true,
+    })
+    const orphanStep = await payload.create({
+      collection: 'automation-steps',
+      data: { name: 'Orphaned step', type: 'noop-step', pendingDeletion: true },
+      overrideAccess: true,
+    })
+
+    await payload.destroy()
+    payload = undefined
+
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [] }))
+
+    await expect(
+      payload.findByID({ collection: 'automation-triggers', id: orphanTrigger.id, overrideAccess: true })
+    ).rejects.toThrow()
+    await expect(
+      payload.findByID({ collection: 'automation-steps', id: orphanStep.id, overrideAccess: true })
+    ).rejects.toThrow()
+  })
+
+  it('preserves a pendingDeletion-flagged record still referenced by an existing workflow run', async () => {
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [] }))
+
+    const trigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'Flagged but still cited by a run', type: 'manual', pendingDeletion: true },
+      overrideAccess: true,
+    })
+    const workflow = await payload.create({
+      collection: 'workflows',
+      data: { slug: 'run-referencing-workflow', name: 'Run-referencing workflow' },
+      overrideAccess: true,
+    })
+    await payload.create({
+      collection: 'workflow-runs',
+      data: {
+        workflow: workflow.id,
+        firedTrigger: trigger.id,
+        status: 'completed',
+        startedAt: new Date().toISOString(),
+        triggeredBy: 'test',
+      },
+      overrideAccess: true,
+    })
+
+    await payload.destroy()
+    payload = undefined
+
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [] }))
+
+    const preserved = await payload.findByID({
+      collection: 'automation-triggers',
+      id: trigger.id,
+      overrideAccess: true,
+    })
+    expect(preserved.id).toBe(trigger.id)
+  })
 })
 
 describe('workflow readOnly access control', () => {
