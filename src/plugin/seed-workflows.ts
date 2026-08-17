@@ -112,97 +112,171 @@ const seedWorkflowMatches = (existing: AnyRecord, seedWorkflow: SeedWorkflow): b
   return true
 }
 
-const createTriggersForWorkflow = async (
+const idOf = (doc: AnyRecord | number | string | undefined | null): number | string | undefined =>
+  doc && typeof doc === 'object' ? doc.id : (doc ?? undefined)
+
+// Best-effort delete of a batch of docs created (and then abandoned) during a
+// seed attempt, or of docs a successful update just superseded. Failures are
+// logged, not thrown: cleanup is a courtesy, not something that should turn a
+// successful create/update into a reported failure.
+const deleteResources = async (
   payload: Payload,
+  collection: 'automation-triggers' | 'automation-steps',
+  ids: (number | string)[],
+  logger: Logger
+): Promise<void> => {
+  for (const id of ids) {
+    try {
+      await payload.delete({ collection, id })
+    } catch (error) {
+      logger.warn(
+        { collection, error: error instanceof Error ? error.message : 'Unknown error', id },
+        `Failed to remove ${collection} document while seeding workflows`
+      )
+    }
+  }
+}
+
+type ReconcileResult<TItems> = {
+  items: TItems
+  createdIds: (number | string)[]
+  staleIds: (number | string)[]
+}
+
+// Reconciles the workflow's triggers against its seed definition one trigger
+// at a time: a trigger whose stored fields already match its definition is
+// left alone and reused by id, so an unrelated change elsewhere in the
+// workflow does not invalidate workflow-runs history that references it via
+// firedTrigger. Only triggers that actually differ (or are new) are created;
+// their now-superseded predecessors are returned as staleIds for the caller
+// to delete once it has safely pointed the workflow at the replacements.
+//
+// If a create call throws partway through, everything this call already
+// created is deleted before rethrowing, so a failed attempt never leaves an
+// orphan behind for the next restart to find.
+const reconcileTriggers = async (
+  payload: Payload,
+  existingTriggers: AnyRecord[],
   seedWorkflow: SeedWorkflow,
   logger: Logger
-): Promise<(number | string)[]> => {
+): Promise<ReconcileResult<(number | string)[]>> => {
   const triggerIds: (number | string)[] = []
+  const createdIds: (number | string)[] = []
+  const staleIds: (number | string)[] = []
 
-  for (let i = 0; i < seedWorkflow.triggers.length; i++) {
-    const triggerDef = seedWorkflow.triggers[i]
-    const triggerName = `${seedWorkflow.name} - Trigger ${i + 1}`
+  try {
+    for (let i = 0; i < seedWorkflow.triggers.length; i++) {
+      const triggerDef = seedWorkflow.triggers[i]
+      const desired = mapTriggerFields(triggerDef)
+      const existingTrigger = existingTriggers[i]
 
-    const trigger = await payload.create({
-      collection: 'automation-triggers',
-      data: {
-        name: triggerName,
-        ...mapTriggerFields(triggerDef),
-      },
-    })
-    triggerIds.push(trigger.id)
-    logger.debug(`Created trigger: ${triggerName}`)
+      if (existingTrigger && typeof existingTrigger === 'object' && triggerMatches(existingTrigger, desired)) {
+        triggerIds.push(existingTrigger.id)
+        continue
+      }
+
+      const triggerName = `${seedWorkflow.name} - Trigger ${i + 1}`
+      const trigger = await payload.create({
+        collection: 'automation-triggers',
+        data: { name: triggerName, ...desired },
+      })
+      logger.debug(`Created trigger: ${triggerName}`)
+      triggerIds.push(trigger.id)
+      createdIds.push(trigger.id)
+
+      const staleId = idOf(existingTrigger)
+      if (staleId !== undefined) {
+        staleIds.push(staleId)
+      }
+    }
+
+    for (let i = seedWorkflow.triggers.length; i < existingTriggers.length; i++) {
+      const staleId = idOf(existingTriggers[i])
+      if (staleId !== undefined) {
+        staleIds.push(staleId)
+      }
+    }
+  } catch (error) {
+    await deleteResources(payload, 'automation-triggers', createdIds, logger)
+    throw error
   }
 
-  return triggerIds
+  return { items: triggerIds, createdIds, staleIds }
 }
 
-const createStepsForWorkflow = async (
+// Same reconciliation strategy as reconcileTriggers, applied to steps.
+const reconcileSteps = async (
   payload: Payload,
+  existingSteps: AnyRecord[],
   seedWorkflow: SeedWorkflow,
   logger: Logger
-): Promise<WorkflowStepEntry[]> => {
+): Promise<ReconcileResult<WorkflowStepEntry[]>> => {
   const workflowSteps: WorkflowStepEntry[] = []
+  const createdIds: (number | string)[] = []
+  const staleIds: (number | string)[] = []
 
-  for (const stepDef of seedWorkflow.steps) {
-    const stepName = `${seedWorkflow.name} - ${stepDef.name}`
-    const stepSlug = stepDef.slug || slugify(stepDef.name)
+  try {
+    for (let i = 0; i < seedWorkflow.steps.length; i++) {
+      const stepDef = seedWorkflow.steps[i]
+      const desiredSlug = stepDef.slug || slugify(stepDef.name)
+      const existingEntry = existingSteps[i]
+      const desiredInput = stepDef.input || {}
+      const dependencies = stepDef.dependencies?.map((dep) => ({ slug: dep }))
 
-    const step = await payload.create({
-      collection: 'automation-steps',
-      data: {
-        name: stepName,
-        type: stepDef.type,
-        config: stepDef.input || {},
-      },
-    })
-    logger.debug(`Created step: ${stepName}`)
+      if (existingEntry && stepEntryMatches(existingEntry, stepDef, desiredSlug)) {
+        const stepId = idOf(existingEntry.step)
+        if (stepId !== undefined) {
+          workflowSteps.push({
+            step: stepId,
+            slug: desiredSlug,
+            stepName: stepDef.name,
+            inputOverrides: desiredInput,
+            condition: stepDef.condition,
+            dependencies,
+          })
+          continue
+        }
+      }
 
-    workflowSteps.push({
-      step: step.id,
-      slug: stepSlug,
-      stepName: stepDef.name,
-      inputOverrides: stepDef.input || {},
-      condition: stepDef.condition,
-      dependencies: stepDef.dependencies?.map((dep) => ({ slug: dep })),
-    })
-  }
+      const stepName = `${seedWorkflow.name} - ${stepDef.name}`
+      const step = await payload.create({
+        collection: 'automation-steps',
+        data: {
+          name: stepName,
+          type: stepDef.type,
+          config: desiredInput,
+        },
+      })
+      logger.debug(`Created step: ${stepName}`)
+      createdIds.push(step.id)
 
-  return workflowSteps
-}
+      workflowSteps.push({
+        step: step.id,
+        slug: desiredSlug,
+        stepName: stepDef.name,
+        inputOverrides: desiredInput,
+        condition: stepDef.condition,
+        dependencies,
+      })
 
-// Best-effort cleanup of the trigger/step documents an update just replaced.
-// These are private to the seeded workflow (named `${workflow.name} - ...`),
-// so leaving them behind after every code change would accumulate orphans.
-const deleteSupersededResources = async (payload: Payload, existing: AnyRecord, logger: Logger): Promise<void> => {
-  const oldTriggerIds = ((existing.triggers || []) as AnyRecord[]).map((trigger) =>
-    typeof trigger === 'object' ? trigger.id : trigger
-  )
-  const oldStepIds = ((existing.steps || []) as AnyRecord[]).map((entry) =>
-    typeof entry.step === 'object' ? entry.step.id : entry.step
-  )
-
-  for (const id of oldTriggerIds) {
-    try {
-      await payload.delete({ collection: 'automation-triggers', id })
-    } catch (error) {
-      logger.warn(
-        { error: error instanceof Error ? error.message : 'Unknown error', triggerId: id },
-        'Failed to remove superseded trigger while updating seeded workflow'
-      )
+      const staleId = idOf(existingEntry?.step)
+      if (staleId !== undefined) {
+        staleIds.push(staleId)
+      }
     }
+
+    for (let i = seedWorkflow.steps.length; i < existingSteps.length; i++) {
+      const staleId = idOf(existingSteps[i]?.step)
+      if (staleId !== undefined) {
+        staleIds.push(staleId)
+      }
+    }
+  } catch (error) {
+    await deleteResources(payload, 'automation-steps', createdIds, logger)
+    throw error
   }
 
-  for (const id of oldStepIds) {
-    try {
-      await payload.delete({ collection: 'automation-steps', id })
-    } catch (error) {
-      logger.warn(
-        { error: error instanceof Error ? error.message : 'Unknown error', stepId: id },
-        'Failed to remove superseded step while updating seeded workflow'
-      )
-    }
-  }
+  return { items: workflowSteps, createdIds, staleIds }
 }
 
 /**
@@ -242,13 +316,57 @@ export const seedWorkflows = async (
 
         logger.info(`Updating seeded workflow '${seedWorkflow.slug}': ${seedWorkflow.name}`)
 
-        const triggerIds = await createTriggersForWorkflow(payload, seedWorkflow, logger)
-        const workflowSteps = await createStepsForWorkflow(payload, seedWorkflow, logger)
+        let triggerResult: ReconcileResult<(number | string)[]> | undefined
+        let stepResult: ReconcileResult<WorkflowStepEntry[]> | undefined
 
-        await payload.update({
+        try {
+          triggerResult = await reconcileTriggers(payload, existing.triggers || [], seedWorkflow, logger)
+          stepResult = await reconcileSteps(payload, existing.steps || [], seedWorkflow, logger)
+
+          await payload.update({
+            collection: 'workflows',
+            id: existing.id,
+            data: {
+              name: seedWorkflow.name,
+              description: seedWorkflow.description,
+              triggers: triggerResult.items,
+              steps: stepResult.items,
+              readOnly: true,
+            },
+          })
+        } catch (error) {
+          // The workflow doc still points at whatever it pointed at before (either
+          // untouched, because update() never ran or itself failed), so only the
+          // freshly created replacements — not yet referenced anywhere — are
+          // orphaned. Clean up just those rather than leaving them for the next
+          // restart to find, and let the outer catch log the failure.
+          await deleteResources(payload, 'automation-triggers', triggerResult?.createdIds || [], logger)
+          await deleteResources(payload, 'automation-steps', stepResult?.createdIds || [], logger)
+          throw error
+        }
+
+        // Only safe to remove the superseded docs now that the workflow has been
+        // repointed at their replacements.
+        await deleteResources(payload, 'automation-triggers', triggerResult.staleIds, logger)
+        await deleteResources(payload, 'automation-steps', stepResult.staleIds, logger)
+
+        logger.info(`Updated seeded workflow: ${seedWorkflow.name}`)
+        continue
+      }
+
+      let triggerIds: (number | string)[] = []
+      let workflowSteps: WorkflowStepEntry[] = []
+
+      try {
+        const triggerResult = await reconcileTriggers(payload, [], seedWorkflow, logger)
+        const stepResult = await reconcileSteps(payload, [], seedWorkflow, logger)
+        triggerIds = triggerResult.items
+        workflowSteps = stepResult.items
+
+        await payload.create({
           collection: 'workflows',
-          id: existing.id,
           data: {
+            slug: seedWorkflow.slug,
             name: seedWorkflow.name,
             description: seedWorkflow.description,
             triggers: triggerIds,
@@ -256,31 +374,26 @@ export const seedWorkflows = async (
             readOnly: true,
           },
         })
-
-        await deleteSupersededResources(payload, existing, logger)
-
-        logger.info(`Updated seeded workflow: ${seedWorkflow.name}`)
-        continue
+      } catch (error) {
+        // Nothing existed before this attempt, so every trigger/step created
+        // here (reconcileTriggers/reconcileSteps already clean up their own
+        // partial-loop failures) is orphaned if payload.create() itself fails.
+        await deleteResources(payload, 'automation-triggers', triggerIds, logger)
+        await deleteResources(
+          payload,
+          'automation-steps',
+          workflowSteps.map((step) => step.step),
+          logger
+        )
+        throw error
       }
-
-      const triggerIds = await createTriggersForWorkflow(payload, seedWorkflow, logger)
-      const workflowSteps = await createStepsForWorkflow(payload, seedWorkflow, logger)
-
-      await payload.create({
-        collection: 'workflows',
-        data: {
-          slug: seedWorkflow.slug,
-          name: seedWorkflow.name,
-          description: seedWorkflow.description,
-          triggers: triggerIds,
-          steps: workflowSteps,
-          readOnly: true,
-        },
-      })
 
       logger.info(`Seeded workflow: ${seedWorkflow.name}`)
     } catch (error) {
-      logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
+      logger.error(
+        { error: error instanceof Error ? error.message : 'Unknown error' },
+        `Failed to seed workflow '${seedWorkflow.name}'`
+      )
     }
   }
 }
