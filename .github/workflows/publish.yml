@@ -32,6 +32,9 @@ jobs:
       - name: Run tests
         run: pnpm test:int
 
+      - name: Verify published types (pack & consume)
+        run: pnpm test:pack-types
+
       - name: Build
         run: pnpm build
 
