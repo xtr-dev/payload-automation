@@ -32,9 +32,13 @@ jobs:
       - name: Run tests
         run: pnpm test:int
 
-      # Builds dist/ itself (pnpm clean && pnpm build) before packing, so the
-      # dist/ it leaves behind is already what `npm publish` needs — a
-      # separate Build step here would just rebuild identical output.
+      # Builds dist/ itself (pnpm clean && pnpm build) before packing, so a
+      # separate Build step here would just rebuild identical output before
+      # this one does it again. Note this step's dist/ is NOT what gets
+      # published: package.json's prepublishOnly (pnpm clean && pnpm build)
+      # runs again right before `npm publish` below, rebuilding from scratch.
+      # This step exists to catch a types/exports regression before publish,
+      # not to produce the artifact that ships.
       - name: Verify published types (pack & consume)
         run: pnpm test:pack-types
 
