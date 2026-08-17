@@ -54,3 +54,14 @@ describe('automation-triggers webhookPath validation', () => {
     ).rejects.toThrow('Webhook path must be a single path segment without whitespace')
   })
 })
+
+describe('automation-triggers webhookSecret field access', () => {
+  it('is not readable through the collection access, even though the collection itself is public', () => {
+    const fields = createTriggersCollection({ steps: [] }).fields
+    const webhookSecretField = fields.find(
+      (field) => 'name' in field && field.name === 'webhookSecret'
+    ) as { access?: { read?: () => boolean } } | undefined
+
+    expect(webhookSecretField?.access?.read?.()).toBe(false)
+  })
+})

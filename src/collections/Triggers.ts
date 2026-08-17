@@ -141,6 +141,14 @@ export const createTriggersCollection = <T extends string>(
       {
         name: 'webhookSecret',
         type: 'text',
+        // The collection's own access (above) is read: () => true, so without
+        // this override the secret is returned in plaintext by every public
+        // GET /api/automation-triggers request. The webhook endpoint's own
+        // lookup is unaffected: it uses the Local API, which defaults
+        // overrideAccess to true.
+        access: {
+          read: () => false,
+        },
         admin: {
           condition: (_, siblingData) => siblingData?.type === 'webhook',
           description:
