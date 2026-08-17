@@ -32,11 +32,11 @@ jobs:
       - name: Run tests
         run: pnpm test:int
 
+      # Builds dist/ itself (pnpm clean && pnpm build) before packing, so the
+      # dist/ it leaves behind is already what `npm publish` needs — a
+      # separate Build step here would just rebuild identical output.
       - name: Verify published types (pack & consume)
         run: pnpm test:pack-types
-
-      - name: Build
-        run: pnpm build
 
       - name: Check if should publish
         id: version-check
