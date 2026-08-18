@@ -239,6 +239,55 @@ export const workflowsPlugin =
       const logger = initializeLogger(payload)
       logger.info('Automation plugin initialized')
 
+      // Backfill collectionHook/globalHook from the legacy `hook` field for triggers
+      // written before that field was split (see Triggers.ts). Without this, a
+      // collection-hook or global-hook trigger saved pre-upgrade has its hook type
+      // under the old field, collectionHook/globalHook query for it never matches,
+      // and the trigger silently stops firing after the upgrade.
+      try {
+        const { docs: legacyTriggers } = await payload.find({
+          collection: 'automation-triggers',
+          depth: 0,
+          limit: 1000,
+          where: {
+            or: [
+              {
+                and: [
+                  { type: { equals: 'collection-hook' } },
+                  { collectionHook: { exists: false } },
+                  { hook: { exists: true } },
+                ],
+              },
+              {
+                and: [
+                  { type: { equals: 'global-hook' } },
+                  { globalHook: { exists: false } },
+                  { hook: { exists: true } },
+                ],
+              },
+            ],
+          },
+        })
+
+        for (const trigger of legacyTriggers) {
+          const field = trigger.type === 'collection-hook' ? 'collectionHook' : 'globalHook'
+          await payload.update({
+            collection: 'automation-triggers',
+            id: trigger.id,
+            data: { [field]: trigger.hook },
+          })
+          logger.info(
+            { triggerId: trigger.id, field, value: trigger.hook },
+            'Migrated legacy trigger hook field'
+          )
+        }
+      } catch (error) {
+        logger.error(
+          { error: error instanceof Error ? error.message : 'Unknown error' },
+          'Failed to backfill legacy trigger hook fields'
+        )
+      }
+
       const collectionCount = Object.keys(pluginOptions.collectionTriggers || {}).length
       const globalCount = Object.keys(pluginOptions.globalTriggers || {}).length
       const stepCount = pluginOptions.steps?.length || 0

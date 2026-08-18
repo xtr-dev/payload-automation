@@ -124,6 +124,16 @@ export const createTriggersCollection = <T extends string>(
         },
         options: globalHookOptions.map(opt => ({ label: opt.label, value: opt.value })),
       },
+      // Legacy field kept so pre-existing rows (written before `hook` was split into
+      // collectionHook/globalHook) stay readable. onInit backfills collectionHook/globalHook
+      // from this and it is never written to again; it stays hidden and out of validation.
+      {
+        name: 'hook',
+        type: 'text',
+        admin: {
+          hidden: true,
+        },
+      },
       // Scheduled fields
       {
         name: 'schedule',
