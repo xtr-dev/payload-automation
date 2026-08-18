@@ -102,6 +102,11 @@
     "@payloadcms/ui": "^3.79.1",
     "payload": "^3.79.1"
   },
+  "peerDependenciesMeta": {
+    "@payloadcms/ui": {
+      "optional": true
+    }
+  },
   "engines": {
     "node": "^18.20.2 || >=20.9.0",
     "pnpm": "^9 || ^10"
