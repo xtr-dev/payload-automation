@@ -358,7 +358,7 @@ export const workflowsPlugin =
 
             logger.info(`Seeded workflow: ${seedWorkflow.name}`)
           } catch (error) {
-            logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
+            logger.error(error, `Failed to seed workflow '${seedWorkflow.name}'`)
           }
         }
       }
