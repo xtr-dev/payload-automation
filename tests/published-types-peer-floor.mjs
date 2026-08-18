@@ -42,7 +42,13 @@ try {
       module: 'NodeNext',
       moduleResolution: 'NodeNext',
       noEmit: true,
-      skipLibCheck: false,
+      // false here type-checks payload's own bundled .d.ts files too, and those
+      // reference react/next/sharp/nodemailer/graphql-http/minimist types that a
+      // server-only consumer of this plugin never installs (see the optional-peer
+      // branches for @payloadcms/ui and react) — the run fails on payload's admin/
+      // upload/email internals before it ever reaches this package's own exports,
+      // permanently red regardless of whether index.ts's types are actually fine.
+      skipLibCheck: true,
       strict: true,
       target: 'ES2022',
     },
