@@ -158,7 +158,7 @@ export const StepConfigurationForm: React.FC<StepConfigurationFormProps> = ({
             color: 'var(--theme-text)',
             resize: 'vertical'
           }}
-          placeholder='{\n  "field1": "value1",\n  "field2": "$.trigger.doc.id"\n}'
+          placeholder='{\n  "field1": "value1",\n  "field2": "{{trigger.doc.id}}"\n}'
         />
       </div>
     )
