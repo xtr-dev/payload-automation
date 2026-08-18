@@ -271,15 +271,26 @@ export const workflowsPlugin =
 
         for (const trigger of legacyTriggers) {
           const field = trigger.type === 'collection-hook' ? 'collectionHook' : 'globalHook'
-          await payload.update({
-            collection: 'automation-triggers',
-            id: trigger.id,
-            data: { [field]: trigger.hook },
-          })
-          logger.info(
-            { triggerId: trigger.id, field, value: trigger.hook },
-            'Migrated legacy trigger hook field'
-          )
+          try {
+            await payload.update({
+              collection: 'automation-triggers',
+              id: trigger.id,
+              data: { [field]: trigger.hook },
+            })
+            logger.info(
+              { triggerId: trigger.id, field, value: trigger.hook },
+              'Migrated legacy trigger hook field'
+            )
+          } catch (error) {
+            // Isolate per-trigger failures (e.g. a malformed legacy row rejected by the
+            // Triggers.ts beforeChange validator) so one bad row doesn't abort the loop
+            // and leave every trigger after it un-migrated for this boot and every boot
+            // after, since the failing row keeps matching the same query.
+            logger.error(
+              { triggerId: trigger.id, field, error: error instanceof Error ? error.message : 'Unknown error' },
+              'Failed to migrate legacy trigger hook field'
+            )
+          }
         }
       } catch (error) {
         logger.error(
