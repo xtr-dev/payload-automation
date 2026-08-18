@@ -275,6 +275,67 @@ describe('seeded workflow reconciliation', () => {
     })
     expect(preserved.id).toBe(trigger.id)
   })
+
+  it('preserves a pendingDeletion-flagged trigger/step re-selected into a live workflow before the retry runs', async () => {
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [] }))
+
+    // A previous restart flagged these but the delete failed, leaving them
+    // pendingDeletion:true. Nothing references them yet - not a run, not a
+    // workflow - so a naive retry would delete both on the next restart.
+    const trigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'Flagged, then reused', type: 'manual', pendingDeletion: true },
+      overrideAccess: true,
+    })
+    const step = await payload.create({
+      collection: 'automation-steps',
+      data: { name: 'Flagged, then reused', type: 'noop-step', pendingDeletion: true },
+      overrideAccess: true,
+    })
+
+    // Before the next restart, an admin (or any API caller - automation-
+    // triggers/automation-steps have no filterOptions hiding flagged docs
+    // from the relationship picker) picks the still-flagged records into a
+    // brand new workflow. It never fires, so no workflow-run cites them.
+    const reusingWorkflow = await payload.create({
+      collection: 'workflows',
+      data: {
+        slug: 'reuses-flagged-records',
+        name: 'Reuses flagged records',
+        triggers: [trigger.id],
+        steps: [{ step: step.id, slug: 'reused-step' }],
+      },
+      overrideAccess: true,
+    })
+
+    await payload.destroy()
+    payload = undefined
+
+    // The retry pass runs unconditionally on this restart even with no seed workflows configured.
+    payload = await getTestPayload(buildTestConfig({ dbFile, seedWorkflows: [] }))
+
+    const preservedTrigger = await payload.findByID({
+      collection: 'automation-triggers',
+      id: trigger.id,
+      overrideAccess: true,
+    })
+    expect(preservedTrigger.id).toBe(trigger.id)
+
+    const preservedStep = await payload.findByID({
+      collection: 'automation-steps',
+      id: step.id,
+      overrideAccess: true,
+    })
+    expect(preservedStep.id).toBe(step.id)
+
+    const workflowStillIntact = await payload.findByID({
+      collection: 'workflows',
+      id: reusingWorkflow.id,
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(workflowStillIntact.triggers).toContain(trigger.id)
+  })
 })
 
 describe('workflow readOnly access control', () => {

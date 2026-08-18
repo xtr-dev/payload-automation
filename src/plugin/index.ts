@@ -271,6 +271,41 @@ export const workflowsPlugin =
         return result.docs.length > 0
       }
 
+      // automation-triggers/automation-steps are reusable templates with no
+      // filterOptions hiding pendingDeletion:true docs from the relationship
+      // picker on Workflow.ts, so a record flagged (but not yet retried) can
+      // be legitimately re-selected into a live workflow - by an admin in
+      // the UI, or by any API caller, since filterOptions is a UI hint only
+      // and isn't enforced server-side. The pendingDeletion flag persists
+      // across restarts, unlike the in-seed-loop staleIds snapshot which is
+      // acted on atomically within one onInit pass, so this window is real.
+      // A flagged record currently named by ANY workflow's triggers/steps
+      // array - not just one a past run fired - must survive the retry.
+      const isTriggerReferencedByWorkflow = async (triggerId: string | number): Promise<boolean> => {
+        const result = await payload.find({
+          collection: 'workflows',
+          where: { triggers: { contains: triggerId } },
+          limit: 1,
+          depth: 0,
+          overrideAccess: true,
+        })
+        return result.docs.length > 0
+      }
+      const isStepReferencedByWorkflow = async (stepId: string | number): Promise<boolean> => {
+        const result = await payload.find({
+          collection: 'workflows',
+          where: { 'steps.step': { equals: stepId } },
+          limit: 1,
+          depth: 0,
+          overrideAccess: true,
+        })
+        return result.docs.length > 0
+      }
+      const isTriggerReferenced = async (triggerId: string | number): Promise<boolean> =>
+        (await isTriggerReferencedByRun(triggerId)) || (await isTriggerReferencedByWorkflow(triggerId))
+      const isStepReferenced = async (stepId: string | number): Promise<boolean> =>
+        (await isStepReferencedByRun(stepId)) || (await isStepReferencedByWorkflow(stepId))
+
       // Retry deletions flagged pendingDeletion by a previous restart. Runs
       // unconditionally (not gated on seedWorkflows being configured this
       // restart) so a record flagged while seeding was enabled still gets
@@ -285,7 +320,7 @@ export const workflowsPlugin =
       if (pendingTriggers.docs.length > 0) {
         await reconcileStaleRecords(pendingTriggers.docs.map((doc) => doc.id), {
           kind: 'trigger',
-          isReferenced: isTriggerReferencedByRun,
+          isReferenced: isTriggerReferenced,
           remove: removeWithPendingFlag({ payload, collection: 'automation-triggers' }),
           logger,
         })
@@ -300,7 +335,7 @@ export const workflowsPlugin =
       if (pendingSteps.docs.length > 0) {
         await reconcileStaleRecords(pendingSteps.docs.map((doc) => doc.id), {
           kind: 'step',
-          isReferenced: isStepReferencedByRun,
+          isReferenced: isStepReferenced,
           remove: removeWithPendingFlag({ payload, collection: 'automation-steps' }),
           logger,
         })
@@ -458,13 +493,13 @@ export const workflowsPlugin =
 
               await reconcileStaleRecords(staleTriggerIds, {
                 kind: 'trigger',
-                isReferenced: isTriggerReferencedByRun,
+                isReferenced: isTriggerReferenced,
                 remove: removeWithPendingFlag({ payload, collection: 'automation-triggers' }),
                 logger,
               })
               await reconcileStaleRecords(staleStepIds, {
                 kind: 'step',
-                isReferenced: isStepReferencedByRun,
+                isReferenced: isStepReferenced,
                 remove: removeWithPendingFlag({ payload, collection: 'automation-steps' }),
                 logger,
               })
