@@ -42,13 +42,19 @@ try {
       module: 'NodeNext',
       moduleResolution: 'NodeNext',
       noEmit: true,
-      // false here type-checks payload's own bundled .d.ts files too, and those
-      // reference react/next/sharp/nodemailer/graphql-http/minimist types that a
-      // server-only consumer of this plugin never installs (see the optional-peer
-      // branches for @payloadcms/ui and react) — the run fails on payload's admin/
-      // upload/email internals before it ever reaches this package's own exports,
-      // permanently red regardless of whether index.ts's types are actually fine.
-      skipLibCheck: true,
+      // skipLibCheck suppresses ALL diagnostics for a file once TS classifies it as a
+      // .d.ts — including unresolved-import errors — and that applies uniformly to
+      // every .d.ts, not just node_modules ones. Setting it true would silently hide
+      // the exact failure this test exists to catch: our own dist/*.d.ts referencing
+      // a Payload export that doesn't exist at the declared peer floor. Payload's own
+      // bundled .d.ts don't compile cleanly under strict+skipLibCheck:false even with
+      // every leaked optional type dependency installed (react, next, sharp,
+      // nodemailer, graphql-http, minimist, @monaco-editor/react, ...) — confirmed by
+      // installing all of them and still hitting structural TS2344/TS2411 errors
+      // inside payload's own types, unrelated to this package. So we keep
+      // skipLibCheck:false and instead filter tsc's output below to only fail on
+      // diagnostics inside this package's own published dist/ files.
+      skipLibCheck: false,
       strict: true,
       target: 'ES2022',
     },
@@ -99,10 +105,53 @@ void seedWorkflow
     cwd: consumerDirectory,
     stdio: 'inherit',
   })
-  execFileSync('pnpm', ['exec', 'tsc', '--noEmit'], {
-    cwd: consumerDirectory,
-    stdio: 'inherit',
-  })
+
+  // This package's own dist/*.d.ts land inside node_modules/<name>/dist/ in the
+  // consumer, whether pnpm resolves the file: dependency directly or through its
+  // virtual store — so this substring identifies diagnostics that are ours to fix,
+  // as opposed to pre-existing noise inside payload/next/react's own bundled types.
+  const ownPackageDistPrefix = `${packageJson.name}/dist/`
+  const diagnosticStartPattern = /^\S.*\(\d+,\d+\): error TS\d+:/
+
+  try {
+    execFileSync('pnpm', ['exec', 'tsc', '--noEmit'], {
+      cwd: consumerDirectory,
+      encoding: 'utf8',
+    })
+  } catch (error) {
+    const stdout = typeof error.stdout === 'string' ? error.stdout : ''
+    const lines = stdout.split('\n')
+
+    if (!lines.some((line) => diagnosticStartPattern.test(line))) {
+      // tsc failed for a reason other than ordinary type diagnostics (crash,
+      // bad tsconfig, ...) — surface it as-is rather than swallowing it below.
+      console.error(stdout)
+      console.error(error.stderr)
+      throw error
+    }
+
+    const ownPackageLines = []
+    let inOwnPackageDiagnostic = false
+    for (const line of lines) {
+      if (diagnosticStartPattern.test(line)) {
+        inOwnPackageDiagnostic = line.includes(ownPackageDistPrefix)
+      }
+      if (inOwnPackageDiagnostic) {
+        ownPackageLines.push(line)
+      }
+    }
+
+    if (ownPackageLines.length > 0) {
+      throw new Error(
+        `${packageJson.name}'s own published types fail to compile against the declared Payload peer floor (${payloadPeerFloor}):\n\n${ownPackageLines.join('\n')}`,
+      )
+    }
+
+    const diagnosticCount = lines.filter((line) => diagnosticStartPattern.test(line)).length
+    console.warn(
+      `[published-types-peer-floor] tsc reported ${diagnosticCount} diagnostic(s), all inside third-party bundled .d.ts files (payload/next/react/...), none in ${packageJson.name}'s own output — ignoring, since those packages' own type quality isn't this test's contract.`,
+    )
+  }
 } finally {
   rmSync(scratchRoot, { recursive: true, force: true })
 }
