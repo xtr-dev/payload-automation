@@ -56,12 +56,40 @@ describe('automation-triggers webhookPath validation', () => {
 })
 
 describe('automation-triggers webhookSecret field access', () => {
-  it('is not readable through the collection access, even though the collection itself is public', () => {
+  const getWebhookSecretField = () => {
     const fields = createTriggersCollection({ steps: [] }).fields
-    const webhookSecretField = fields.find(
-      (field) => 'name' in field && field.name === 'webhookSecret'
-    ) as { access?: { read?: () => boolean } } | undefined
+    return fields.find((field) => 'name' in field && field.name === 'webhookSecret') as
+      | {
+          access?: {
+            create?: (args: { req: { user: unknown } }) => boolean
+            read?: () => boolean
+            update?: (args: { req: { user: unknown } }) => boolean
+          }
+        }
+      | undefined
+  }
 
-    expect(webhookSecretField?.access?.read?.()).toBe(false)
+  it('is not readable through the collection access, even though the collection itself is public', () => {
+    expect(getWebhookSecretField()?.access?.read?.()).toBe(false)
+  })
+
+  // The collection's own access is `() => true` for every operation, so
+  // without these overrides an anonymous PATCH/POST could set the secret to
+  // a value of the caller's own choosing without ever needing to read the
+  // original one.
+  it('rejects create and update from a request with no authenticated user', () => {
+    const field = getWebhookSecretField()
+    const anonymousReq = { user: null }
+
+    expect(field?.access?.create?.({ req: anonymousReq })).toBe(false)
+    expect(field?.access?.update?.({ req: anonymousReq })).toBe(false)
+  })
+
+  it('allows create and update from a request with an authenticated user', () => {
+    const field = getWebhookSecretField()
+    const authenticatedReq = { user: { id: 'admin-1' } }
+
+    expect(field?.access?.create?.({ req: authenticatedReq })).toBe(true)
+    expect(field?.access?.update?.({ req: authenticatedReq })).toBe(true)
   })
 })

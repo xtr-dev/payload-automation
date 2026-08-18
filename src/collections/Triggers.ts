@@ -141,13 +141,21 @@ export const createTriggersCollection = <T extends string>(
       {
         name: 'webhookSecret',
         type: 'text',
-        // The collection's own access (above) is read: () => true, so without
-        // this override the secret is returned in plaintext by every public
-        // GET /api/automation-triggers request. The webhook endpoint's own
-        // lookup is unaffected: it uses the Local API, which defaults
-        // overrideAccess to true.
+        // The collection's own access (above) is `() => true` for every
+        // operation, so without field-level overrides here an anonymous
+        // request could both read the secret (GET) and, worse, overwrite it
+        // with a value of its own choosing (PATCH { webhookSecret }) without
+        // ever needing to read the original — a full bypass of the auth the
+        // webhook endpoint enforces. Payload only gates a field's write path
+        // when field.access[operation] is explicitly set (it defaults to
+        // allowed otherwise), so read and write need independent overrides;
+        // fixing read alone still leaves update open. Local API calls (the
+        // webhook endpoint's own lookup, and seeding) default overrideAccess
+        // to true and skip these checks entirely.
         access: {
+          create: ({ req }) => Boolean(req.user),
           read: () => false,
+          update: ({ req }) => Boolean(req.user),
         },
         admin: {
           condition: (_, siblingData) => siblingData?.type === 'webhook',
