@@ -460,6 +460,5 @@ export default buildConfig({
 
 ## Next Steps
 
-- Review the [Workflow Examples](./WORKFLOW_EXAMPLES.md) for more use cases
-- Learn about [Custom Steps](./CUSTOM_STEPS.md) to extend functionality
-- Explore [JSONPath Expressions](./JSONPATH.md) for dynamic data access
+- Learn about [Custom Steps](../README.md#custom-steps) to extend functionality
+- Explore [JSONata Expressions](../README.md#jsonata-expressions) for dynamic data access
