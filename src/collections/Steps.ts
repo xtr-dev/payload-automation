@@ -1,5 +1,19 @@
 import type { CollectionConfig, TaskConfig } from 'payload'
 
+import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
+
+const collectReferencedStepIds = (workflow: Record<string, unknown>): (number | string)[] => {
+  if (!Array.isArray(workflow.steps)) {
+    return []
+  }
+  return workflow.steps
+    .map((workflowStep) => {
+      const step = (workflowStep as { step?: unknown })?.step
+      return typeof step === 'object' && step !== null ? (step as { id: number | string }).id : step
+    })
+    .filter((stepId): stepId is number | string => stepId !== null && stepId !== undefined)
+}
+
 /**
  * Creates the automation-steps collection.
  * Steps are reusable building blocks that can be used across multiple workflows.
@@ -17,9 +31,15 @@ export const createStepsCollection = (
     slug: 'automation-steps',
     access: {
       create: () => true,
-      delete: () => true,
+      delete: refuseIfReferencedByReadOnlyWorkflow(
+        (id) => ({ 'steps.step': { equals: id } }),
+        collectReferencedStepIds
+      ),
       read: () => true,
-      update: () => true,
+      update: refuseIfReferencedByReadOnlyWorkflow(
+        (id) => ({ 'steps.step': { equals: id } }),
+        collectReferencedStepIds
+      ),
     },
     admin: {
       defaultColumns: ['name', 'type', 'updatedAt'],

@@ -4,6 +4,16 @@ import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
 import { normalizeWebhookPath } from '../plugin/webhook-endpoint.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
+import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
+
+const collectReferencedTriggerIds = (workflow: Record<string, unknown>): (number | string)[] => {
+  if (!Array.isArray(workflow.triggers)) {
+    return []
+  }
+  return workflow.triggers
+    .map((trigger) => (typeof trigger === 'object' && trigger !== null ? (trigger as { id: number | string }).id : trigger))
+    .filter((triggerId): triggerId is number | string => triggerId !== null && triggerId !== undefined)
+}
 
 /**
  * Creates the automation-triggers collection.
@@ -19,9 +29,15 @@ export const createTriggersCollection = <T extends string>(
     slug: 'automation-triggers',
     access: {
       create: () => true,
-      delete: () => true,
+      delete: refuseIfReferencedByReadOnlyWorkflow(
+        (id) => ({ triggers: { contains: id } }),
+        collectReferencedTriggerIds
+      ),
       read: () => true,
-      update: () => true,
+      update: refuseIfReferencedByReadOnlyWorkflow(
+        (id) => ({ triggers: { contains: id } }),
+        collectReferencedTriggerIds
+      ),
     },
     admin: {
       defaultColumns: ['name', 'type', 'target', 'updatedAt'],

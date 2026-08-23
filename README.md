@@ -28,7 +28,15 @@ npm install @xtr-dev/payload-automation
 
 ```typescript
 import { buildConfig } from 'payload'
-import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
+import {
+  workflowsPlugin,
+  HttpRequestStepTask,
+  CreateDocumentStepTask,
+  ReadDocumentStepTask,
+  UpdateDocumentStepTask,
+  DeleteDocumentStepTask,
+  SendEmailStepTask,
+} from '@xtr-dev/payload-automation/server'
 
 export default buildConfig({
   // ... your config
@@ -41,6 +49,16 @@ export default buildConfig({
           update: true
         }
       },
+      // Step types available to workflows. The built-in tasks are not
+      // registered automatically — pass the ones you want to use.
+      steps: [
+        HttpRequestStepTask,
+        CreateDocumentStepTask,
+        ReadDocumentStepTask,
+        UpdateDocumentStepTask,
+        DeleteDocumentStepTask,
+        SendEmailStepTask,
+      ],
       enabled: true,
     }),
   ],
@@ -467,8 +485,11 @@ interface WorkflowsPluginConfig {
     [globalSlug: string]: boolean | { /* hooks */ }
   }
 
-  // Custom step definitions
-  steps?: StepDefinition[]
+  // Step types available to workflows (Payload TaskConfig objects).
+  // Optional — without it the plugin registers its collections and hooks
+  // but no step types. Built-in tasks are exported from
+  // '@xtr-dev/payload-automation/server'.
+  steps?: TaskConfig[]
 }
 ```
 
