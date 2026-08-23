@@ -9,21 +9,19 @@ export const createWorkflowCollection = (): CollectionConfig => {
     slug: 'workflows',
     access: {
       create: () => true,
-      delete: ({ req, data }) => {
-        // Prevent deletion of read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
+      // A Where clause is combined with the id lookup in deleteByID/updateByID
+      // (and used as the filter on bulk delete/update), so the *stored*
+      // document's readOnly is what gets checked. Reading `data` would not
+      // work: that argument is the incoming request body, which a REST DELETE
+      // does not send at all, and which a PATCH can simply omit `readOnly`
+      // from.
+      delete: () => ({
+        readOnly: { not_equals: true },
+      }),
       read: () => true,
-      update: ({ req, data }) => {
-        // Prevent updates to read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
+      update: () => ({
+        readOnly: { not_equals: true },
+      }),
     },
     admin: {
       defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
