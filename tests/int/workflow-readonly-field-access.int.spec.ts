@@ -45,6 +45,22 @@ const seededWorkflow: SeedWorkflow = {
   ],
 }
 
+const relationId = (value: unknown): string | number => {
+  if (typeof value === 'string' || typeof value === 'number') {
+    return value
+  }
+  if (value !== null && typeof value === 'object' && 'id' in value) {
+    const nested = (value as { id: unknown }).id
+    if (typeof nested === 'string' || typeof nested === 'number') {
+      return nested
+    }
+  }
+  throw new Error(`expected a relationship id, got ${JSON.stringify(value)}`)
+}
+
+const expectForbidden = (operation: Promise<unknown>) =>
+  expect(operation).rejects.toMatchObject({ status: 403 })
+
 describe('workflows.readOnly field and collection access', () => {
   let dbFile: string
   let payload: Payload | undefined
@@ -186,5 +202,144 @@ describe('workflows.readOnly field and collection access', () => {
     })
     expect((stillThere as { name?: string }).name).toBe('immutable workflow')
     expect((stillThere as { readOnly?: boolean }).readOnly).toBe(true)
+  })
+
+  it("refuses update and delete of a seeded workflow's trigger and step, while an unreferenced sibling still updates and bulk delete skips the frozen ids", async () => {
+    payload = await getTestPayload(
+      buildTestConfig({ dbFile, seedWorkflows: [seededWorkflow] }),
+    )
+
+    const seeded = await payload.find({
+      collection: 'workflows',
+      where: { slug: { equals: seededWorkflow.slug } },
+      depth: 0,
+      overrideAccess: true,
+    })
+    expect(seeded.docs).toHaveLength(1)
+
+    const workflow = seeded.docs[0] as {
+      triggers?: unknown[]
+      steps?: Array<{ step?: unknown }>
+    }
+    const frozenTriggerId = relationId(workflow.triggers?.[0])
+    const frozenStepId = relationId(workflow.steps?.[0]?.step)
+
+    const frozenTrigger = await payload.findByID({
+      collection: 'automation-triggers',
+      id: frozenTriggerId,
+      overrideAccess: true,
+    })
+    const frozenStep = await payload.findByID({
+      collection: 'automation-steps',
+      id: frozenStepId,
+      overrideAccess: true,
+    })
+    const frozenTriggerName = (frozenTrigger as { name?: string }).name
+    const frozenStepName = (frozenStep as { name?: string }).name
+
+    const siblingTrigger = await payload.create({
+      collection: 'automation-triggers',
+      data: {
+        name: 'unreferenced-trigger',
+        type: 'collection-hook',
+        collectionSlug: 'posts',
+        hook: 'afterChange',
+      },
+      overrideAccess: false,
+    })
+    const siblingStep = await payload.create({
+      collection: 'automation-steps',
+      data: {
+        name: 'unreferenced-step',
+        type: 'noop-step',
+        config: {},
+      },
+      overrideAccess: false,
+    })
+
+    await expectForbidden(
+      payload.update({
+        collection: 'automation-triggers',
+        id: frozenTriggerId,
+        data: { name: 'frozen-trigger-renamed' },
+        overrideAccess: false,
+      }),
+    )
+    await expectForbidden(
+      payload.delete({
+        collection: 'automation-triggers',
+        id: frozenTriggerId,
+        overrideAccess: false,
+      }),
+    )
+    await expectForbidden(
+      payload.update({
+        collection: 'automation-steps',
+        id: frozenStepId,
+        data: { name: 'frozen-step-renamed' },
+        overrideAccess: false,
+      }),
+    )
+    await expectForbidden(
+      payload.delete({
+        collection: 'automation-steps',
+        id: frozenStepId,
+        overrideAccess: false,
+      }),
+    )
+
+    const updatedSiblingTrigger = await payload.update({
+      collection: 'automation-triggers',
+      id: siblingTrigger.id,
+      data: { name: 'unreferenced-trigger-renamed' },
+      overrideAccess: false,
+    })
+    expect((updatedSiblingTrigger as { name?: string }).name).toBe(
+      'unreferenced-trigger-renamed',
+    )
+
+    const updatedSiblingStep = await payload.update({
+      collection: 'automation-steps',
+      id: siblingStep.id,
+      data: { name: 'unreferenced-step-renamed' },
+      overrideAccess: false,
+    })
+    expect((updatedSiblingStep as { name?: string }).name).toBe(
+      'unreferenced-step-renamed',
+    )
+
+    const triggerBulk = await payload.delete({
+      collection: 'automation-triggers',
+      where: { id: { in: [frozenTriggerId, siblingTrigger.id] } },
+      overrideAccess: false,
+    })
+    const deletedTriggerIds = new Set(
+      triggerBulk.docs.map((doc) => String(doc.id)),
+    )
+    expect(deletedTriggerIds.has(String(siblingTrigger.id))).toBe(true)
+    expect(deletedTriggerIds.has(String(frozenTriggerId))).toBe(false)
+
+    const stepBulk = await payload.delete({
+      collection: 'automation-steps',
+      where: { id: { in: [frozenStepId, siblingStep.id] } },
+      overrideAccess: false,
+    })
+    const deletedStepIds = new Set(stepBulk.docs.map((doc) => String(doc.id)))
+    expect(deletedStepIds.has(String(siblingStep.id))).toBe(true)
+    expect(deletedStepIds.has(String(frozenStepId))).toBe(false)
+
+    const triggerStillThere = await payload.findByID({
+      collection: 'automation-triggers',
+      id: frozenTriggerId,
+      overrideAccess: true,
+    })
+    expect((triggerStillThere as { name?: string }).name).toBe(frozenTriggerName)
+
+    const stepStillThere = await payload.findByID({
+      collection: 'automation-steps',
+      id: frozenStepId,
+      overrideAccess: true,
+    })
+    expect((stepStillThere as { name?: string }).name).toBe(frozenStepName)
   })
 })
