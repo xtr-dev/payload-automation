@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { evaluate } from './expression-engine.js'
+import { evaluate } from '../src/core/expression-engine.js'
 
 describe('evaluate', () => {
   it('keeps the timebox isolated between overlapping cached evaluations', async () => {
