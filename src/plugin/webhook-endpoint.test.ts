@@ -34,15 +34,28 @@ const matchingWorkflow = {
   triggers: [{ id: 't1' }],
 }
 
-function createMockPayload(overrides: { triggers?: unknown[]; workflows?: unknown[] } = {}) {
-  const find = vi.fn(({ collection }: { collection: string }) => {
-    if (collection === 'automation-triggers') {
-      return { docs: overrides.triggers ?? [] }
+type FindArgs = { collection: string; limit?: number; page?: number }
+
+type PageResult = { docs: unknown[]; hasNextPage?: boolean }
+
+type PagedSource = unknown[] | ((args: FindArgs) => PageResult)
+
+function resolvePage(source: PagedSource | undefined, args: FindArgs): PageResult {
+  if (typeof source === 'function') {
+    return source(args)
+  }
+  return { docs: source ?? [], hasNextPage: false }
+}
+
+function createMockPayload(overrides: { triggers?: PagedSource; workflows?: PagedSource } = {}) {
+  const find = vi.fn((args: FindArgs) => {
+    if (args.collection === 'automation-triggers') {
+      return resolvePage(overrides.triggers, args)
     }
-    if (collection === 'workflows') {
-      return { docs: overrides.workflows ?? [] }
+    if (args.collection === 'workflows') {
+      return resolvePage(overrides.workflows, args)
     }
-    throw new Error(`Unexpected collection queried in test: ${collection}`)
+    throw new Error(`Unexpected collection queried in test: ${args.collection}`)
   })
   const logger = { debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }
   return { find, logger }
@@ -156,6 +169,76 @@ describe('webhookEndpoint', () => {
 
     expect(res.status).toBe(200)
     expect(executeMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('matches a webhook trigger that is not on the first page of results', async () => {
+    const payload = createMockPayload({
+      triggers: ({ page }) => {
+        if (page === 1) {
+          return {
+            docs: Array.from({ length: 100 }, (_, i) => ({
+              id: `other-${i}`,
+              type: 'webhook',
+              webhookPath: `other-${i}`,
+              webhookSecret: 'correct-secret',
+            })),
+            hasNextPage: true,
+          }
+        }
+        return { docs: [webhookTrigger], hasNextPage: false }
+      },
+      workflows: [matchingWorkflow],
+    })
+    const res = await webhookEndpoint.handler(
+      createRequest({
+        headers: { 'x-webhook-secret': 'correct-secret' },
+        payload,
+        webhookPath: 'orders',
+      })
+    )
+
+    expect(res.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledTimes(1)
+    expect(payload.find).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'automation-triggers', page: 2 })
+    )
+  })
+
+  it('triggers a workflow that is not on the first page of results', async () => {
+    const payload = createMockPayload({
+      triggers: [webhookTrigger],
+      workflows: ({ page }) => {
+        if (page === 1) {
+          return {
+            docs: Array.from({ length: 100 }, (_, i) => ({
+              id: `other-w-${i}`,
+              name: `Other ${i}`,
+              enabled: true,
+              triggers: [{ id: 'unrelated' }],
+            })),
+            hasNextPage: true,
+          }
+        }
+        return { docs: [matchingWorkflow], hasNextPage: false }
+      },
+    })
+    const res = await webhookEndpoint.handler(
+      createRequest({
+        headers: { 'x-webhook-secret': 'correct-secret' },
+        payload,
+        webhookPath: 'orders',
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledTimes(1)
+    expect(body.workflows).toEqual([
+      { status: 'triggered', workflowId: 'w1', workflowName: 'Order workflow' },
+    ])
+    expect(payload.find).toHaveBeenCalledWith(
+      expect.objectContaining({ collection: 'workflows', page: 2 })
+    )
   })
 
   it('never hands the webhook secret to the run context or the executed trigger', async () => {

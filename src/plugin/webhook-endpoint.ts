@@ -1,4 +1,4 @@
-import type { Endpoint, PayloadRequest } from 'payload'
+import type { Endpoint, Payload, PayloadRequest, Where } from 'payload'
 
 import { createHash, timingSafeEqual } from 'crypto'
 
@@ -42,11 +42,56 @@ interface WebhookTriggerDoc {
   webhookSecret?: null | string
 }
 
+interface WebhookWorkflowDoc {
+  id: number | string
+  name?: string
+  triggers?: unknown[]
+}
+
 interface WebhookWorkflowResult {
   error?: string
   status: 'failed' | 'skipped' | 'triggered'
   workflowId: string
   workflowName: string
+}
+
+const FIND_PAGE_SIZE = 100
+
+/**
+ * payload.find defaults to (and is commonly called with) a hard page cap.
+ * A single `limit: 100` therefore silently drops every match after the first
+ * page: a valid webhook 404s, or an enabled workflow is never dispatched,
+ * with nothing in the log to say why. Walk pages until the adapter reports
+ * there isn't another, so the cap is a page size rather than a ceiling.
+ */
+const findAllDocs = async (
+  payload: Payload,
+  args: {
+    collection: 'automation-triggers' | 'workflows'
+    depth?: number
+    where?: Where
+  },
+): Promise<unknown[]> => {
+  const docs: unknown[] = []
+  let page = 1
+
+  while (true) {
+    const result = await payload.find({
+      ...args,
+      limit: FIND_PAGE_SIZE,
+      page,
+    })
+
+    docs.push(...result.docs)
+
+    if (!result.hasNextPage || result.docs.length === 0) {
+      break
+    }
+
+    page += 1
+  }
+
+  return docs
 }
 
 /**
@@ -71,10 +116,13 @@ export const webhookEndpoint: Endpoint = {
 
       // Webhook paths are free-form text, so match in JS after normalizing
       // rather than in the query, where "/my-webhook" and "my-webhook" differ.
-      const { docs } = await payload.find({
+      // New saves are normalized, but documents written before that hook
+      // existed may still store a slash variant; a webhookPath equals clause
+      // would 404 those. Type=webhook plus paging is the query that still
+      // sees them.
+      const docs = await findAllDocs(payload, {
         collection: 'automation-triggers',
         depth: 0,
-        limit: 100,
         where: { type: { equals: 'webhook' } },
       })
 
@@ -120,15 +168,14 @@ export const webhookEndpoint: Endpoint = {
 
       const triggerIds = authenticatedTriggers.map((trigger) => trigger.id)
 
-      const { docs: workflows } = await payload.find({
+      const workflows = (await findAllDocs(payload, {
         collection: 'workflows',
         depth: 2,
-        limit: 100,
         where: {
           enabled: { equals: true },
           triggers: { in: triggerIds },
         },
-      })
+      })) as WebhookWorkflowDoc[]
 
       const executor = new WorkflowExecutor(payload, logger)
       const results: WebhookWorkflowResult[] = []
