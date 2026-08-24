@@ -22,7 +22,7 @@ const applyCollectionsConfig = <T extends string>(
   // Add all automation collections
   config.collections.push(
     createTriggersCollection(pluginOptions),
-    createStepsCollection(pluginOptions.steps),
+    createStepsCollection(pluginOptions.steps ?? []),
     createWorkflowCollection(),
     WorkflowRunsCollection
   )
@@ -158,7 +158,7 @@ export const workflowsPlugin =
       config.jobs = { tasks: [] }
     }
 
-    for (const step of pluginOptions.steps) {
+    for (const step of pluginOptions.steps ?? []) {
       if (!config.jobs?.tasks?.find(task => task.slug === step.slug)) {
         config.jobs?.tasks?.push(step)
       }
