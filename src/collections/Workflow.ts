@@ -49,6 +49,17 @@ export const createWorkflowCollection = (): CollectionConfig => {
       {
         name: 'readOnly',
         type: 'checkbox',
+        // admin.readOnly only hides the checkbox in the admin UI. Collection
+        // update/delete access keys off the *stored* flag, so a REST PATCH
+        // `{ readOnly: true }` against a currently-writable workflow would
+        // succeed and then make the lock irreversible without overrideAccess.
+        // Field-level update: false strips this field from any
+        // access-controlled update. Create is left open so the seeder (and
+        // Local API create, whose overrideAccess defaults to true) can still
+        // set the flag when inserting a template.
+        access: {
+          update: () => false,
+        },
         admin: {
           description: 'Read-only workflows cannot be edited or deleted. This is typically used for seeded template workflows.',
           position: 'sidebar',

@@ -44,4 +44,23 @@ describe('workflows collection access control', () => {
       readOnly: { not_equals: true },
     })
   })
+
+  it('readOnly field denies update so REST cannot flip the stored lock flag', () => {
+    const field = collection.fields.find(
+      (candidate) => 'name' in candidate && candidate.name === 'readOnly',
+    )
+    if (!field || !('access' in field)) {
+      throw new Error('expected a named readOnly field with access control')
+    }
+
+    const updateAccess = field.access?.update
+    if (typeof updateAccess !== 'function') {
+      throw new Error('expected readOnly.access.update to be a function')
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(updateAccess({} as any)).toBe(false)
+    // Create stays unrestricted so seeding can set the flag on insert.
+    expect(field.access?.create).toBeUndefined()
+  })
 })

@@ -302,7 +302,7 @@ Note: Built-in duplication support depends on PayloadCMS version. You may need t
 
 - Read-only workflows **cannot** be modified through the API
 - Access control prevents deletion via admin UI and API
-- The `readOnly` field itself is read-only in the admin UI
+- The `readOnly` field cannot be changed after create: field-level update access is denied (REST/GraphQL cannot flip it), and the admin UI hides the checkbox
 - Only database-level operations can modify seeded workflows
 
 ## Advanced: Conditional Seeding
