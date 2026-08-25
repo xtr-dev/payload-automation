@@ -34,7 +34,7 @@ const matchingWorkflow = {
   triggers: [{ id: 't1' }],
 }
 
-type FindArgs = { collection: string; limit?: number; page?: number }
+type FindArgs = { collection: string; limit?: number; page?: number; where?: unknown }
 
 type PageResult = { docs: unknown[]; hasNextPage?: boolean }
 
@@ -171,22 +171,9 @@ describe('webhookEndpoint', () => {
     expect(executeMock).toHaveBeenCalledTimes(1)
   })
 
-  it('matches a webhook trigger that is not on the first page of results', async () => {
+  it('queries only the requested path and its supported legacy slash variants', async () => {
     const payload = createMockPayload({
-      triggers: ({ page }) => {
-        if (page === 1) {
-          return {
-            docs: Array.from({ length: 100 }, (_, i) => ({
-              id: `other-${i}`,
-              type: 'webhook',
-              webhookPath: `other-${i}`,
-              webhookSecret: 'correct-secret',
-            })),
-            hasNextPage: true,
-          }
-        }
-        return { docs: [webhookTrigger], hasNextPage: false }
-      },
+      triggers: [{ ...webhookTrigger, webhookPath: '/orders/' }],
       workflows: [matchingWorkflow],
     })
     const res = await webhookEndpoint.handler(
@@ -200,7 +187,14 @@ describe('webhookEndpoint', () => {
     expect(res.status).toBe(200)
     expect(executeMock).toHaveBeenCalledTimes(1)
     expect(payload.find).toHaveBeenCalledWith(
-      expect.objectContaining({ collection: 'automation-triggers', page: 2 })
+      expect.objectContaining({
+        collection: 'automation-triggers',
+        page: 1,
+        where: {
+          type: { equals: 'webhook' },
+          webhookPath: { in: ['orders', '/orders', 'orders/', '/orders/'] },
+        },
+      })
     )
   })
 

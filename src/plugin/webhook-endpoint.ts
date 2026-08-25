@@ -114,16 +114,25 @@ export const webhookEndpoint: Endpoint = {
         return Response.json({ error: 'Not found' }, { status: 404 })
       }
 
-      // Webhook paths are free-form text, so match in JS after normalizing
-      // rather than in the query, where "/my-webhook" and "my-webhook" differ.
-      // New saves are normalized, but documents written before that hook
-      // existed may still store a slash variant; a webhookPath equals clause
-      // would 404 those. Type=webhook plus paging is the query that still
-      // sees them.
+      // New saves normalize paths, but documents written before that hook may
+      // store a leading and/or trailing slash. Include each legacy spelling in
+      // the database query instead of scanning every webhook trigger on this
+      // public endpoint. Paging remains necessary only when several triggers
+      // deliberately share this path, never for unrelated triggers.
       const docs = await findAllDocs(payload, {
         collection: 'automation-triggers',
         depth: 0,
-        where: { type: { equals: 'webhook' } },
+        where: {
+          type: { equals: 'webhook' },
+          webhookPath: {
+            in: [
+              requestedPath,
+              `/${requestedPath}`,
+              `${requestedPath}/`,
+              `/${requestedPath}/`,
+            ],
+          },
+        },
       })
 
       const matchingTriggers = (docs as WebhookTriggerDoc[]).filter(
