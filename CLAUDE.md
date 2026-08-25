@@ -133,7 +133,7 @@ $average(trigger.doc.ratings)
 #### Available Context Variables
 
 - `trigger.doc` - The document that triggered the workflow
-- `trigger.type` - The trigger type ('collection' or 'global')
+- `trigger.type` - The trigger type ('collection' | 'global' | 'webhook')
 - `trigger.collection` - The collection slug (for collection triggers)
 - `trigger.firedTrigger` - Reference to the trigger that fired
 - `steps.<stepName>.output` - Output from a completed step
