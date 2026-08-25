@@ -11,11 +11,11 @@ const { executeMock, evaluateConditionMock, WorkflowExecutorMock } = vi.hoisted(
   WorkflowExecutorMock: vi.fn(),
 }))
 
-vi.mock('../core/workflow-executor.js', () => ({
+vi.mock('../src/core/workflow-executor.js', () => ({
   WorkflowExecutor: WorkflowExecutorMock,
 }))
 
-const { webhookEndpoint } = await import('./webhook-endpoint.js')
+const { webhookEndpoint } = await import('../src/plugin/webhook-endpoint.js')
 
 const webhookTrigger = {
   id: 't1',

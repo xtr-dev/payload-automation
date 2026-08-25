@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createTriggersCollection } from './Triggers.js'
+import { createTriggersCollection } from '../src/collections/Triggers.js'
 
 // The beforeChange hook is a pure validation function — no db or request
 // access — so it's exercised directly rather than through a live Payload
