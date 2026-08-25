@@ -198,6 +198,56 @@ describe('webhookEndpoint', () => {
     )
   })
 
+  it('walks to later trigger pages when the first page is full for the requested path', async () => {
+    const payload = createMockPayload({
+      // Page 1 holds only triggers whose stored path matches the request
+      // (mixed legacy spellings), so pagination is exercised against the
+      // bounded lookup rather than unrelated triggers. Their secrets differ,
+      // so dispatch must come from the authenticated trigger on page 2.
+      triggers: ({ page }) => {
+        if (page === 1) {
+          return {
+            docs: Array.from({ length: 100 }, (_, i) => ({
+              id: `dup-${i}`,
+              name: `Duplicate ${i}`,
+              condition: null,
+              type: 'webhook',
+              webhookPath: i % 2 === 0 ? '/orders/' : 'orders/',
+              webhookSecret: 'other-secret',
+            })),
+            hasNextPage: true,
+          }
+        }
+        return { docs: [webhookTrigger], hasNextPage: false }
+      },
+      workflows: [matchingWorkflow],
+    })
+    const res = await webhookEndpoint.handler(
+      createRequest({
+        headers: { 'x-webhook-secret': 'correct-secret' },
+        payload,
+        webhookPath: 'orders',
+      })
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(executeMock).toHaveBeenCalledTimes(1)
+    expect(body.workflows).toEqual([
+      { status: 'triggered', workflowId: 'w1', workflowName: 'Order workflow' },
+    ])
+    expect(payload.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        collection: 'automation-triggers',
+        page: 2,
+        where: {
+          type: { equals: 'webhook' },
+          webhookPath: { in: ['orders', '/orders', 'orders/', '/orders/'] },
+        },
+      })
+    )
+  })
+
   it('triggers a workflow that is not on the first page of results', async () => {
     const payload = createMockPayload({
       triggers: [webhookTrigger],
