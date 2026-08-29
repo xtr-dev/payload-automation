@@ -17,10 +17,10 @@ export const createTriggersCollection = <T extends string>(
   return {
     slug: 'automation-triggers',
     access: {
-      create: () => true,
-      delete: () => true,
+      create: ({ req }) => Boolean(req.user),
+      delete: ({ req }) => Boolean(req.user),
       read: () => true,
-      update: () => true,
+      update: ({ req }) => Boolean(req.user),
     },
     admin: {
       defaultColumns: ['name', 'type', 'target', 'updatedAt'],

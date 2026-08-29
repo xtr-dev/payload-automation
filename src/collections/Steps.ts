@@ -16,10 +16,10 @@ export const createStepsCollection = (
   return {
     slug: 'automation-steps',
     access: {
-      create: () => true,
-      delete: () => true,
+      create: ({ req }) => Boolean(req.user),
+      delete: ({ req }) => Boolean(req.user),
       read: () => true,
-      update: () => true,
+      update: ({ req }) => Boolean(req.user),
     },
     admin: {
       defaultColumns: ['name', 'type', 'updatedAt'],

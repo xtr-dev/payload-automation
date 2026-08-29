@@ -8,8 +8,11 @@ export const createWorkflowCollection = (): CollectionConfig => {
   return {
     slug: 'workflows',
     access: {
-      create: () => true,
+      create: ({ req }) => Boolean(req.user),
       delete: ({ req, data }) => {
+        if (!req.user) {
+          return false
+        }
         // Prevent deletion of read-only workflows
         if (data?.readOnly === true) {
           return false
@@ -18,6 +21,9 @@ export const createWorkflowCollection = (): CollectionConfig => {
       },
       read: () => true,
       update: ({ req, data }) => {
+        if (!req.user) {
+          return false
+        }
         // Prevent updates to read-only workflows
         if (data?.readOnly === true) {
           return false
