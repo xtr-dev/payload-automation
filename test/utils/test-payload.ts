@@ -25,10 +25,13 @@ process.env.PAYLOAD_FORCE_DRIZZLE_PUSH = 'true'
  * a process, which would leak documents between specs.
  *
  * `pluginOverrides` are merged over the default plugin options, so specs can
- * exercise plugin configurations such as `access` overrides.
+ * exercise plugin configurations such as `access` overrides. `usersAccessAdmin`
+ * can override the `access.admin` function on the users collection for testing
+ * authorization behavior with role-based access control.
  */
 export const createTestPayload = async (
   pluginOverrides: Partial<Omit<WorkflowsPluginConfig, 'steps'>> = {},
+  usersAccessAdmin?: (args: any) => boolean | Promise<boolean>,
 ): Promise<Payload> => {
   instanceCount += 1
   const dbDir = fs.mkdtempSync(path.join(os.tmpdir(), `payload-automation-test-${instanceCount}-`))
@@ -38,16 +41,23 @@ export const createTestPayload = async (
     ...pluginOverrides,
   }
 
+  const usersCollection: any = {
+    slug: 'users',
+    auth: true,
+    fields: [],
+  }
+
+  // Add access.admin if provided
+  if (usersAccessAdmin) {
+    usersCollection.access = { admin: usersAccessAdmin }
+  }
+
   const config = await buildConfig({
     admin: {
       user: 'users',
     },
     collections: [
-      {
-        slug: 'users',
-        auth: true,
-        fields: [],
-      },
+      usersCollection,
       {
         slug: 'customers',
         auth: true,

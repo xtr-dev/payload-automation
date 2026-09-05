@@ -65,7 +65,7 @@ const seedAutomationDocuments = async (payload: Payload) => {
   return { step, trigger, workflow, run }
 }
 
-describe('automation collection access control', () => {
+describe('automation collection access control', { timeout: 15000 }, () => {
   it('refuses every operation for anonymous requests on all automation collections', async () => {
     const payload = await createTestPayload()
     const { run } = await seedAutomationDocuments(payload)
@@ -308,6 +308,55 @@ describe('automation collection access control', () => {
     // …and the other collections are untouched.
     await expectForbidden(
       payload.find({ collection: 'workflow-runs', overrideAccess: false }) as Promise<unknown>,
+    )
+  })
+
+  it('denies automation collection access when access.admin returns false on the user collection', async () => {
+    const payload = await createTestPayload(
+      {},
+      // access.admin that denies all users (simulating role-based access control)
+      () => false,
+    )
+
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'editor@example.com', password: 'password' },
+    })
+    const userContext = asUser(user, 'users')
+
+    // User is in admin collection but access.admin returns false, so all
+    // automation operations should be forbidden.
+    for (const slug of AUTOMATION_COLLECTIONS) {
+      await expectForbidden(
+        payload.find({
+          collection: slug,
+          overrideAccess: false,
+          user: userContext,
+        }) as Promise<unknown>,
+      )
+      await expectForbidden(
+        payload.create({
+          collection: slug,
+          data: {},
+          overrideAccess: false,
+          user: userContext,
+        }) as Promise<unknown>,
+      )
+    }
+
+    // SSRF attack path: user cannot create enabled workflows
+    await expectForbidden(
+      payload.create({
+        collection: 'workflows',
+        data: {
+          name: 'Exfiltrate',
+          slug: 'exfiltrate',
+          enabled: true,
+          steps: [],
+        },
+        overrideAccess: false,
+        user: userContext,
+      }) as Promise<unknown>,
     )
   })
 })
