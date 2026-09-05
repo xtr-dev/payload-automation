@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
+import { normalizeWebhookPath } from '../plugin/webhook-endpoint.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
 import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
 
@@ -148,8 +149,34 @@ export const createTriggersCollection = <T extends string>(
         type: 'text',
         admin: {
           condition: (_, siblingData) => siblingData?.type === 'webhook',
-          description: 'The URL path for this webhook (e.g., "my-webhook")',
+          description:
+            'Single path segment for this webhook. The endpoint is served at POST /api/automation/webhooks/<path>',
           placeholder: 'my-webhook',
+        },
+      },
+      {
+        name: 'webhookSecret',
+        type: 'text',
+        // The collection's own access (above) is `() => true` for every
+        // operation, so without field-level overrides here an anonymous
+        // request could both read the secret (GET) and, worse, overwrite it
+        // with a value of its own choosing (PATCH { webhookSecret }) without
+        // ever needing to read the original — a full bypass of the auth the
+        // webhook endpoint enforces. Payload only gates a field's write path
+        // when field.access[operation] is explicitly set (it defaults to
+        // allowed otherwise), so read and write need independent overrides;
+        // fixing read alone still leaves update open. Local API calls (the
+        // webhook endpoint's own lookup, and seeding) default overrideAccess
+        // to true and skip these checks entirely.
+        access: {
+          create: ({ req }) => Boolean(req.user),
+          read: () => false,
+          update: ({ req }) => Boolean(req.user),
+        },
+        admin: {
+          condition: (_, siblingData) => siblingData?.type === 'webhook',
+          description:
+            'Shared secret the caller must send in the X-Webhook-Secret header (or as an Authorization bearer token). Requests without it are rejected.',
         },
       },
       // Condition configuration
@@ -209,6 +236,23 @@ export const createTriggersCollection = <T extends string>(
             }
             if (data?.type === 'webhook' && !data?.webhookPath) {
               throw new Error('Webhook path is required for webhook triggers')
+            }
+            // The runtime endpoint matches paths after stripping leading/trailing
+            // slashes (normalizeWebhookPath), so "/my-webhook" and "my-webhook"
+            // are the same trigger. Normalize before validating and store the
+            // normalized form, rather than rejecting a spelling the endpoint
+            // itself accepts.
+            if (data?.type === 'webhook' && typeof data.webhookPath === 'string') {
+              const normalizedPath = normalizeWebhookPath(data.webhookPath)
+              if (!normalizedPath || /[/\s]/.test(normalizedPath)) {
+                throw new Error('Webhook path must be a single path segment without whitespace')
+              }
+              data.webhookPath = normalizedPath
+            }
+            // Without a secret the endpoint would start workflows for anyone
+            // who can reach it, so a webhook trigger cannot be saved open.
+            if (data?.type === 'webhook' && !data?.webhookSecret) {
+              throw new Error('Webhook secret is required for webhook triggers')
             }
           }
           return data
