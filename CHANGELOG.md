@@ -5,6 +5,16 @@ All notable changes to the PayloadCMS Automation Plugin will be documented in th
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **Breaking Change**: Every operation on the automation collections (`workflows`, `automation-triggers`, `automation-steps`, `workflow-runs`) — reads included — now requires an authenticated user from the admin user collection (`config.admin.user`). Previously any logged-in user (including sessions from unrelated auth collections) could write workflows, and `workflow-runs` was fully public
+- **Breaking Change**: Read-only workflows can no longer be updated or deleted by echoing `readOnly` in the request; the lock is now enforced against the stored document via an access `Where` constraint
+
+### Added
+- New `access` plugin option for per-collection, per-operation access overrides; operations without an override keep the secure default
+- Integration test suite (`pnpm test:int`) covering the collection access contract
+
 ## [0.0.39] - 2025-09-11
 
 ### Changed

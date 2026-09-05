@@ -1,26 +1,32 @@
-import type { CollectionConfig, TaskConfig } from 'payload'
+import type { CollectionConfig } from 'payload'
+
+import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
+
+import { adminUserAccess, resolveCollectionAccess } from './access.js'
 
 /**
  * Creates the automation-steps collection.
  * Steps are reusable building blocks that can be used across multiple workflows.
  */
 export const createStepsCollection = (
-  steps: TaskConfig<string>[]
+  options: WorkflowsPluginConfig
 ): CollectionConfig => {
   // Build step type options from registered steps
-  const stepTypeOptions = steps.map(step => ({
+  const stepTypeOptions = options.steps.map(step => ({
     label: step.label || step.slug,
     value: step.slug,
   }))
 
   return {
     slug: 'automation-steps',
-    access: {
-      create: ({ req }) => Boolean(req.user),
-      delete: ({ req }) => Boolean(req.user),
-      read: () => true,
-      update: ({ req }) => Boolean(req.user),
-    },
+    access: resolveCollectionAccess(options, 'automation-steps', {
+      create: adminUserAccess,
+      delete: adminUserAccess,
+      // Step configs are JSON and can hold credentials (e.g. bearer tokens
+      // for the HTTP request step), so reads are not public by default.
+      read: adminUserAccess,
+      update: adminUserAccess,
+    }),
     admin: {
       defaultColumns: ['name', 'type', 'updatedAt'],
       description: 'Reusable step templates that can be used across workflows.',

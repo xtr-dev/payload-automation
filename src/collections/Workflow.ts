@@ -1,36 +1,24 @@
 import type { CollectionConfig } from 'payload'
 
+import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
+
+import { adminUserAccess, adminUserUnlessReadOnly, resolveCollectionAccess } from './access.js'
+
 /**
  * Creates the workflows collection.
  * Workflows reference triggers and steps via relationships for reusability.
  */
-export const createWorkflowCollection = (): CollectionConfig => {
+export const createWorkflowCollection = (
+  options: WorkflowsPluginConfig
+): CollectionConfig => {
   return {
     slug: 'workflows',
-    access: {
-      create: ({ req }) => Boolean(req.user),
-      delete: ({ req, data }) => {
-        if (!req.user) {
-          return false
-        }
-        // Prevent deletion of read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
-      read: () => true,
-      update: ({ req, data }) => {
-        if (!req.user) {
-          return false
-        }
-        // Prevent updates to read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
-    },
+    access: resolveCollectionAccess(options, 'workflows', {
+      create: adminUserAccess,
+      delete: adminUserUnlessReadOnly,
+      read: adminUserAccess,
+      update: adminUserUnlessReadOnly,
+    }),
     admin: {
       defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
       description: 'Create and manage automated workflows.',

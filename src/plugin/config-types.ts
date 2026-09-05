@@ -35,6 +35,15 @@ export type SeedWorkflow = {
 }
 
 /**
+ * Slugs of the collections registered by the plugin.
+ */
+export type AutomationCollectionSlug =
+    | 'workflows'
+    | 'automation-triggers'
+    | 'automation-steps'
+    | 'workflow-runs'
+
+/**
  * Plugin configuration for the workflows automation plugin.
  */
 export type WorkflowsPluginConfig<
@@ -84,6 +93,23 @@ export type WorkflowsPluginConfig<
      * Custom trigger configurations.
      */
     triggers?: TriggerConfig[]
+
+    /**
+     * Per-collection access overrides for the automation collections.
+     *
+     * By default every operation on the automation collections — reads
+     * included — requires an authenticated user from the admin user
+     * collection (`config.admin.user`). Workflow documents execute HTTP
+     * requests and document writes with the host application's privileges,
+     * and step configs and run records can hold credentials and response
+     * bodies, so Payload's "any logged-in user" default is not safe here.
+     *
+     * Each key replaces the default access function for that operation on
+     * that collection; operations left out keep the secure default. Plugin
+     * internals (seeding, execution, usage counts) use the Local API and
+     * are unaffected by these functions.
+     */
+    access?: Partial<Record<AutomationCollectionSlug, Partial<CollectionConfig['access']>>>
 
     /**
      * Logging configuration.

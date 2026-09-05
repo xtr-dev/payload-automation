@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
+import { adminUserAccess, resolveCollectionAccess } from './access.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
 
 /**
@@ -16,12 +17,12 @@ export const createTriggersCollection = <T extends string>(
 
   return {
     slug: 'automation-triggers',
-    access: {
-      create: ({ req }) => Boolean(req.user),
-      delete: ({ req }) => Boolean(req.user),
-      read: () => true,
-      update: ({ req }) => Boolean(req.user),
-    },
+    access: resolveCollectionAccess(options, 'automation-triggers', {
+      create: adminUserAccess,
+      delete: adminUserAccess,
+      read: adminUserAccess,
+      update: adminUserAccess,
+    }),
     admin: {
       defaultColumns: ['name', 'type', 'target', 'updatedAt'],
       description: 'Reusable trigger definitions that can be shared across workflows.',
