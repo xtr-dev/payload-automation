@@ -13,8 +13,7 @@ export type {
   CustomTriggerOptions,
   ExecutionContext,
   TriggerResult,
-  SeedWorkflow,
-  WorkflowLoggingConfig
+  SeedWorkflow
 } from './types/index.js'
 
 // Re-export the full plugin config type from server exports
