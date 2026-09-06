@@ -277,7 +277,6 @@ PAYLOAD_AUTOMATION_LOG_LEVEL=info  # debug | info | warn | error
 - Next.js 15.4.4 for development server
 - SWC for fast transpilation
 - Various PayloadCMS adapters (SQLite, MongoDB, PostgreSQL)
-- @xyflow/react for visual workflow builder
 
 ## Important Files for Understanding
 
