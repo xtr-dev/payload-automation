@@ -527,7 +527,7 @@ export class WorkflowExecutor {
         triggerData: this.safeSerialize(context.trigger),
         status: 'running',
         startedAt: new Date().toISOString(),
-        triggeredBy: context.trigger.req?.user?.email || 'system',
+        triggeredBy: req?.user?.email || 'system',
         stepResults,
         context: this.safeSerialize(context),
         inputs: this.safeSerialize(context.trigger),
