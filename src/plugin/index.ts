@@ -362,7 +362,7 @@ export const workflowsPlugin =
               {
                 workflowName: seedWorkflow.name,
                 workflowSlug: seedWorkflow.slug,
-                err: error instanceof Error ? error.message : String(error),
+                error: error instanceof Error ? error.message : String(error),
               },
               'Failed to seed workflow',
             )
