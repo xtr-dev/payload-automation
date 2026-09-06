@@ -136,8 +136,8 @@ $average(trigger.doc.ratings)
 - `trigger.type` - The trigger type ('collection' or 'global')
 - `trigger.collection` - The collection slug (for collection triggers)
 - `trigger.firedTrigger` - Reference to the trigger that fired
-- `steps.<stepName>.output` - Output from a completed step
-- `steps.<stepName>.state` - State of a step ('succeeded', 'failed', 'pending', 'skipped')
+- `steps.<slug>.output` - Output from a completed step (also keyed by the step's display name; hyphenated slugs need JSONata backtick quoting: `` steps.`fetch-user`.output ``)
+- `steps.<slug>.state` - State of a step ('succeeded', 'failed', 'pending', 'skipped')
 
 #### Custom Functions
 

@@ -83,12 +83,74 @@ export interface WorkflowJobMeta {
 
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
+  private stepContextOwners = new WeakMap<ExecutionContext, Map<string, string>>()
 
   constructor(
     private payload: Payload,
     private logger: Payload['logger']
   ) {
     this.config = getPluginConfig(payload)
+  }
+
+  /**
+   * Record a step's state in the expression context under both its slug and its
+   * display name. Slug is the stable identifier everywhere else in the plugin —
+   * dependencies resolve by slug in resolveExecutionOrder — but output references
+   * used to be keyed by name only, so `{{steps.<slug>.output}}` silently resolved
+   * to nothing (the engine returns the unevaluated `{{...}}` string as a literal
+   * on failure) while `dependencies: ['<slug>']` worked. The name stays as a key
+   * so workflows written against it keep resolving.
+   */
+  private setStepContext(
+    context: ExecutionContext,
+    step: ResolvedStep,
+    entry: Record<string, unknown>
+  ): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    context.steps[step.slug] = entry
+    owners.set(step.slug, step.slug)
+
+    if (step.stepName && step.stepName !== step.slug) {
+      const existingSlug = owners.get(step.stepName)
+      if (existingSlug && existingSlug !== step.slug) {
+        this.logger.warn({
+          contextKey: step.stepName,
+          existingSlug,
+          stepSlug: step.slug
+        }, 'Skipping step name context alias because it collides with another step slug')
+        return
+      }
+
+      context.steps[step.stepName] = entry
+      owners.set(step.stepName, step.slug)
+    }
+  }
+
+  /**
+   * Claim every step's own slug as its context-key owner before any batch runs.
+   * Batches execute concurrently (see `execute`), and a step only calls
+   * setStepContext for the first time partway through its own execution — so
+   * without this, a step whose display name equals another step's not-yet-run
+   * slug could transiently win that key and have a third step's expression
+   * silently resolve against the wrong step's data. All slugs are known from
+   * `resolvedSteps` before batch execution begins, so they can all be claimed
+   * upfront instead of racing to claim themselves at execution time.
+   */
+  private seedStepContextOwners(context: ExecutionContext, steps: ResolvedStep[]): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    for (const step of steps) {
+      owners.set(step.slug, step.slug)
+    }
   }
 
   /**
@@ -251,10 +313,10 @@ export class WorkflowExecutor {
         result.completedAt = new Date().toISOString()
         result.output = { reason: 'Condition not met', skipped: true }
 
-        context.steps[step.stepName] = {
+        this.setStepContext(context, step, {
           state: 'skipped',
           output: result.output
-        }
+        })
 
         return result
       }
@@ -264,10 +326,10 @@ export class WorkflowExecutor {
     const resolvedInput = await this.resolveStepInput(step.config, context)
     result.input = resolvedInput
 
-    context.steps[step.stepName] = {
+    this.setStepContext(context, step, {
       state: 'running',
       input: resolvedInput
-    }
+    })
 
     try {
       const job = await this.payload.jobs.queue({
@@ -356,11 +418,11 @@ export class WorkflowExecutor {
         throw new Error(errorMessage)
       }
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'succeeded',
         input: resolvedInput,
         output: result.output
-      }
+      })
 
       this.logger.info({
         stepName: step.stepName,
@@ -374,11 +436,11 @@ export class WorkflowExecutor {
       result.completedAt = new Date().toISOString()
       result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'failed',
         input: resolvedInput,
         error: errorMessage
-      }
+      })
 
       this.logger.error({
         stepName: step.stepName,
@@ -506,6 +568,7 @@ export class WorkflowExecutor {
     }, 'Starting workflow execution')
 
     const resolvedSteps = await this.resolveWorkflowSteps(workflow)
+    this.seedStepContextOwners(context, resolvedSteps)
     const stepResults: StepResult[] = []
 
     for (const step of resolvedSteps) {
