@@ -55,12 +55,12 @@ export const createTriggerHook = (config: TriggerConfig) => {
         ? {
             type: { equals: 'collection-hook' },
             collectionSlug: { equals: slug },
-            hook: { equals: hookType }
+            collectionHook: { equals: hookType }
           }
         : {
             type: { equals: 'global-hook' },
             globalSlug: { equals: slug },
-            hook: { equals: hookType }
+            globalHook: { equals: hookType }
           }
 
       const { docs: matchingTriggers } = await payload.find({

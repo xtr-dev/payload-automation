@@ -89,9 +89,9 @@ export const createTriggersCollection = <T extends string>(
             ({ siblingData }) => {
               // Compute target based on type
               if (siblingData.type === 'collection-hook') {
-                return `${siblingData.collectionSlug}.${siblingData.hook}`
+                return `${siblingData.collectionSlug}.${siblingData.collectionHook}`
               } else if (siblingData.type === 'global-hook') {
-                return `${siblingData.globalSlug}.${siblingData.hook}`
+                return `${siblingData.globalSlug}.${siblingData.globalHook}`
               } else if (siblingData.type === 'scheduled') {
                 return siblingData.schedule || 'Not configured'
               } else if (siblingData.type === 'webhook') {
@@ -113,11 +113,10 @@ export const createTriggersCollection = <T extends string>(
         options: collectionSlugs.map(slug => ({ label: slug, value: slug })),
       },
       {
-        name: 'hook',
+        name: 'collectionHook',
         type: 'select',
         admin: {
-          condition: (_, siblingData) =>
-            siblingData?.type === 'collection-hook' || siblingData?.type === 'global-hook',
+          condition: (_, siblingData) => siblingData?.type === 'collection-hook',
           description: 'The specific hook event to listen for',
         },
         options: collectionHookOptions.map(opt => ({ label: opt.label, value: opt.value })),
@@ -131,6 +130,25 @@ export const createTriggersCollection = <T extends string>(
           description: 'The global to watch for events',
         },
         options: globalSlugs.map(slug => ({ label: slug, value: slug })),
+      },
+      {
+        name: 'globalHook',
+        type: 'select',
+        admin: {
+          condition: (_, siblingData) => siblingData?.type === 'global-hook',
+          description: 'The specific hook event to listen for',
+        },
+        options: globalHookOptions.map(opt => ({ label: opt.label, value: opt.value })),
+      },
+      // Legacy field kept so pre-existing rows (written before `hook` was split into
+      // collectionHook/globalHook) stay readable. onInit backfills collectionHook/globalHook
+      // from this and it is never written to again; it stays hidden and out of validation.
+      {
+        name: 'hook',
+        type: 'text',
+        admin: {
+          hidden: true,
+        },
       },
       // Scheduled fields
       {
@@ -201,7 +219,10 @@ export const createTriggersCollection = <T extends string>(
             if (data?.type === 'global-hook' && !data?.globalSlug) {
               throw new Error('Global is required for global hook triggers')
             }
-            if ((data?.type === 'collection-hook' || data?.type === 'global-hook') && !data?.hook) {
+            if (data?.type === 'collection-hook' && !data?.collectionHook) {
+              throw new Error('Hook type is required')
+            }
+            if (data?.type === 'global-hook' && !data?.globalHook) {
               throw new Error('Hook type is required')
             }
             if (data?.type === 'scheduled' && !data?.schedule) {
