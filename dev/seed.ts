@@ -53,7 +53,7 @@ export const seed = async (payload: Payload) => {
       type: 'collection-hook',
       collectionSlug: 'posts',
       hook: 'afterChange',
-      condition: '{{trigger.doc._status}} == "published"',
+      condition: 'trigger.doc._status = "published"',
       conditionDescription: 'Only when status is published',
     },
   })

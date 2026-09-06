@@ -111,6 +111,11 @@ const buildConfigWithMemoryDB = async () => {
             type: 'textarea'
           }
         ],
+        // Drafts must be enabled for Payload to inject `_status`, which is what
+        // the seeded "Post Published" trigger's condition checks.
+        versions: {
+          drafts: true,
+        },
       },
       {
         slug: 'media',
