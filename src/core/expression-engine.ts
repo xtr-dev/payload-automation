@@ -1,4 +1,5 @@
 import jsonata from 'jsonata'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import type {Payload} from "payload";
 
 /**
@@ -39,6 +40,72 @@ export interface EvaluateOptions {
 const expressionCache = new Map<string, jsonata.Expression>()
 const MAX_CACHE_SIZE = 1000
 
+const DEFAULT_TIMEOUT = 5000
+
+// Depth bound for the timebox below, taken from jsonata's own timeboxing recipe.
+// Catches non-tail recursion before it overflows the stack; tail calls are
+// trampolined by jsonata and never grow depth, so those fall to the wall clock.
+const MAX_DEPTH = 500
+
+interface TimeboxState {
+  depth: number
+  /** Wall-clock start of the current evaluation, reset by evaluate() per call */
+  time: number
+  /** Budget in ms for the current evaluation, reset by evaluate() per call */
+  timeout: number
+}
+
+// Compiled expressions are cached and shared by concurrent callers. Keep the
+// mutable deadline/depth state in the async context of each evaluate() call so
+// one caller can never re-arm another caller's timebox.
+const timeboxStateStorage = new AsyncLocalStorage<TimeboxState>()
+
+/**
+ * Interrupt evaluation from inside jsonata. A Promise.race timeout cannot do
+ * this: an expression that spins holds the event loop, so the timer callback
+ * never runs and the caller hangs instead of getting the documented 5s error.
+ * jsonata calls these hooks on every AST node it evaluates, which is the only
+ * point where a synchronous runaway can be made to throw.
+ */
+function timeboxExpression(expr: jsonata.Expression): void {
+  const checkRunaway = () => {
+    const state = timeboxStateStorage.getStore()
+    if (!state) {
+      return
+    }
+
+    if (state.depth > MAX_DEPTH) {
+      throw new Error(
+        `Expression evaluation exceeded maximum recursion depth of ${MAX_DEPTH} — check for non-terminating recursion`
+      )
+    }
+    if (Date.now() - state.time > state.timeout) {
+      throw new Error(`Expression evaluation timed out after ${state.timeout}ms`)
+    }
+  }
+
+  // jsonata 2.x looks these hooks up by symbol; assign() passes the key through
+  // to the environment unchanged, its string-only type is just too narrow.
+  expr.assign(Symbol.for('jsonata.__evaluate_entry') as unknown as string, () => {
+    const state = timeboxStateStorage.getStore()
+    if (!state) {
+      return
+    }
+
+    state.depth++
+    checkRunaway()
+  })
+  expr.assign(Symbol.for('jsonata.__evaluate_exit') as unknown as string, () => {
+    const state = timeboxStateStorage.getStore()
+    if (!state) {
+      return
+    }
+
+    state.depth--
+    checkRunaway()
+  })
+}
+
 /**
  * Compile a JSONata expression with caching
  */
@@ -51,10 +118,14 @@ function compileExpression(expression: string): jsonata.Expression {
     // Register custom functions
     registerCustomFunctions(compiled)
 
+    timeboxExpression(compiled)
+
     // Manage cache size
     if (expressionCache.size >= MAX_CACHE_SIZE) {
       const firstKey = expressionCache.keys().next().value
-      if (firstKey) expressionCache.delete(firstKey)
+      if (firstKey) {
+        expressionCache.delete(firstKey)
+      }
     }
 
     expressionCache.set(expression, compiled)
@@ -157,20 +228,35 @@ export async function evaluate(
   context: ExpressionContext,
   options: EvaluateOptions = {}
 ): Promise<unknown> {
-  const { timeout = 5000 } = options
+  const { timeout = DEFAULT_TIMEOUT } = options
 
   const compiled = compileExpression(expression)
 
-  // Create a promise that rejects on timeout
+  const timeboxState: TimeboxState = {
+    depth: 0,
+    time: Date.now(),
+    timeout,
+  }
+
+  // The race only reaches expressions that yield to the event loop (the timebox
+  // hooks handle the ones that don't), but it is kept for anything that awaits
+  // and never resumes, where no hook ever runs again.
+  let timer: ReturnType<typeof setTimeout> | undefined
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error(`Expression evaluation timed out after ${timeout}ms`)), timeout)
+    timer = setTimeout(() => reject(new Error(`Expression evaluation timed out after ${timeout}ms`)), timeout)
   })
 
-  // Race between evaluation and timeout
-  return Promise.race([
-    compiled.evaluate(context),
-    timeoutPromise
-  ])
+  try {
+    return await Promise.race([
+      timeboxStateStorage.run(timeboxState, () => compiled.evaluate(context)),
+      timeoutPromise
+    ])
+  } finally {
+    // Without this, every call left a live 5s timer behind: harmless churn in a
+    // long-running server, but a short-lived process (CLI, serverless, tests)
+    // could not exit until the last one drained.
+    clearTimeout(timer)
+  }
 }
 
 /**

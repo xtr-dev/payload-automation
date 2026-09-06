@@ -10,7 +10,9 @@ export default defineConfig({
   cacheDir: path.resolve(dirname, 'node_modules/.vite'),
   test: {
     environment: 'node',
-    include: ['tests/**/*.test.ts', 'tests/**/*.int.spec.ts'],
+    // `test/` holds the expression-engine unit spec (kept out of src/ so tsc
+    // and swc do not emit it into dist). `tests/` holds the integration suite.
+    include: ['test/**/*.test.ts', 'tests/**/*.test.ts', 'tests/**/*.int.spec.ts'],
     hookTimeout: 60000,
     testTimeout: 60000,
     // @payloadcms/drizzle caches the last-pushed schema at module scope and
