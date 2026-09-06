@@ -120,6 +120,16 @@ export const createTriggersCollection = <T extends string>(
             siblingData?.type === 'collection-hook' || siblingData?.type === 'global-hook',
           description: 'The specific hook event to listen for',
         },
+        // Payload select fields take a static options array, so this can't branch on
+        // siblingData.type the way collectionSlug/globalSlug do below — it always shows
+        // collectionHookOptions, for both collection-hook and global-hook triggers. Every
+        // value in globalHookOptions already appears in collectionHookOptions, so a global
+        // trigger can still select a valid global hook here, but it can also select a
+        // collection-only one (afterDelete, refresh, me, ...) that Payload never fires on a
+        // global, leaving the trigger configured but silently dead. Fixing that requires
+        // splitting this into two differently-named fields (a schema change touching the
+        // target beforeChange hook, the automation-triggers query in trigger-hook.ts, and the
+        // seedWorkflows mapping in plugin/index.ts) — filed separately rather than done here.
         options: collectionHookOptions.map(opt => ({ label: opt.label, value: opt.value })),
       },
       // Global Hook fields

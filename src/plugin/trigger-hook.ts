@@ -30,6 +30,12 @@ export const createTriggerHook = (config: TriggerConfig) => {
   })
 
   return async function automationTriggerHook(args: any) {
+    // Standard doc-lifecycle hooks (afterChange, beforeDelete, ...) receive req directly.
+    // The auth override hooks `me` and `refresh` use a different contract — Payload calls
+    // them as ({ args, user }), where `args` is the operation's own argument object and req
+    // lives underneath it — hence the fallback. Neither this hook nor anything it calls ever
+    // returns a value, so it can't accidentally short-circuit Payload's default me/refresh
+    // operation logic (both hooks treat a defined return as "skip the built-in behavior").
     const req = 'req' in args ? args.req :
       'args' in args ? args.args.req :
       undefined
