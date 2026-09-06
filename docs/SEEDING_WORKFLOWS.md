@@ -36,7 +36,7 @@ const exampleWorkflows: SeedWorkflow[] = [
           collection: 'users',
           hook: 'afterChange',
         },
-        condition: '$.trigger.doc.status == "active"',
+        condition: 'trigger.doc.status = "active"',
       },
     ],
     steps: [
@@ -44,9 +44,9 @@ const exampleWorkflows: SeedWorkflow[] = [
         name: 'Send Welcome Email',
         type: 'send-email',
         input: {
-          to: '$.trigger.doc.email',
+          to: '{{trigger.doc.email}}',
           subject: 'Welcome to Our Platform!',
-          text: 'Thank you for joining us, $.trigger.doc.name',
+          text: "{{'Thank you for joining us, ' & trigger.doc.name}}",
         },
       },
     ],
@@ -69,7 +69,7 @@ const exampleWorkflows: SeedWorkflow[] = [
         name: 'Prepare Product Data',
         type: 'transform-data',
         input: {
-          data: '$.trigger.doc',
+          data: '{{trigger.doc}}',
         },
       },
       {
@@ -78,7 +78,7 @@ const exampleWorkflows: SeedWorkflow[] = [
         input: {
           url: 'https://api.example.com/inventory',
           method: 'POST',
-          body: '$.steps.prepareData.output',
+          body: '{{steps.`Prepare Product Data`.output}}',
         },
         dependencies: ['Prepare Product Data'],
       },
@@ -177,7 +177,7 @@ Use conditions to demonstrate advanced features:
 {
   name: 'Process High-Value Orders',
   type: 'send-notification',
-  condition: '$.trigger.doc.total > 1000',
+  condition: 'trigger.doc.total > 1000',
   // ...
 }
 ```
@@ -198,8 +198,8 @@ steps: [
     type: 'send-email',
     dependencies: ['Fetch User Data'],
     input: {
-      to: '$.steps.fetchUserData.output.email',
-      name: '$.steps.fetchUserData.output.name',
+      to: '{{steps.`Fetch User Data`.output.email}}',
+      name: '{{steps.`Fetch User Data`.output.name}}',
     },
   },
 ]
@@ -412,18 +412,18 @@ const templateWorkflows: SeedWorkflow[] = [
         name: 'Send Welcome Email',
         type: 'send-email',
         input: {
-          to: '$.trigger.doc.email',
+          to: '{{trigger.doc.email}}',
           subject: 'Welcome!',
-          text: 'Thanks for joining, $.trigger.doc.name!',
+          text: "{{'Thanks for joining, ' & trigger.doc.name & '!'}}",
         },
       },
       {
         name: 'Create User Profile',
         type: 'create-document',
         input: {
-          collection: 'profiles',
+          collectionSlug: 'profiles',
           data: {
-            user: '$.trigger.doc.id',
+            user: '{{trigger.doc.id}}',
             preferences: {},
           },
         },
@@ -434,7 +434,7 @@ const templateWorkflows: SeedWorkflow[] = [
         input: {
           to: 'admin@example.com',
           subject: 'New User Registration',
-          text: 'New user: $.trigger.doc.email',
+          text: "{{'New user: ' & trigger.doc.email}}",
         },
         dependencies: ['Send Welcome Email', 'Create User Profile'],
       },
@@ -462,4 +462,4 @@ export default buildConfig({
 
 - Review the [Workflow Examples](./WORKFLOW_EXAMPLES.md) for more use cases
 - Learn about [Custom Steps](./CUSTOM_STEPS.md) to extend functionality
-- Explore [JSONPath Expressions](./JSONPATH.md) for dynamic data access
+- Explore [JSONata Expressions](../README.md#jsonata-expressions) for dynamic data access

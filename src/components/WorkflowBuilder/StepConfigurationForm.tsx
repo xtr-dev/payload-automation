@@ -97,7 +97,7 @@ export const StepConfigurationForm: React.FC<StepConfigurationFormProps> = ({
           Step Configuration
         </label>
         <div style={{ fontSize: '11px', color: 'var(--theme-text-400)', marginBottom: '8px' }}>
-          Configure this step's parameters in JSON format. Use JSONPath expressions like <code>$.trigger.doc.id</code> to reference dynamic data.
+          Configure this step's parameters in JSON format. Use JSONata expressions like <code>{'{{trigger.doc.id}}'}</code> to reference dynamic data.
         </div>
         
         {/* Schema Reference */}
@@ -158,7 +158,7 @@ export const StepConfigurationForm: React.FC<StepConfigurationFormProps> = ({
             color: 'var(--theme-text)',
             resize: 'vertical'
           }}
-          placeholder='{\n  "field1": "value1",\n  "field2": "$.trigger.doc.id"\n}'
+          placeholder='{\n  "field1": "value1",\n  "field2": "{{trigger.doc.id}}"\n}'
         />
       </div>
     )
