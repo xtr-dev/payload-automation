@@ -111,6 +111,8 @@ export async function triggerCustomWorkflow(
     const results: TriggerResult[] = []
 
     for (const workflow of workflows.docs) {
+      // Set once the run record exists, so a failed run still reports its id.
+      let createdRunId: number | string | undefined
       try {
         // Check if this workflow actually has the custom trigger
         const triggers = workflow.triggers as Array<{type: string}>
@@ -142,7 +144,11 @@ export async function triggerCustomWorkflow(
         }
 
         // Execute the workflow
-        const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
+        const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq, undefined, {
+          onRunCreated: (id) => {
+            createdRunId = id
+          }
+        })
 
         results.push({
           runId: runId.toString(),
@@ -167,7 +173,7 @@ export async function triggerCustomWorkflow(
 
         results.push({
           error: error instanceof Error ? error.message : 'Unknown error',
-          runId: 'failed',
+          runId: createdRunId?.toString() ?? 'failed',
           status: 'failed',
           workflowId: workflow.id.toString(),
           workflowName: workflow.name as string

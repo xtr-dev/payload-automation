@@ -530,11 +530,21 @@ export class WorkflowExecutor {
 
   /**
    * Find the earlier succeeded result that can stand in for `step`, if any.
+   *
+   * A step is only reused when every step it depends on was reused too:
+   * if a dependency runs again, its output may differ, so the dependent's
+   * earlier output is stale. Batches run in dependency order, so
+   * `reusedSlugs` already holds the outcome for every dependency, which makes
+   * the check transitive.
    */
   private findReusableResult(
     step: ResolvedStep,
-    previous: PreviousStepResult[] | undefined
+    previous: PreviousStepResult[] | undefined,
+    reusedSlugs: Set<string>
   ): PreviousStepResult | undefined {
+    if (!step.dependencies.every((dep) => reusedSlugs.has(dep))) {
+      return undefined
+    }
     return previous?.find((candidate) =>
       candidate.status === 'succeeded' &&
       candidate.stepIndex === step.stepIndex &&
@@ -614,6 +624,8 @@ export class WorkflowExecutor {
 
     try {
       const executionBatches = this.resolveExecutionOrder(resolvedSteps)
+      // Slugs of steps whose earlier result was reused (see findReusableResult).
+      const reusedSlugs = new Set<string>()
 
       this.logger.info({
         batchCount: executionBatches.length,
@@ -631,7 +643,7 @@ export class WorkflowExecutor {
 
         const batchPromises = batch.map(async (step) => {
           try {
-            const reusable = this.findReusableResult(step, options.reuseSucceededSteps)
+            const reusable = this.findReusableResult(step, options.reuseSucceededSteps, reusedSlugs)
             if (reusable) {
               const now = new Date().toISOString()
               const reused: StepResult = {
@@ -655,6 +667,7 @@ export class WorkflowExecutor {
               if (reusedIdx !== -1) {
                 stepResults[reusedIdx] = reused
               }
+              reusedSlugs.add(step.slug)
               this.logger.info({ stepName: step.stepName }, 'Reusing succeeded step result from the earlier run')
               return reused
             }

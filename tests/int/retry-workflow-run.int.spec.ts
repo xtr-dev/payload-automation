@@ -150,6 +150,49 @@ describe('retryWorkflowRun', () => {
     expect(retried.stepResults?.[0]?.output).toEqual(original.stepResults?.[0]?.output)
   })
 
+  it('with resumeFromFailedStep, re-runs a succeeded step whose dependency runs again', async () => {
+    // errorHandling 'continue': flaky (first) fails, count (depends on flaky) still succeeds.
+    const trigger = await payload!.create({
+      collection: 'automation-triggers',
+      data: { name: 'posts afterChange', type: 'collection-hook', collectionSlug: 'posts', hook: 'afterChange' },
+    })
+    const flaky = await payload!.create({
+      collection: 'automation-steps',
+      data: { name: 'flaky', type: flakyTask.slug },
+    })
+    const counting = await payload!.create({
+      collection: 'automation-steps',
+      data: { name: 'count', type: countingTask.slug },
+    })
+    await payload!.create({
+      collection: 'workflows',
+      data: {
+        name: 'continue on error',
+        slug: `continue-${uniqueId()}`,
+        errorHandling: 'continue',
+        triggers: [trigger.id],
+        steps: [
+          { step: flaky.id, slug: 'flaky', stepName: 'flaky' },
+          { step: counting.id, slug: 'count', stepName: 'count', dependencies: [{ slug: 'flaky' }] },
+        ],
+      },
+    })
+    await payload!.create({ collection: 'posts', data: {} })
+    const { docs } = await payload!.find({ collection: 'workflow-runs', depth: 0 })
+    const original = docs[0] as unknown as StoredRun
+    expect(original.stepResults?.map((r) => r.status)).toEqual(['failed', 'succeeded'])
+    expect(calls).toEqual({ counted: 1, flaky: 1 })
+
+    flakyShouldFail = false
+    const retried = (await retryWorkflowRun(payload!, original.id, {
+      resumeFromFailedStep: true,
+    })) as unknown as StoredRun
+
+    expect(retried.stepResults?.map((r) => r.status)).toEqual(['succeeded', 'succeeded'])
+    // count's earlier output was computed from a failed flaky run, so it runs again.
+    expect(calls).toEqual({ counted: 2, flaky: 2 })
+  })
+
   it('returns a failed run instead of throwing when a step fails again', async () => {
     await createWorkflow(payload!)
     await payload!.create({ collection: 'posts', data: {} })
