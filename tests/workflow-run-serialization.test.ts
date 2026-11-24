@@ -128,4 +128,32 @@ describe('stored workflow run snapshots', () => {
     expect(stored.previousDoc.token).toBe('old-invite-code')
     expect(JSON.stringify(stored)).not.toContain('session-token')
   })
+
+  it('clean step data without dropping anything else a step needs', () => {
+    const payload = {
+      config: { custom: { pluginConfigs: { '@xtr-dev/payload-automation': { stripUserData: true } } } },
+    } as unknown as Payload
+    const executor = new WorkflowExecutor(payload, {} as Payload['logger']) as unknown as {
+      sanitizeStepData: (value: unknown) => unknown
+    }
+    const when = new Date('2030-01-01T00:00:00.000Z')
+    const cleaned = executor.sanitizeStepData({
+      table: 'kept',
+      token: 'invite-code',
+      user: user(),
+      owner: 5,
+      when,
+      data: { user: { id: 3 }, hash: 'secret-hash' },
+      list: [{ salt: 'secret-salt', name: 'a' }],
+    }) as Record<string, unknown>
+    expect(cleaned).toEqual({
+      table: 'kept',
+      token: 'invite-code',
+      owner: 5,
+      when,
+      data: { user: { id: 3 } },
+      list: [{ name: 'a' }],
+    })
+    expect(cleaned.when).toBe(when)
+  })
 })

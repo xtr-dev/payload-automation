@@ -82,6 +82,37 @@ export interface WorkflowJobMeta {
 }
 
 /**
+ * Auth secrets, never stored on a run and never passed into a step's input,
+ * whatever the plugin options and wherever they appear. On auth collections
+ * `previousDoc` is read with hidden fields, so it carries the password hash,
+ * salt, reset and verification tokens and API keys.
+ */
+const AUTH_SECRET_KEYS = new Set([
+  '_verificationToken',
+  'apiKey',
+  'apiKeyIndex',
+  'hash',
+  'password',
+  'resetPasswordExpiration',
+  'resetPasswordToken',
+  'salt',
+])
+
+/**
+ * Session tokens passed in hook arguments (afterLogin and afterRefresh
+ * `token`, afterMe `response.token`). Dropped from stored trigger snapshots
+ * outside the document; a document's own `token` field (an invite code, say)
+ * is content that workflows may rely on.
+ */
+const SESSION_TOKEN_KEYS = new Set(['refreshToken', 'token'])
+
+/**
+ * Keys holding the document a hook acts on. `user` fields inside them are
+ * document content, not the acting user, so `stripUserData` keeps them.
+ */
+const DOCUMENT_KEYS = new Set(['data', 'doc', 'originalDoc', 'previousDoc'])
+
+/**
  * Slug of the job task that runs a queued workflow run's steps when the
  * plugin is configured with `execution: { mode: 'queue' }`.
  */
@@ -267,7 +298,9 @@ export class WorkflowExecutor {
     }
 
     // Resolve input using JSONata expressions
-    const resolvedInput = await this.resolveStepInput(step.config, context)
+    const resolvedInput = this.sanitizeStepData(
+      await this.resolveStepInput(step.config, this.stepInputContext(context))
+    )
     result.input = resolvedInput
 
     context.steps[step.stepName] = {
@@ -335,7 +368,7 @@ export class WorkflowExecutor {
         }
 
         result.status = 'succeeded'
-        result.output = output
+        result.output = this.sanitizeStepData(output)
         result.completedAt = new Date().toISOString()
         result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
       } else {
@@ -434,6 +467,90 @@ export class WorkflowExecutor {
   }
 
   /**
+   * The context step input expressions are evaluated against. With
+   * `stripUserData`, the acting user is hidden from them: `trigger.user`,
+   * `trigger.req.user`, `trigger.response.user` and `trigger.result.user`
+   * read as undefined, so no expression can copy the user (or its fields)
+   * into a step input, the run record or `payload-jobs`. Everything else,
+   * including the document, stays live. Trigger and step conditions still
+   * see the full context, because nothing they read is stored.
+   */
+  private stepInputContext(context: ExecutionContext): ExecutionContext {
+    if (this.config.stripUserData !== true) {
+      return context
+    }
+    // Object.create keeps every other property readable through the
+    // prototype (including getters on req) while shadowing `user`.
+    const withoutUser = (value: unknown) => {
+      if (value === null || typeof value !== 'object') {
+        return value
+      }
+      return Object.create(value, { user: { enumerable: false, value: undefined } })
+    }
+    const trigger = withoutUser(context.trigger) as ExecutionContext['trigger']
+    const shadowed: PropertyDescriptorMap = {}
+    for (const key of ['req', 'response', 'result']) {
+      if (context.trigger?.[key] !== undefined) {
+        shadowed[key] = { enumerable: true, value: withoutUser(context.trigger[key]) }
+      }
+    }
+    Object.defineProperties(trigger, shadowed)
+    return { ...context, trigger }
+  }
+
+  /**
+   * Clean a step's resolved input or its output before it is passed to the
+   * step's job, stored on the run, or exposed to later steps as
+   * `steps.<name>`. Unlike `safeSerialize`, this keeps every other key and
+   * value as it is, because the step receives the result at runtime:
+   * - AUTH_SECRET_KEYS are dropped at any depth (an input like
+   *   `{{trigger.previousDoc}}` on an auth collection would otherwise carry
+   *   the password hash into the step, the run and `payload-jobs`).
+   * - With `stripUserData`, a `user` key whose value is an object (a user
+   *   document) is dropped outside DOCUMENT_KEYS. Scalar `user` values, such
+   *   as a relationship id, are kept.
+   * Session token keys are not touched here: `token` is a common, legitimate
+   * input name, and a session token only reaches a step input when the
+   * workflow references it explicitly.
+   */
+  private sanitizeStepData<T>(value: T): T {
+    const stripUser = this.config.stripUserData === true
+    const seen = new WeakSet<object>()
+
+    const clean = (current: unknown, inDocument: boolean): unknown => {
+      if (current === null || typeof current !== 'object') {
+        return current
+      }
+      if (Array.isArray(current)) {
+        return current.map((item) => clean(item, inDocument))
+      }
+      const proto = Object.getPrototypeOf(current)
+      if (proto !== Object.prototype && proto !== null) {
+        // Dates, Buffers and class instances are passed through untouched.
+        return current
+      }
+      if (seen.has(current)) {
+        return current
+      }
+      seen.add(current)
+
+      const result: Record<string, unknown> = {}
+      for (const [key, val] of Object.entries(current as Record<string, unknown>)) {
+        if (AUTH_SECRET_KEYS.has(key)) {
+          continue
+        }
+        if (stripUser && !inDocument && key === 'user' && val !== null && typeof val === 'object') {
+          continue
+        }
+        result[key] = clean(val, inDocument || DOCUMENT_KEYS.has(key))
+      }
+      return result
+    }
+
+    return clean(value, false) as T
+  }
+
+  /**
    * Safely serialize an object for storage
    */
   private safeSerialize(obj: unknown): unknown {
@@ -461,35 +578,11 @@ export class WorkflowExecutor {
       'url', // request URL
     ])
 
-    // Auth secrets are never stored on a run, whatever the plugin options and
-    // wherever they appear. On auth collections `previousDoc` is read with
-    // hidden fields, so it carries the password hash, salt, reset and
-    // verification tokens and API keys.
-    const authSecretKeys = new Set([
-      '_verificationToken',
-      'apiKey',
-      'apiKeyIndex',
-      'hash',
-      'password',
-      'resetPasswordExpiration',
-      'resetPasswordToken',
-      'salt',
-    ])
-
-    // Session tokens passed in hook arguments (afterLogin and afterRefresh
-    // `token`, afterMe `response.token`) are never stored either. Inside the
-    // document they are left alone: a field named `token` there (an invite
-    // code, say) is content that workflows may rely on.
-    const sessionTokenKeys = new Set(['refreshToken', 'token'])
-
-    // With `stripUserData`, user objects are left out of every stored
-    // snapshot: `req.user`, a trigger's own `user` (custom triggers, auth
-    // hooks), `response.user` / `result.user` (afterMe, afterOperation) and any
-    // other `user` key outside the document being acted on. Fields of that
-    // document (`doc`, `previousDoc`, `originalDoc`, `data`) are content, not
-    // the acting user, and are kept as they are.
+    // AUTH_SECRET_KEYS are dropped everywhere, SESSION_TOKEN_KEYS outside the
+    // document. With `stripUserData`, every `user` key outside the document
+    // is dropped too: `req.user`, a trigger's own `user` (custom triggers,
+    // auth hooks), afterMe's `response.user`, afterOperation's `result.user`.
     const stripUser = this.config.stripUserData === true
-    const documentKeys = new Set(['data', 'doc', 'originalDoc', 'previousDoc'])
 
     const serialize = (value: unknown, parentKey?: string, inDocument = false): unknown => {
       if (value === null || typeof value !== 'object') {
@@ -507,10 +600,10 @@ export class WorkflowExecutor {
       const result: Record<string, unknown> = {}
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
         try {
-          if (excludeKeys.has(key) || authSecretKeys.has(key)) {
+          if (excludeKeys.has(key) || AUTH_SECRET_KEYS.has(key)) {
             continue
           }
-          if (!inDocument && sessionTokenKeys.has(key)) {
+          if (!inDocument && SESSION_TOKEN_KEYS.has(key)) {
             continue
           }
           if (stripUser && !inDocument && key === 'user') {
@@ -520,7 +613,7 @@ export class WorkflowExecutor {
           if (parentKey === 'req' && !reqAllowedKeys.has(key)) {
             continue
           }
-          result[key] = serialize(val, key, inDocument || documentKeys.has(key))
+          result[key] = serialize(val, key, inDocument || DOCUMENT_KEYS.has(key))
         } catch {
           result[key] = '[Non-serializable]'
         }
@@ -638,6 +731,7 @@ export class WorkflowExecutor {
     let workflow: PayloadWorkflow
     let resolvedSteps: ResolvedStep[]
     let startedRun: { id: number | string; logs?: unknown[] | null }
+    let claimed = false
     try {
       workflow = await this.payload.findByID({
         collection: 'workflows',
@@ -646,7 +740,8 @@ export class WorkflowExecutor {
         req
       }) as unknown as PayloadWorkflow
       resolvedSteps = await this.resolveWorkflowSteps(workflow)
-      if (!(await this.claimPendingRun(workflowRun.id, req))) {
+      claimed = await this.claimPendingRun(workflowRun.id, req)
+      if (!claimed) {
         this.logger.warn({ workflowRunId }, 'Queued workflow run was already claimed by another job runner')
         return
       }
@@ -669,8 +764,14 @@ export class WorkflowExecutor {
         req
       })
     } catch (error) {
-      // Without this the run would stay 'pending' forever.
+      // Without this the run would stay 'pending' forever. Only mark it failed
+      // when this runner holds the claim, or can still take it: a run another
+      // runner claimed in the meantime belongs to that runner.
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const ownsRun = claimed || await this.claimPendingRun(workflowRun.id, req).catch(() => false)
+      if (!ownsRun) {
+        throw error
+      }
       await this.payload.update({
         collection: 'workflow-runs',
         id: workflowRun.id,

@@ -25,6 +25,13 @@ export const buildTestConfig = (options: {
         slug: 'posts',
         fields: [],
       },
+      // Declared here (rather than left to Payload's default) so that plugin
+      // options can register trigger hooks on an auth collection.
+      {
+        slug: 'users',
+        auth: true,
+        fields: [],
+      },
     ],
     globals: [
       {

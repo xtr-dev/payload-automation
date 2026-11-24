@@ -125,9 +125,14 @@ export type WorkflowsPluginConfig<
      * tokens (`token`, `refreshToken`) are dropped outside the document. The live
      * context that trigger conditions and inline steps evaluate is unchanged.
      *
-     * Step inputs and outputs (`stepResults`, `outputs`, `steps.<name>` in
-     * `context`) and the `payload-jobs` input of each step are stored as-is:
-     * a step whose input references a user or a secret stores that value.
+     * Step inputs and outputs are cleaned before they reach the step's job,
+     * the run (`stepResults`, `outputs`, `context`) or later steps: auth
+     * secrets are always dropped, and with this option step input
+     * expressions see `trigger.user`, `trigger.req.user`,
+     * `trigger.response.user` and `trigger.result.user` as undefined, so the
+     * acting user (or any of its fields) cannot be copied into a step.
+     * Trigger and step conditions still see the full context. What a step's
+     * task itself writes to its `payload-jobs` output is up to that task.
      *
      * Defaults to `false`.
      */

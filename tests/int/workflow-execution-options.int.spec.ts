@@ -35,6 +35,52 @@ const countingTask: TaskConfig<string> = {
   },
 }
 
+// Inputs the capture step received at runtime, i.e. what its payload-jobs row held.
+const capturedInputs: Array<Record<string, unknown>> = []
+const captureTask: TaskConfig<string> = {
+  slug: 'capture-step',
+  label: 'Capture',
+  handler: ({ input }) => {
+    capturedInputs.push(input as Record<string, unknown>)
+    const { snapshot } = input as { snapshot?: unknown }
+    return Promise.resolve({ output: { echoed: snapshot }, state: 'succeeded' })
+  },
+}
+
+/**
+ * A workflow on users afterChange whose step input references the auth
+ * collection's previousDoc (read with hidden fields) and the acting user.
+ */
+const createUsersWorkflow = async (payload: Payload) => {
+  const trigger = await payload.create({
+    collection: 'automation-triggers',
+    data: { name: 'users afterChange', type: 'collection-hook', collectionSlug: 'users', hook: 'afterChange' },
+  })
+  const step = await payload.create({
+    collection: 'automation-steps',
+    data: {
+      name: 'capture',
+      type: captureTask.slug,
+      config: {
+        snapshot: '{{trigger.previousDoc}}',
+        actor: '{{trigger.req.user}}',
+        actorId: '{{trigger.req.user.id}}',
+      },
+    },
+  })
+  await payload.create({
+    collection: 'workflows',
+    data: {
+      name: 'on users afterChange',
+      slug: `on-users-${uniqueId()}`,
+      triggers: [trigger.id],
+      steps: [{ step: step.id, slug: 'capture', stepName: 'capture' }],
+    },
+  })
+}
+
+const AUTH_SECRET_PATTERN = /"(hash|salt|resetPasswordToken|resetPasswordExpiration|_verificationToken|apiKey|apiKeyIndex|password)"/
+
 /** Creates a workflow with one step (no-op by default) that fires on posts afterChange. */
 const createPostsWorkflow = async (payload: Payload, stepType: string = noopTask.slug) => {
   const trigger = await payload.create({
@@ -155,6 +201,58 @@ describe('workflow execution options', () => {
 
     await payload.jobs.run({ queue: 'automation' })
     expect((await onlyRun(payload)).status).toBe('completed')
+  })
+
+  it('keeps auth secrets out of step inputs, step outputs and the payload-jobs input', async () => {
+    payload = await getTestPayload(dbFile, {
+      collectionTriggers: { users: { afterChange: true } },
+      steps: [noopTask, captureTask],
+    })
+    capturedInputs.length = 0
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'editor@example.com', password: 'test-password' },
+    })
+    await createUsersWorkflow(payload)
+
+    await payload.update({ collection: 'users', id: user.id, data: { email: 'renamed@example.com' }, user })
+
+    const run = await onlyRun(payload)
+    expect(run.status).toBe('completed')
+    expect(capturedInputs).toHaveLength(1)
+    const received = capturedInputs[0] as { snapshot?: { email?: string }; actor?: { email?: string } }
+    // The step still gets the document and the acting user...
+    expect(received.snapshot?.email).toBe('editor@example.com')
+    expect(received.actor?.email).toBe('editor@example.com')
+    // ...but no secrets, at runtime or in anything stored on the run.
+    expect(JSON.stringify(received)).not.toMatch(AUTH_SECRET_PATTERN)
+    expect(JSON.stringify(run)).not.toMatch(AUTH_SECRET_PATTERN)
+  })
+
+  it('with stripUserData, hides the acting user from step input expressions', async () => {
+    payload = await getTestPayload(dbFile, {
+      collectionTriggers: { users: { afterChange: true } },
+      steps: [noopTask, captureTask],
+      stripUserData: true,
+    })
+    capturedInputs.length = 0
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'editor@example.com', password: 'test-password' },
+    })
+    await createUsersWorkflow(payload)
+
+    await payload.update({ collection: 'users', id: user.id, data: { email: 'renamed@example.com' }, user })
+
+    const run = await onlyRun(payload)
+    expect(run.status).toBe('completed')
+    const received = capturedInputs[0] as { actor?: unknown; actorId?: unknown; snapshot?: { email?: string } }
+    expect(received.actor).toBeUndefined()
+    expect(received.actorId).toBeUndefined()
+    // The document itself is still available to the step.
+    expect(received.snapshot?.email).toBe('editor@example.com')
+    const stored = run as unknown as { stepResults: Array<{ input?: { actor?: unknown } }> }
+    expect(stored.stepResults[0]?.input?.actor).toBeUndefined()
   })
 
   it('stores req.user on the run by default', async () => {
