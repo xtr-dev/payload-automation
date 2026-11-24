@@ -81,6 +81,89 @@ export interface WorkflowJobMeta {
   automationTriggerId?: string | number
 }
 
+/**
+ * Auth secrets, never stored on a run and never passed into a step's input,
+ * whatever the plugin options and wherever they appear. On auth collections
+ * `previousDoc` is read with hidden fields, so it carries the password hash,
+ * salt, reset and verification tokens and API keys.
+ */
+const AUTH_SECRET_KEYS = new Set([
+  '_verificationToken',
+  'apiKey',
+  'apiKeyIndex',
+  'hash',
+  'password',
+  'resetPasswordExpiration',
+  'resetPasswordToken',
+  'salt',
+])
+
+/**
+ * Session tokens passed in hook arguments (afterLogin and afterRefresh
+ * `token`, afterMe `response.token`). Dropped from stored trigger snapshots
+ * outside the document; a document's own `token` field (an invite code, say)
+ * is content that workflows may rely on.
+ */
+const SESSION_TOKEN_KEYS = new Set(['refreshToken', 'token'])
+
+/**
+ * Keys holding the document a hook acts on. `user` fields inside them are
+ * document content, not the acting user, so `stripUserData` keeps them.
+ */
+const DOCUMENT_KEYS = new Set(['data', 'doc', 'originalDoc', 'previousDoc'])
+
+/**
+ * Slug of the job task that runs a queued workflow run's steps when the
+ * plugin is configured with `execution: { mode: 'queue' }`.
+ */
+export const WORKFLOW_RUN_TASK_SLUG = 'automation-workflow-run'
+
+/**
+ * A step result from an earlier run, as stored in `workflow-runs.stepResults`.
+ * `step` may be the related step's id or the populated step document.
+ */
+export interface PreviousStepResult {
+  input?: null | Record<string, unknown>
+  output?: null | Record<string, unknown>
+  status?: null | string
+  step?: null | number | string | { id: number | string }
+  stepIndex?: null | number
+}
+
+export interface ExecuteOptions {
+  /**
+   * Called with the new run's id as soon as the `workflow-runs` record
+   * exists, before any step runs. Lets a caller find the run even when
+   * `execute` later throws because a step failed.
+   */
+  onRunCreated?: (workflowRunId: number | string) => void
+
+  /**
+   * Step results of an earlier run of the same workflow. A step whose earlier
+   * result succeeded, at the same position and referencing the same
+   * `automation-steps` document, is not run again: its stored input and output
+   * are copied into this run and into `steps.<name>` for later expressions.
+   */
+  reuseSucceededSteps?: PreviousStepResult[]
+
+  /**
+   * Run the steps now even when the plugin is configured with
+   * `execution.mode: 'queue'`. `retryWorkflowRun` uses this so a retry
+   * returns a finished run instead of one stuck in `pending`.
+   */
+  inline?: boolean
+
+  /** Message of the run's first log entry. Defaults to "Workflow execution started". */
+  startMessage?: string
+}
+
+const relationId = (value: PreviousStepResult['step']): number | string | undefined => {
+  if (value === null || value === undefined) {
+    return undefined
+  }
+  return typeof value === 'object' ? value.id : value
+}
+
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
 
@@ -261,7 +344,9 @@ export class WorkflowExecutor {
     }
 
     // Resolve input using JSONata expressions
-    const resolvedInput = await this.resolveStepInput(step.config, context)
+    const resolvedInput = this.sanitizeStepData(
+      await this.resolveStepInput(step.config, this.stepInputContext(context))
+    )
     result.input = resolvedInput
 
     context.steps[step.stepName] = {
@@ -329,7 +414,7 @@ export class WorkflowExecutor {
         }
 
         result.status = 'succeeded'
-        result.output = output
+        result.output = this.sanitizeStepData(output)
         result.completedAt = new Date().toISOString()
         result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
       } else {
@@ -428,6 +513,104 @@ export class WorkflowExecutor {
   }
 
   /**
+   * The context step input expressions are evaluated against. With
+   * `stripUserData`, the acting user is hidden from them: `trigger.user`,
+   * `trigger.req.user`, `trigger.response.user` and `trigger.result.user`
+   * read as undefined, so no expression can copy the user (or its fields)
+   * into a step input, the run record or `payload-jobs`. Everything else,
+   * including the document, stays live. Trigger and step conditions still
+   * see the full context, because nothing they read is stored.
+   */
+  private stepInputContext(context: ExecutionContext): ExecutionContext {
+    if (this.config.stripUserData !== true) {
+      return context
+    }
+    // Plain shallow copies without `user`, so the step-data cleaner (which
+    // only walks plain objects) still cleans whatever an expression returns,
+    // e.g. `{{trigger}}` or `{{trigger.req}}`.
+    const withoutUser = (value: unknown): unknown => {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return value
+      }
+      const { user: _user, ...rest } = value as Record<string, unknown>
+      return rest
+    }
+    const trigger = withoutUser(context.trigger) as ExecutionContext['trigger']
+    for (const key of ['req', 'response', 'result']) {
+      if (trigger[key] !== undefined) {
+        trigger[key] = withoutUser(trigger[key])
+      }
+    }
+    return { ...context, trigger }
+  }
+
+  /**
+   * Clean a step's resolved input or its output before it is passed to the
+   * step's job, stored on the run, or exposed to later steps as
+   * `steps.<name>`. Unlike `safeSerialize`, this keeps every other key and
+   * value as it is, because the step receives the result at runtime:
+   * - AUTH_SECRET_KEYS are dropped at any depth (an input like
+   *   `{{trigger.previousDoc}}` on an auth collection would otherwise carry
+   *   the password hash into the step, the run and `payload-jobs`).
+   * - With `stripUserData`, a `user` key whose value is an object (a user
+   *   document) is dropped outside DOCUMENT_KEYS. Scalar `user` values, such
+   *   as a relationship id, are kept.
+   * Session token keys are not touched here: `token` is a common, legitimate
+   * input name, and a session token only reaches a step input when the
+   * workflow references it explicitly.
+   */
+  private sanitizeStepData<T>(value: T): T {
+    const stripUser = this.config.stripUserData === true
+    // Maps each visited original to its cleaned copy. The copy is registered
+    // before its children are cleaned, so an object referenced twice (e.g.
+    // `{{trigger}}` next to `{{trigger.previousDoc}}`) is cleaned every time
+    // it appears, and a cycle maps back to the cleaned copy instead of
+    // recursing forever. Inside and outside a document the rules differ, so
+    // each has its own map.
+    const cleanedOutside = new WeakMap<object, unknown>()
+    const cleanedInside = new WeakMap<object, unknown>()
+
+    const clean = (current: unknown, inDocument: boolean): unknown => {
+      if (current === null || typeof current !== 'object') {
+        return current
+      }
+      const cleaned = inDocument ? cleanedInside : cleanedOutside
+      const done = cleaned.get(current)
+      if (done !== undefined) {
+        return done
+      }
+      if (Array.isArray(current)) {
+        const copy: unknown[] = []
+        cleaned.set(current, copy)
+        for (const item of current) {
+          copy.push(clean(item, inDocument))
+        }
+        return copy
+      }
+      const proto = Object.getPrototypeOf(current)
+      if (proto !== Object.prototype && proto !== null) {
+        // Dates, Buffers and class instances are passed through untouched.
+        return current
+      }
+
+      const copy: Record<string, unknown> = {}
+      cleaned.set(current, copy)
+      for (const [key, val] of Object.entries(current as Record<string, unknown>)) {
+        if (AUTH_SECRET_KEYS.has(key)) {
+          continue
+        }
+        if (stripUser && !inDocument && key === 'user' && val !== null && typeof val === 'object') {
+          continue
+        }
+        copy[key] = clean(val, inDocument || DOCUMENT_KEYS.has(key))
+      }
+      return copy
+    }
+
+    return clean(value, false) as T
+  }
+
+  /**
    * Safely serialize an object for storage
    */
   private safeSerialize(obj: unknown): unknown {
@@ -455,7 +638,13 @@ export class WorkflowExecutor {
       'url', // request URL
     ])
 
-    const serialize = (value: unknown, parentKey?: string): unknown => {
+    // AUTH_SECRET_KEYS are dropped everywhere, SESSION_TOKEN_KEYS outside the
+    // document. With `stripUserData`, every `user` key outside the document
+    // is dropped too: `req.user`, a trigger's own `user` (custom triggers,
+    // auth hooks), afterMe's `response.user`, afterOperation's `result.user`.
+    const stripUser = this.config.stripUserData === true
+
+    const serialize = (value: unknown, parentKey?: string, inDocument = false): unknown => {
       if (value === null || typeof value !== 'object') {
         return value
       }
@@ -465,20 +654,26 @@ export class WorkflowExecutor {
       seen.add(value)
 
       if (Array.isArray(value)) {
-        return value.map((v) => serialize(v))
+        return value.map((v) => serialize(v, undefined, inDocument))
       }
 
       const result: Record<string, unknown> = {}
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
         try {
-          if (excludeKeys.has(key)) {
+          if (excludeKeys.has(key) || AUTH_SECRET_KEYS.has(key)) {
+            continue
+          }
+          if (!inDocument && SESSION_TOKEN_KEYS.has(key)) {
+            continue
+          }
+          if (stripUser && !inDocument && key === 'user') {
             continue
           }
           // Special handling for req object - only include allowed keys
           if (parentKey === 'req' && !reqAllowedKeys.has(key)) {
             continue
           }
-          result[key] = serialize(val, key)
+          result[key] = serialize(val, key, inDocument || DOCUMENT_KEYS.has(key))
         } catch {
           result[key] = '[Non-serializable]'
         }
@@ -490,14 +685,51 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Execute a workflow with the given context
+   * Find the earlier succeeded result that can stand in for `step`, if any.
+   *
+   * A step is only reused when every step it depends on was reused too:
+   * if a dependency runs again, its output may differ, so the dependent's
+   * earlier output is stale. Batches run in dependency order, so
+   * `reusedSlugs` already holds the outcome for every dependency, which makes
+   * the check transitive.
+   */
+  private findReusableResult(
+    step: ResolvedStep,
+    previous: PreviousStepResult[] | undefined,
+    reusedSlugs: Set<string>
+  ): PreviousStepResult | undefined {
+    if (!step.dependencies.every((dep) => reusedSlugs.has(dep))) {
+      return undefined
+    }
+    return previous?.find((candidate) =>
+      candidate.status === 'succeeded' &&
+      candidate.stepIndex === step.stepIndex &&
+      String(relationId(candidate.step)) === String(step.stepId)
+    )
+  }
+
+  /**
+   * Execute a workflow with the given context.
+   *
+   * With the default `execution.mode: 'inline'` every step runs before this
+   * method returns, so a caller inside a collection hook waits for all of
+   * them. With `execution.mode: 'queue'` this only records a `pending` run and
+   * queues a `WORKFLOW_RUN_TASK_SLUG` job; the steps run when the host's job
+   * runner picks that job up (see `executeQueuedRun`).
+   *
+   * @returns The id of the `workflow-runs` record. If a step fails with
+   *   `errorHandling: 'stop'`, the failure is recorded on the run and the error
+   *   is rethrown; use `options.onRunCreated` to get the id in that case.
+   *   In queue mode the id of the `pending` run is returned as soon as its
+   *   job is queued; `options.inline` runs the steps right away instead.
    */
   async execute(
     workflow: PayloadWorkflow,
     context: ExecutionContext,
     req: PayloadRequest,
-    firedTrigger?: any
-  ): Promise<void> {
+    firedTrigger?: any,
+    options: ExecuteOptions = {}
+  ): Promise<number | string> {
     this.logger.info({
       workflowId: workflow.id,
       workflowName: workflow.name,
@@ -506,17 +738,7 @@ export class WorkflowExecutor {
     }, 'Starting workflow execution')
 
     const resolvedSteps = await this.resolveWorkflowSteps(workflow)
-    const stepResults: StepResult[] = []
-
-    for (const step of resolvedSteps) {
-      stepResults.push({
-        step: step.stepId,
-        slug: step.slug,
-        stepName: step.stepName,
-        stepIndex: step.stepIndex,
-        status: 'pending'
-      })
-    }
+    const queued = this.config.execution?.mode === 'queue' && options.inline !== true
 
     const workflowRun = await this.payload.create({
       collection: 'workflow-runs',
@@ -525,35 +747,284 @@ export class WorkflowExecutor {
         workflowVersion: 1,
         firedTrigger: firedTrigger?.id,
         triggerData: this.safeSerialize(context.trigger),
-        status: 'running',
+        status: queued ? 'pending' : 'running',
         startedAt: new Date().toISOString(),
-        triggeredBy: req?.user?.email || 'system',
-        stepResults,
+        triggeredBy: this.describeTriggeredBy(req?.user ?? context.trigger.req?.user),
+        stepResults: this.pendingStepResults(resolvedSteps),
         context: this.safeSerialize(context),
         inputs: this.safeSerialize(context.trigger),
         logs: [{
           timestamp: new Date().toISOString(),
           level: 'info',
-          message: 'Workflow execution started'
+          message: options.startMessage ?? (queued ? 'Workflow execution queued' : 'Workflow execution started')
         }]
       },
       req
     })
+
+    options.onRunCreated?.(workflowRun.id)
 
     this.logger.info({
       workflowRunId: workflowRun.id,
       workflowId: workflow.id
     }, 'Workflow run record created')
 
+    if (queued) {
+      const queue = this.config.execution?.queue
+      await this.payload.jobs.queue({
+        input: { workflowRunId: String(workflowRun.id) },
+        ...(queue ? { queue } : {}),
+        req,
+        task: WORKFLOW_RUN_TASK_SLUG,
+      })
+      this.logger.info({
+        workflowRunId: workflowRun.id,
+        workflowId: workflow.id,
+        queue: queue ?? 'default'
+      }, 'Workflow run queued')
+      return workflowRun.id
+    }
+
+    await this.runSteps(
+      workflow,
+      context,
+      req,
+      workflowRun,
+      resolvedSteps,
+      firedTrigger?.id,
+      options.reuseSucceededSteps
+    )
+    return workflowRun.id
+  }
+
+  /**
+   * Run the steps of a run that `execute` queued with `execution.mode: 'queue'`.
+   * Called by the `WORKFLOW_RUN_TASK_SLUG` job handler.
+   *
+   * The trigger context is rebuilt from the run's stored `triggerData`, so
+   * expressions see the serialized trigger (doc, previousDoc, operation, ...)
+   * rather than the live hook arguments, and steps run with the job runner's
+   * `req` rather than the request that fired the trigger.
+   */
+  async executeQueuedRun(workflowRunId: number | string, req: PayloadRequest): Promise<void> {
+    const workflowRun = await this.payload.findByID({
+      collection: 'workflow-runs',
+      id: workflowRunId,
+      depth: 0,
+      req
+    })
+
+    if (workflowRun.status !== 'pending') {
+      // A job retried after the run already started must not run the steps twice.
+      this.logger.warn({
+        workflowRunId,
+        status: workflowRun.status
+      }, 'Skipping queued workflow run that is no longer pending')
+      return
+    }
+
+    const workflowId = typeof workflowRun.workflow === 'object' && workflowRun.workflow !== null
+      ? (workflowRun.workflow as { id: number | string }).id
+      : workflowRun.workflow as number | string
+    const firedTriggerId = typeof workflowRun.firedTrigger === 'object' && workflowRun.firedTrigger !== null
+      ? (workflowRun.firedTrigger as { id: number | string }).id
+      : (workflowRun.firedTrigger as number | string | null | undefined) ?? undefined
+
+    let workflow: PayloadWorkflow
+    let resolvedSteps: ResolvedStep[]
+    let startedRun: { id: number | string; logs?: unknown[] | null }
+    let claimed = false
+    try {
+      workflow = await this.payload.findByID({
+        collection: 'workflows',
+        id: workflowId,
+        depth: 2,
+        req
+      }) as unknown as PayloadWorkflow
+      resolvedSteps = await this.resolveWorkflowSteps(workflow)
+      claimed = await this.claimPendingRun(workflowRun.id, req)
+      if (!claimed) {
+        this.logger.warn({ workflowRunId }, 'Queued workflow run was already claimed by another job runner')
+        return
+      }
+      // The run is ours now; record the start through the normal API so
+      // hooks run. A failure here throws and marks the run failed below.
+      startedRun = await this.payload.update({
+        collection: 'workflow-runs',
+        id: workflowRun.id,
+        data: {
+          startedAt: new Date().toISOString(),
+          logs: [
+            ...(workflowRun.logs || []),
+            {
+              timestamp: new Date().toISOString(),
+              level: 'info',
+              message: 'Workflow execution started'
+            }
+          ]
+        },
+        req
+      })
+    } catch (error) {
+      // Without this the run would stay 'pending' forever. Only mark it failed
+      // when this runner holds the claim, or can still take it: a run another
+      // runner claimed in the meantime belongs to that runner.
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const ownsRun = claimed || await this.claimPendingRun(workflowRun.id, req).catch(() => false)
+      if (!ownsRun) {
+        throw error
+      }
+      await this.payload.update({
+        collection: 'workflow-runs',
+        id: workflowRun.id,
+        data: {
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error: `Could not start queued workflow run: ${errorMessage}`
+        },
+        req
+      })
+      throw error
+    }
+
+    const context: ExecutionContext = {
+      steps: {},
+      trigger: (workflowRun.triggerData as ExecutionContext['trigger'] | null) ?? {}
+    }
+
+    await this.runSteps(workflow, context, req, startedRun, resolvedSteps, firedTriggerId)
+  }
+
+  /**
+   * Atomically switch a run from `pending` to `running`. Returns `false` when
+   * the run was not pending any more, i.e. another job runner claimed it.
+   *
+   * Payload's `update({ where })` reads the matching ids and then updates each
+   * one, so two runners could both see `pending`. Instead:
+   * - MongoDB: the adapter's `updateOne` with a `where` is a single
+   *   `findOneAndUpdate`, which matches and writes atomically.
+   * - SQL adapters (Postgres, SQLite): one `UPDATE ... WHERE status = 'pending'
+   *   RETURNING id` statement through the adapter's `execute`.
+   * - Any other adapter: a conditional `payload.update`, which is best-effort
+   *   under concurrency. Errors there are thrown, never read as "claimed".
+   */
+  private async claimPendingRun(runId: number | string, req: PayloadRequest): Promise<boolean> {
+    const db = this.payload.db as unknown as {
+      drizzle?: unknown
+      execute?: (args: { db?: unknown; drizzle?: unknown; raw: string }) => Promise<unknown>
+      name?: string
+      schemaName?: string
+      sessions?: Record<string, { db?: unknown }>
+      tableNameMap?: Map<string, string>
+    }
+
+    if (db.name === 'mongoose') {
+      const claimed = await this.payload.db.updateOne({
+        collection: 'workflow-runs',
+        data: { status: 'running' },
+        req,
+        where: {
+          and: [
+            { id: { equals: runId } },
+            { status: { equals: 'pending' } }
+          ]
+        }
+      })
+      return claimed !== null
+    }
+
+    if (db.drizzle && typeof db.execute === 'function' && db.tableNameMap) {
+      // The id is inlined into raw SQL, so only accept plain numeric or
+      // uuid/text ids made of safe characters.
+      const idText = String(runId)
+      if (!/^[\w-]+$/.test(idText)) {
+        throw new Error(`Unexpected workflow run id: ${idText}`)
+      }
+      const quote = (name: string) => `"${name.replace(/"/g, '""')}"`
+      const tableName = db.tableNameMap.get('workflow_runs') ?? 'workflow_runs'
+      const table = db.schemaName ? `${quote(db.schemaName)}.${quote(tableName)}` : quote(tableName)
+      const idLiteral = typeof runId === 'number' ? idText : `'${idText}'`
+
+      // Run inside the request's transaction when there is one, so the claim
+      // does not wait on a lock that same transaction holds.
+      const transactionID = req.transactionID instanceof Promise ? await req.transactionID : req.transactionID
+      const session = transactionID !== undefined ? db.sessions?.[String(transactionID)]?.db : undefined
+
+      const result = await db.execute({
+        db: session,
+        drizzle: db.drizzle,
+        raw: `UPDATE ${table} SET "status" = 'running' WHERE "id" = ${idLiteral} AND "status" = 'pending' RETURNING "id"`
+      }) as { rows?: unknown[] } | undefined
+      return (result?.rows?.length ?? 0) > 0
+    }
+
+    const claimed = await this.payload.update({
+      collection: 'workflow-runs',
+      data: { status: 'running' },
+      req,
+      where: {
+        and: [
+          { id: { equals: runId } },
+          { status: { equals: 'pending' } }
+        ]
+      }
+    })
+    if (claimed.errors.length > 0) {
+      throw new Error(`Could not claim workflow run ${String(runId)}: ${claimed.errors.map((e) => e.message).join('; ')}`)
+    }
+    return claimed.docs.length > 0
+  }
+
+  private pendingStepResults(resolvedSteps: ResolvedStep[]): StepResult[] {
+    return resolvedSteps.map((step) => ({
+      step: step.stepId,
+      slug: step.slug,
+      stepName: step.stepName,
+      stepIndex: step.stepIndex,
+      status: 'pending'
+    }))
+  }
+
+  /**
+   * Value stored in `workflow-runs.triggeredBy`. With `stripUserData` the
+   * user's email is replaced by a `<collection>:<id>` reference so the run
+   * record holds no personal data about who triggered it.
+   */
+  private describeTriggeredBy(user?: { collection?: string; email?: string; id?: number | string } | null): string {
+    if (!user) {
+      return 'system'
+    }
+    if (this.config.stripUserData) {
+      return user.id !== undefined ? `${user.collection ?? 'user'}:${user.id}` : 'user'
+    }
+    return user.email || 'system'
+  }
+
+  /**
+   * Run the resolved steps batch by batch and record progress on the run.
+   */
+  private async runSteps(
+    workflow: PayloadWorkflow,
+    context: ExecutionContext,
+    req: PayloadRequest,
+    workflowRun: { id: number | string; logs?: unknown[] | null },
+    resolvedSteps: ResolvedStep[],
+    firedTriggerId?: number | string,
+    reuseSucceededSteps?: PreviousStepResult[]
+  ): Promise<void> {
+    const stepResults = this.pendingStepResults(resolvedSteps)
+
     // Create job metadata for tracking workflow context in payload-jobs
     const jobMeta: WorkflowJobMeta = {
       automationWorkflowId: workflow.id,
       automationWorkflowRunId: workflowRun.id,
-      automationTriggerId: firedTrigger?.id,
+      automationTriggerId: firedTriggerId,
     }
 
     try {
       const executionBatches = this.resolveExecutionOrder(resolvedSteps)
+      // Slugs of steps whose earlier result was reused (see findReusableResult).
+      const reusedSlugs = new Set<string>()
 
       this.logger.info({
         batchCount: executionBatches.length,
@@ -571,6 +1042,37 @@ export class WorkflowExecutor {
 
         const batchPromises = batch.map(async (step) => {
           try {
+            const reusable = this.findReusableResult(step, reuseSucceededSteps, reusedSlugs)
+            if (reusable) {
+              const now = new Date().toISOString()
+              const reused: StepResult = {
+                step: step.stepId,
+                slug: step.slug,
+                stepName: step.stepName,
+                stepIndex: step.stepIndex,
+                status: 'succeeded',
+                startedAt: now,
+                completedAt: now,
+                duration: 0,
+                // Results stored before secret stripping existed may still
+                // carry secrets, so clean them again before reuse.
+                input: this.sanitizeStepData(reusable.input ?? undefined),
+                output: this.sanitizeStepData(reusable.output ?? {})
+              }
+              context.steps[step.stepName] = {
+                state: 'succeeded',
+                input: reused.input,
+                output: reused.output
+              }
+              const reusedIdx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+              if (reusedIdx !== -1) {
+                stepResults[reusedIdx] = reused
+              }
+              reusedSlugs.add(step.slug)
+              this.logger.info({ stepName: step.stepName }, 'Reusing succeeded step result from the earlier run')
+              return reused
+            }
+
             const result = await this.executeStep(step, context, req, stepResults, jobMeta)
             const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
             if (idx !== -1) {
@@ -644,6 +1146,7 @@ export class WorkflowExecutor {
         workflowRunId: workflowRun.id,
         workflowId: workflow.id
       }, 'Workflow execution completed')
+
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
