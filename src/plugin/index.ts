@@ -6,6 +6,8 @@ import { createTriggersCollection } from '../collections/Triggers.js'
 import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
+import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
+import { createWorkflowRunTask } from '../core/workflow-run-task.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
 import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
@@ -162,6 +164,16 @@ export const workflowsPlugin =
     for (const step of pluginOptions.steps ?? []) {
       if (!config.jobs?.tasks?.find(task => task.slug === step.slug)) {
         config.jobs?.tasks?.push(step)
+      }
+    }
+
+    // Queued execution needs a task that runs a pending workflow run's steps.
+    if (pluginOptions.execution?.mode === 'queue') {
+      if (!config.jobs.tasks) {
+        config.jobs.tasks = []
+      }
+      if (!config.jobs.tasks.find(task => task.slug === WORKFLOW_RUN_TASK_SLUG)) {
+        config.jobs.tasks.push(createWorkflowRunTask())
       }
     }
 

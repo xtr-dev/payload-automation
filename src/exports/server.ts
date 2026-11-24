@@ -4,7 +4,7 @@
 export { retryWorkflowRun } from '../core/retry-workflow-run.js'
 export type { RetryWorkflowRunOptions } from '../core/retry-workflow-run.js'
 export { triggerCustomWorkflow, triggerWorkflowById } from '../core/trigger-custom-workflow.js'
-export { WorkflowExecutor } from '../core/workflow-executor.js'
+export { WORKFLOW_RUN_TASK_SLUG, WorkflowExecutor } from '../core/workflow-executor.js'
 export { workflowsPlugin } from '../plugin/index.js'
 
 // Export all step handlers (server-side only)

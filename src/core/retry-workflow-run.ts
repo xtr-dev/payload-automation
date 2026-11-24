@@ -60,6 +60,10 @@ const relationId = (value: unknown): number | string | undefined => {
  * values that were never stored (the live `req`, the Payload instance) are
  * not available.
  *
+ * The retry runs inline, in the calling request, even when the plugin is
+ * configured with `execution: { mode: 'queue' }`, so the returned run is
+ * finished, never `pending`.
+ *
  * A failing step does not make this throw: the returned run then has
  * `status: 'failed'`. It does throw when the original run is missing, still
  * pending or running, or the workflow no longer exists.
@@ -134,6 +138,9 @@ export async function retryWorkflowRun(
   let newRunId: number | string | undefined
   try {
     await executor.execute(workflow as unknown as PayloadWorkflow, context, req, firedTrigger, {
+      // A retry is an explicit request for a result, so it runs inline even
+      // when the plugin queues trigger-fired runs (execution.mode 'queue').
+      inline: true,
       onRunCreated: (id) => {
         newRunId = id
       },

@@ -204,6 +204,72 @@ describe('retryWorkflowRun', () => {
     expect(retried.status).toBe('failed')
   })
 
+  it("with execution.mode 'queue', runs the retry inline and returns a finished run", async () => {
+    await payload!.destroy()
+    removeDbFile(dbFile)
+    dbFile = newDbFile()
+    payload = await getPayload({
+      config: buildTestConfig({
+        dbFile,
+        pluginOptions: { execution: { mode: 'queue' }, steps: [noopTask, countingTask, flakyTask] },
+      }),
+      key: uniqueId(),
+    })
+    await createWorkflow(payload)
+    await payload.create({ collection: 'posts', data: {} })
+    await payload.jobs.run()
+    const original = await failedRun(payload)
+    expect(calls).toEqual({ counted: 1, flaky: 1 })
+
+    flakyShouldFail = false
+    const retried = (await retryWorkflowRun(payload, original.id, {
+      resumeFromFailedStep: true,
+    })) as unknown as StoredRun
+
+    expect(retried.status).toBe('completed')
+    expect(calls).toEqual({ counted: 1, flaky: 2 })
+    // Nothing was left queued for the retry.
+    await payload.jobs.run()
+    expect(calls).toEqual({ counted: 1, flaky: 2 })
+  })
+
+  it('cleans auth secrets out of reused step results stored by older versions', async () => {
+    const workflow = await createWorkflow(payload!)
+    const steps = (workflow as unknown as { steps: Array<{ step: number | string | { id: number | string } }> }).steps
+    const stepId = (index: number) => {
+      const step = steps[index].step
+      return typeof step === 'object' ? step.id : step
+    }
+    const legacy = await payload!.create({
+      collection: 'workflow-runs',
+      data: {
+        workflow: workflow.id,
+        status: 'failed',
+        startedAt: new Date().toISOString(),
+        triggeredBy: 'test',
+        triggerData: {},
+        stepResults: [
+          {
+            step: stepId(0),
+            stepIndex: 0,
+            stepName: 'count',
+            status: 'succeeded',
+            input: { user: { hash: 'secret-hash' } },
+            output: { count: 1, salt: 'secret-salt' },
+          },
+          { step: stepId(1), stepIndex: 1, stepName: 'flaky', status: 'failed' },
+        ],
+      },
+    })
+
+    flakyShouldFail = false
+    const retried = await retryWorkflowRun(payload!, legacy.id, { resumeFromFailedStep: true })
+
+    expect(retried.status).toBe('completed')
+    expect(calls.counted).toBe(0)
+    expect(JSON.stringify(retried)).not.toContain('secret-')
+  })
+
   it('refuses to retry a run that is still running', async () => {
     const workflow = await createWorkflow(payload!)
     const running = await payload!.create({
