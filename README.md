@@ -443,6 +443,22 @@ const runs = await payload.find({
 })
 ```
 
+### Retrying a Run
+
+`retryWorkflowRun` runs the workflow again from a run's stored `triggerData` and returns the new `workflow-runs` document. The original run is not changed. A step that fails again doesn't make the call throw; check `status` on the returned run.
+
+```typescript
+import { retryWorkflowRun } from '@xtr-dev/payload-automation/server'
+
+// Run every step again
+const rerun = await retryWorkflowRun(payload, failedRunId)
+
+// Or skip the steps that already succeeded and reuse their stored output
+const resumed = await retryWorkflowRun(payload, failedRunId, { resumeFromFailedStep: true })
+```
+
+The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`. It always runs inline, also with `execution: { mode: 'queue' }`, so the returned run is finished rather than `pending`.
+
 ## Plugin Configuration
 
 ```typescript
@@ -486,6 +502,12 @@ interface WorkflowsPluginConfig {
   // explicitly ({{trigger.previousDoc.hash}}) is stored like any value, and a
   // task's own output in its payload-jobs log is written by Payload as-is.
   stripUserData?: boolean
+
+  // How long (ms) the hook handlers reuse the cached list of collection-hook
+  // and global-hook triggers. Trigger edits made through this Payload
+  // instance clear it immediately; the TTL bounds how long edits from other
+  // processes take to apply. 0 queries on every hook call. Default: 60000.
+  triggerCacheTTL?: number
 
   // Step types available to workflows (Payload TaskConfig objects).
   // Optional — without it the plugin registers its collections and hooks

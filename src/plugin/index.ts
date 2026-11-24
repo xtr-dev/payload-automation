@@ -9,6 +9,7 @@ import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
 import { createWorkflowRunTask } from '../core/workflow-run-task.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
+import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 
 export { getLogger } from './logger.js'
@@ -23,7 +24,7 @@ const applyCollectionsConfig = <T extends string>(
 
   // Add all automation collections
   config.collections.push(
-    createTriggersCollection(pluginOptions),
+    withTriggerCacheInvalidation(createTriggersCollection(pluginOptions)),
     createStepsCollection(pluginOptions.steps ?? []),
     createWorkflowCollection(),
     WorkflowRunsCollection
@@ -370,7 +371,14 @@ export const workflowsPlugin =
 
             logger.info(`Seeded workflow: ${seedWorkflow.name}`)
           } catch (error) {
-            logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
+            logger.error(
+              {
+                workflowName: seedWorkflow.name,
+                workflowSlug: seedWorkflow.slug,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              'Failed to seed workflow',
+            )
           }
         }
       }

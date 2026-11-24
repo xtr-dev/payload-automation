@@ -118,6 +118,52 @@ const DOCUMENT_KEYS = new Set(['data', 'doc', 'originalDoc', 'previousDoc'])
  */
 export const WORKFLOW_RUN_TASK_SLUG = 'automation-workflow-run'
 
+/**
+ * A step result from an earlier run, as stored in `workflow-runs.stepResults`.
+ * `step` may be the related step's id or the populated step document.
+ */
+export interface PreviousStepResult {
+  input?: null | Record<string, unknown>
+  output?: null | Record<string, unknown>
+  status?: null | string
+  step?: null | number | string | { id: number | string }
+  stepIndex?: null | number
+}
+
+export interface ExecuteOptions {
+  /**
+   * Called with the new run's id as soon as the `workflow-runs` record
+   * exists, before any step runs. Lets a caller find the run even when
+   * `execute` later throws because a step failed.
+   */
+  onRunCreated?: (workflowRunId: number | string) => void
+
+  /**
+   * Step results of an earlier run of the same workflow. A step whose earlier
+   * result succeeded, at the same position and referencing the same
+   * `automation-steps` document, is not run again: its stored input and output
+   * are copied into this run and into `steps.<name>` for later expressions.
+   */
+  reuseSucceededSteps?: PreviousStepResult[]
+
+  /**
+   * Run the steps now even when the plugin is configured with
+   * `execution.mode: 'queue'`. `retryWorkflowRun` uses this so a retry
+   * returns a finished run instead of one stuck in `pending`.
+   */
+  inline?: boolean
+
+  /** Message of the run's first log entry. Defaults to "Workflow execution started". */
+  startMessage?: string
+}
+
+const relationId = (value: PreviousStepResult['step']): number | string | undefined => {
+  if (value === null || value === undefined) {
+    return undefined
+  }
+  return typeof value === 'object' ? value.id : value
+}
+
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
 
@@ -639,6 +685,30 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Find the earlier succeeded result that can stand in for `step`, if any.
+   *
+   * A step is only reused when every step it depends on was reused too:
+   * if a dependency runs again, its output may differ, so the dependent's
+   * earlier output is stale. Batches run in dependency order, so
+   * `reusedSlugs` already holds the outcome for every dependency, which makes
+   * the check transitive.
+   */
+  private findReusableResult(
+    step: ResolvedStep,
+    previous: PreviousStepResult[] | undefined,
+    reusedSlugs: Set<string>
+  ): PreviousStepResult | undefined {
+    if (!step.dependencies.every((dep) => reusedSlugs.has(dep))) {
+      return undefined
+    }
+    return previous?.find((candidate) =>
+      candidate.status === 'succeeded' &&
+      candidate.stepIndex === step.stepIndex &&
+      String(relationId(candidate.step)) === String(step.stepId)
+    )
+  }
+
+  /**
    * Execute a workflow with the given context.
    *
    * With the default `execution.mode: 'inline'` every step runs before this
@@ -646,13 +716,20 @@ export class WorkflowExecutor {
    * them. With `execution.mode: 'queue'` this only records a `pending` run and
    * queues a `WORKFLOW_RUN_TASK_SLUG` job; the steps run when the host's job
    * runner picks that job up (see `executeQueuedRun`).
+   *
+   * @returns The id of the `workflow-runs` record. If a step fails with
+   *   `errorHandling: 'stop'`, the failure is recorded on the run and the error
+   *   is rethrown; use `options.onRunCreated` to get the id in that case.
+   *   In queue mode the id of the `pending` run is returned as soon as its
+   *   job is queued; `options.inline` runs the steps right away instead.
    */
   async execute(
     workflow: PayloadWorkflow,
     context: ExecutionContext,
     req: PayloadRequest,
-    firedTrigger?: any
-  ): Promise<void> {
+    firedTrigger?: any,
+    options: ExecuteOptions = {}
+  ): Promise<number | string> {
     this.logger.info({
       workflowId: workflow.id,
       workflowName: workflow.name,
@@ -661,7 +738,7 @@ export class WorkflowExecutor {
     }, 'Starting workflow execution')
 
     const resolvedSteps = await this.resolveWorkflowSteps(workflow)
-    const queued = this.config.execution?.mode === 'queue'
+    const queued = this.config.execution?.mode === 'queue' && options.inline !== true
 
     const workflowRun = await this.payload.create({
       collection: 'workflow-runs',
@@ -679,11 +756,13 @@ export class WorkflowExecutor {
         logs: [{
           timestamp: new Date().toISOString(),
           level: 'info',
-          message: queued ? 'Workflow execution queued' : 'Workflow execution started'
+          message: options.startMessage ?? (queued ? 'Workflow execution queued' : 'Workflow execution started')
         }]
       },
       req
     })
+
+    options.onRunCreated?.(workflowRun.id)
 
     this.logger.info({
       workflowRunId: workflowRun.id,
@@ -703,10 +782,19 @@ export class WorkflowExecutor {
         workflowId: workflow.id,
         queue: queue ?? 'default'
       }, 'Workflow run queued')
-      return
+      return workflowRun.id
     }
 
-    await this.runSteps(workflow, context, req, workflowRun, resolvedSteps, firedTrigger?.id)
+    await this.runSteps(
+      workflow,
+      context,
+      req,
+      workflowRun,
+      resolvedSteps,
+      firedTrigger?.id,
+      options.reuseSucceededSteps
+    )
+    return workflowRun.id
   }
 
   /**
@@ -921,7 +1009,8 @@ export class WorkflowExecutor {
     req: PayloadRequest,
     workflowRun: { id: number | string; logs?: unknown[] | null },
     resolvedSteps: ResolvedStep[],
-    firedTriggerId?: number | string
+    firedTriggerId?: number | string,
+    reuseSucceededSteps?: PreviousStepResult[]
   ): Promise<void> {
     const stepResults = this.pendingStepResults(resolvedSteps)
 
@@ -934,6 +1023,8 @@ export class WorkflowExecutor {
 
     try {
       const executionBatches = this.resolveExecutionOrder(resolvedSteps)
+      // Slugs of steps whose earlier result was reused (see findReusableResult).
+      const reusedSlugs = new Set<string>()
 
       this.logger.info({
         batchCount: executionBatches.length,
@@ -951,6 +1042,37 @@ export class WorkflowExecutor {
 
         const batchPromises = batch.map(async (step) => {
           try {
+            const reusable = this.findReusableResult(step, reuseSucceededSteps, reusedSlugs)
+            if (reusable) {
+              const now = new Date().toISOString()
+              const reused: StepResult = {
+                step: step.stepId,
+                slug: step.slug,
+                stepName: step.stepName,
+                stepIndex: step.stepIndex,
+                status: 'succeeded',
+                startedAt: now,
+                completedAt: now,
+                duration: 0,
+                // Results stored before secret stripping existed may still
+                // carry secrets, so clean them again before reuse.
+                input: this.sanitizeStepData(reusable.input ?? undefined),
+                output: this.sanitizeStepData(reusable.output ?? {})
+              }
+              context.steps[step.stepName] = {
+                state: 'succeeded',
+                input: reused.input,
+                output: reused.output
+              }
+              const reusedIdx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+              if (reusedIdx !== -1) {
+                stepResults[reusedIdx] = reused
+              }
+              reusedSlugs.add(step.slug)
+              this.logger.info({ stepName: step.stepName }, 'Reusing succeeded step result from the earlier run')
+              return reused
+            }
+
             const result = await this.executeStep(step, context, req, stepResults, jobMeta)
             const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
             if (idx !== -1) {
@@ -1024,6 +1146,7 @@ export class WorkflowExecutor {
         workflowRunId: workflowRun.id,
         workflowId: workflow.id
       }, 'Workflow execution completed')
+
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
