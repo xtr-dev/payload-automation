@@ -461,15 +461,21 @@ export class WorkflowExecutor {
       'url', // request URL
     ])
 
-    // With `stripUserData`, the authenticated user is left out of every stored
-    // snapshot: `req.user`, and the `user` key at the trigger's top level
-    // (custom triggers' `trigger.user`, auth hooks' `user` argument). The
-    // root call has no parentKey; a nested trigger has parentKey 'trigger'.
-    const stripUser = this.config.stripUserData === true
-    const isUserKey = (key: string, parentKey?: string) =>
-      stripUser && key === 'user' && (parentKey === undefined || parentKey === 'req' || parentKey === 'trigger')
+    // Session tokens are secrets: auth hooks (afterLogin, afterRefresh,
+    // afterMe's `response`) pass them in their arguments, and they are never
+    // stored on a run, whatever the plugin options.
+    const secretKeys = new Set(['token', 'refreshToken'])
 
-    const serialize = (value: unknown, parentKey?: string): unknown => {
+    // With `stripUserData`, user objects are left out of every stored
+    // snapshot: `req.user`, a trigger's own `user` (custom triggers, auth
+    // hooks), `response.user` / `result.user` (afterMe, afterOperation) and any
+    // other `user` key outside the document being acted on. Fields of that
+    // document (`doc`, `previousDoc`, `originalDoc`, `data`) are content, not
+    // the acting user, and are kept as they are.
+    const stripUser = this.config.stripUserData === true
+    const documentKeys = new Set(['data', 'doc', 'originalDoc', 'previousDoc'])
+
+    const serialize = (value: unknown, parentKey?: string, inDocument = false): unknown => {
       if (value === null || typeof value !== 'object') {
         return value
       }
@@ -479,20 +485,23 @@ export class WorkflowExecutor {
       seen.add(value)
 
       if (Array.isArray(value)) {
-        return value.map((v) => serialize(v))
+        return value.map((v) => serialize(v, undefined, inDocument))
       }
 
       const result: Record<string, unknown> = {}
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
         try {
-          if (excludeKeys.has(key) || isUserKey(key, parentKey)) {
+          if (excludeKeys.has(key) || secretKeys.has(key)) {
+            continue
+          }
+          if (stripUser && !inDocument && key === 'user') {
             continue
           }
           // Special handling for req object - only include allowed keys
           if (parentKey === 'req' && !reqAllowedKeys.has(key)) {
             continue
           }
-          result[key] = serialize(val, key)
+          result[key] = serialize(val, key, inDocument || documentKeys.has(key))
         } catch {
           result[key] = '[Non-serializable]'
         }
@@ -618,9 +627,16 @@ export class WorkflowExecutor {
         req
       }) as unknown as PayloadWorkflow
       resolvedSteps = await this.resolveWorkflowSteps(workflow)
-      startedRun = await this.payload.update({
+      // Claim the run with a conditional update so that when two job runners
+      // pick up duplicate jobs for the same run, only one executes the steps.
+      const claimed = await this.payload.update({
         collection: 'workflow-runs',
-        id: workflowRun.id,
+        where: {
+          and: [
+            { id: { equals: workflowRun.id } },
+            { status: { equals: 'pending' } }
+          ]
+        },
         data: {
           status: 'running',
           startedAt: new Date().toISOString(),
@@ -635,6 +651,11 @@ export class WorkflowExecutor {
         },
         req
       })
+      if (claimed.docs.length === 0) {
+        this.logger.warn({ workflowRunId }, 'Queued workflow run was already claimed by another job runner')
+        return
+      }
+      startedRun = claimed.docs[0] as { id: number | string; logs?: unknown[] | null }
     } catch (error) {
       // Without this the run would stay 'pending' forever.
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'

@@ -1,11 +1,11 @@
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
-import { getPayload } from 'payload'
-import type { Payload } from 'payload'
+import { createLocalReq, getPayload, type Payload, type TaskConfig } from 'payload'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildTestConfig, noopTask } from './build-test-config.js'
+import { WorkflowExecutor } from '../../src/core/workflow-executor.js'
 import type { WorkflowsPluginConfig } from '../../src/plugin/config-types.js'
 
 const uniqueId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`
@@ -25,15 +25,25 @@ const removeDbFile = (dbFile: string) => {
   }
 }
 
-/** Creates a workflow with one no-op step that fires on posts afterChange. */
-const createPostsWorkflow = async (payload: Payload) => {
+let countingCalls = 0
+const countingTask: TaskConfig<string> = {
+  slug: 'counting-step',
+  label: 'Counting',
+  handler: () => {
+    countingCalls++
+    return Promise.resolve({ output: {}, state: 'succeeded' })
+  },
+}
+
+/** Creates a workflow with one step (no-op by default) that fires on posts afterChange. */
+const createPostsWorkflow = async (payload: Payload, stepType: string = noopTask.slug) => {
   const trigger = await payload.create({
     collection: 'automation-triggers',
     data: { name: 'posts afterChange', type: 'collection-hook', collectionSlug: 'posts', hook: 'afterChange' },
   })
   const step = await payload.create({
     collection: 'automation-steps',
-    data: { name: 'noop', type: noopTask.slug },
+    data: { name: 'noop', type: stepType },
   })
   await payload.create({
     collection: 'workflows',
@@ -107,6 +117,31 @@ describe('workflow execution options', () => {
 
     // Processing the queue again must not run the same workflow run twice.
     await payload.jobs.run()
+    expect((await onlyRun(payload)).status).toBe('completed')
+  })
+
+  // Under SQLite the two runners happen to serialize, so this also passes
+  // without the conditional claim; it guards the outcome, not the race itself.
+  it('runs a queued run once when two job runners pick it up at the same time', async () => {
+    payload = await getTestPayload(dbFile, {
+      execution: { mode: 'queue' },
+      steps: [noopTask, countingTask],
+    })
+    countingCalls = 0
+    await createPostsWorkflow(payload, countingTask.slug)
+    await payload.create({ collection: 'posts', data: {} })
+    const pending = await onlyRun(payload)
+
+    const runner = () =>
+      createLocalReq({}, payload!).then((req) =>
+        new WorkflowExecutor(payload!, payload!.logger).executeQueuedRun(
+          (pending as unknown as { id: number | string }).id,
+          req,
+        ),
+      )
+    await Promise.all([runner(), runner()])
+
+    expect(countingCalls).toBe(1)
     expect((await onlyRun(payload)).status).toBe('completed')
   })
 
