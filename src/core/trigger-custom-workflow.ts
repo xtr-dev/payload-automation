@@ -111,6 +111,8 @@ export async function triggerCustomWorkflow(
     const results: TriggerResult[] = []
 
     for (const workflow of workflows.docs) {
+      // Set once the run record exists, so a failed run still reports its id.
+      let createdRunId: number | string | undefined
       try {
         // Check if this workflow actually has the custom trigger
         const triggers = workflow.triggers as Array<{type: string}>
@@ -142,22 +144,14 @@ export async function triggerCustomWorkflow(
         }
 
         // Execute the workflow
-        await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
-
-        // Get the latest run for this workflow to get the run ID
-        const runs = await payload.find({
-          collection: 'workflow-runs',
-          limit: 1,
-          sort: '-createdAt',
-          where: {
-            workflow: {
-              equals: workflow.id
-            }
+        const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq, undefined, {
+          onRunCreated: (id) => {
+            createdRunId = id
           }
         })
 
         results.push({
-          runId: runs.docs[0]?.id?.toString() || 'unknown',
+          runId: runId.toString(),
           status: 'triggered',
           workflowId: workflow.id.toString(),
           workflowName: workflow.name as string
@@ -179,7 +173,7 @@ export async function triggerCustomWorkflow(
 
         results.push({
           error: error instanceof Error ? error.message : 'Unknown error',
-          runId: 'failed',
+          runId: createdRunId?.toString() ?? 'failed',
           status: 'failed',
           workflowId: workflow.id.toString(),
           workflowName: workflow.name as string
@@ -255,22 +249,10 @@ export async function triggerWorkflowById(
 
     // Create executor and execute
     const executor = new WorkflowExecutor(payload, logger)
-    await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
-
-    // Get the latest run to get the run ID
-    const runs = await payload.find({
-      collection: 'workflow-runs',
-      limit: 1,
-      sort: '-createdAt',
-      where: {
-        workflow: {
-          equals: workflow.id
-        }
-      }
-    })
+    const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
 
     return {
-      runId: runs.docs[0]?.id?.toString() || 'unknown',
+      runId: runId.toString(),
       status: 'triggered',
       workflowId: workflow.id.toString(),
       workflowName: workflow.name as string

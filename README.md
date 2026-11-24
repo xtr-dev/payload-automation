@@ -443,6 +443,22 @@ const runs = await payload.find({
 })
 ```
 
+### Retrying a Run
+
+`retryWorkflowRun` runs the workflow again from a run's stored `triggerData` and returns the new `workflow-runs` document. The original run is not changed. A step that fails again doesn't make the call throw; check `status` on the returned run.
+
+```typescript
+import { retryWorkflowRun } from '@xtr-dev/payload-automation/server'
+
+// Run every step again
+const rerun = await retryWorkflowRun(payload, failedRunId)
+
+// Or skip the steps that already succeeded and reuse their stored output
+const resumed = await retryWorkflowRun(payload, failedRunId, { resumeFromFailedStep: true })
+```
+
+The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`.
+
 ## Plugin Configuration
 
 ```typescript
