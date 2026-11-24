@@ -9,21 +9,19 @@ export const createWorkflowCollection = (): CollectionConfig => {
     slug: 'workflows',
     access: {
       create: () => true,
-      delete: ({ req, data }) => {
-        // Prevent deletion of read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
+      // A Where clause is combined with the id lookup in deleteByID/updateByID
+      // (and used as the filter on bulk delete/update), so the *stored*
+      // document's readOnly is what gets checked. Reading `data` would not
+      // work: that argument is the incoming request body, which a REST DELETE
+      // does not send at all, and which a PATCH can simply omit `readOnly`
+      // from.
+      delete: () => ({
+        readOnly: { not_equals: true },
+      }),
       read: () => true,
-      update: ({ req, data }) => {
-        // Prevent updates to read-only workflows
-        if (data?.readOnly === true) {
-          return false
-        }
-        return true
-      },
+      update: () => ({
+        readOnly: { not_equals: true },
+      }),
     },
     admin: {
       defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
@@ -53,6 +51,17 @@ export const createWorkflowCollection = (): CollectionConfig => {
       {
         name: 'readOnly',
         type: 'checkbox',
+        // automation-triggers and automation-steps refuse update/delete for any
+        // document a readOnly:true workflow references (readonly-access.ts), so
+        // this flag isn't just self-protection anymore - anyone who could set it
+        // could freeze someone else's trigger/step. `create`/`update` access:()=>false
+        // means only Local API calls that don't pass overrideAccess:false can set
+        // it (that's how the plugin's own seeder in plugin/index.ts writes it);
+        // REST, GraphQL, and any access-controlled Local API call cannot.
+        access: {
+          create: () => false,
+          update: () => false,
+        },
         admin: {
           description: 'Read-only workflows cannot be edited or deleted. This is typically used for seeded template workflows.',
           position: 'sidebar',
