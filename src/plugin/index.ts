@@ -7,6 +7,7 @@ import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
+import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 
 export { getLogger } from './logger.js'
@@ -21,7 +22,7 @@ const applyCollectionsConfig = <T extends string>(
 
   // Add all automation collections
   config.collections.push(
-    createTriggersCollection(pluginOptions),
+    withTriggerCacheInvalidation(createTriggersCollection(pluginOptions)),
     createStepsCollection(pluginOptions.steps ?? []),
     createWorkflowCollection(),
     WorkflowRunsCollection

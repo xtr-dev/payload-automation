@@ -465,6 +465,12 @@ interface WorkflowsPluginConfig {
     [globalSlug: string]: boolean | { /* hooks */ }
   }
 
+  // How long (ms) the hook handlers reuse the cached list of collection-hook
+  // and global-hook triggers. Trigger edits made through this Payload
+  // instance clear it immediately; the TTL bounds how long edits from other
+  // processes take to apply. 0 queries on every hook call. Default: 60000.
+  triggerCacheTTL?: number
+
   // Step types available to workflows (Payload TaskConfig objects).
   // Optional — without it the plugin registers its collections and hooks
   // but no step types. Built-in tasks are exported from
