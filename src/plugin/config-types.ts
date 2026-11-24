@@ -111,9 +111,13 @@ export type WorkflowsPluginConfig<
 
     /**
      * Leave the triggering user out of what is stored on `workflow-runs`.
-     * When `true`, `req.user` and the trigger's top-level `user` are dropped
-     * from `triggerData`, `context` and `inputs`, and `triggeredBy` stores a
-     * `<collection>:<id>` reference instead of the user's email. The live
+     * When `true`, every `user` object outside the document being acted on
+     * (`req.user`, the trigger's own `user`, afterMe's `response.user`,
+     * afterOperation's `result.user`) is dropped from `triggerData`, `context`
+     * and `inputs`, and `triggeredBy` stores a `<collection>:<id>` reference
+     * instead of the user's email. `user` fields inside `doc`, `previousDoc`,
+     * `originalDoc` and `data` are document content and are kept. Session
+     * tokens (`token`, `refreshToken`) are never stored, with or without this. The live
      * context that trigger conditions and inline steps evaluate is unchanged.
      * Values a step copies into its own input or output are stored as-is.
      *
