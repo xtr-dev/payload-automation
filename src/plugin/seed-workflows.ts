@@ -409,8 +409,12 @@ export const seedWorkflows = async (
       logger.info(`Seeded workflow: ${seedWorkflow.name}`)
     } catch (error) {
       logger.error(
-        { error: error instanceof Error ? error.message : 'Unknown error' },
-        `Failed to seed workflow '${seedWorkflow.name}'`
+        {
+          workflowName: seedWorkflow.name,
+          workflowSlug: seedWorkflow.slug,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        'Failed to seed workflow',
       )
     }
   }
