@@ -1,4 +1,10 @@
 import { WorkflowExecutor } from '../core/workflow-executor.js'
+import { getPluginConfig } from './get-plugin-config.js'
+import {
+  DEFAULT_TRIGGER_CACHE_TTL_MS,
+  getHookTriggers,
+  selectMatchingTriggers
+} from './trigger-cache.js'
 
 export type TriggerType = 'collection' | 'global'
 
@@ -42,33 +48,24 @@ export const createTriggerHook = (config: TriggerConfig) => {
     const logger = payload.logger
 
     try {
-      logger.info({
+      logger.debug({
         triggerType: type,
         slug,
         hookType
       }, `${type} automation hook triggered`)
 
-      const executor = new WorkflowExecutor(payload, logger)
-
-      // Step 1: Find all triggers that match this hook event
-      const triggerQuery = type === 'collection'
-        ? {
-            type: { equals: 'collection-hook' },
-            collectionSlug: { equals: slug },
-            collectionHook: { equals: hookType }
-          }
-        : {
-            type: { equals: 'global-hook' },
-            globalSlug: { equals: slug },
-            globalHook: { equals: hookType }
-          }
-
-      const { docs: matchingTriggers } = await payload.find({
-        collection: 'automation-triggers',
-        depth: 0,
-        limit: 100,
-        where: triggerQuery
-      })
+      // Step 1: Find all triggers that match this hook event. The trigger list
+      // is cached per Payload instance, so a hook nobody listens to (afterRead
+      // on a busy collection, for example) costs an in-memory filter instead
+      // of a database query on every call.
+      const pluginConfig = getPluginConfig(payload)
+      const ttlMs = pluginConfig.triggerCacheTTL ?? DEFAULT_TRIGGER_CACHE_TTL_MS
+      const matchingTriggers = selectMatchingTriggers(
+        await getHookTriggers(payload, ttlMs),
+        type,
+        slug,
+        hookType
+      )
 
       if (matchingTriggers.length === 0) {
         logger.debug({
@@ -79,7 +76,9 @@ export const createTriggerHook = (config: TriggerConfig) => {
         return
       }
 
-      const triggerIds = matchingTriggers.map((t: { id: string | number }) => t.id)
+      const executor = new WorkflowExecutor(payload, logger)
+
+      const triggerIds = matchingTriggers.map((t) => t.id)
 
       // Step 2: Find all enabled workflows that reference any of these triggers
       const { docs: workflows } = await payload.find({
@@ -105,7 +104,7 @@ export const createTriggerHook = (config: TriggerConfig) => {
       // Step 3: Execute each matching workflow
       for (const workflow of workflows) {
         // Find which trigger actually fired (for tracking in WorkflowRuns)
-        const firedTrigger = matchingTriggers.find((trigger: { id: string | number }) => {
+        const firedTrigger = matchingTriggers.find((trigger) => {
           const workflowTriggerIds = (workflow.triggers || []).map((t: any) =>
             typeof t === 'object' ? t.id : t
           )
