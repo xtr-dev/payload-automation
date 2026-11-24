@@ -2,7 +2,21 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
-import { adminUserAccess, resolveCollectionAccess } from './access.js'
+import { adminUserAccess, adminUserAnd, resolveCollectionAccess } from './access.js'
+
+import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
+
+const collectReferencedStepIds = (workflow: Record<string, unknown>): (number | string)[] => {
+  if (!Array.isArray(workflow.steps)) {
+    return []
+  }
+  return workflow.steps
+    .map((workflowStep) => {
+      const step = (workflowStep as { step?: unknown })?.step
+      return typeof step === 'object' && step !== null ? (step as { id: number | string }).id : step
+    })
+    .filter((stepId): stepId is number | string => stepId !== null && stepId !== undefined)
+}
 
 /**
  * Creates the automation-steps collection.
@@ -12,7 +26,7 @@ export const createStepsCollection = (
   options: WorkflowsPluginConfig
 ): CollectionConfig => {
   // Build step type options from registered steps
-  const stepTypeOptions = options.steps.map(step => ({
+  const stepTypeOptions = (options.steps ?? []).map(step => ({
     label: step.label || step.slug,
     value: step.slug,
   }))
@@ -21,11 +35,21 @@ export const createStepsCollection = (
     slug: 'automation-steps',
     access: resolveCollectionAccess(options, 'automation-steps', {
       create: adminUserAccess,
-      delete: adminUserAccess,
+      delete: adminUserAnd(
+        refuseIfReferencedByReadOnlyWorkflow(
+          (id) => ({ 'steps.step': { equals: id } }),
+          collectReferencedStepIds
+        )
+      ),
       // Step configs are JSON and can hold credentials (e.g. bearer tokens
       // for the HTTP request step), so reads are not public by default.
       read: adminUserAccess,
-      update: adminUserAccess,
+      update: adminUserAnd(
+        refuseIfReferencedByReadOnlyWorkflow(
+          (id) => ({ 'steps.step': { equals: id } }),
+          collectReferencedStepIds
+        )
+      ),
     }),
     admin: {
       defaultColumns: ['name', 'type', 'updatedAt'],

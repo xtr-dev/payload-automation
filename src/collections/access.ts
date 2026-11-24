@@ -64,6 +64,19 @@ export const adminUserUnlessReadOnly: Access = async ({ req }) => {
 }
 
 /**
+ * Wraps an access function so it only runs for users who can access /admin;
+ * everyone else is refused before `inner` is consulted. Used to layer the
+ * read-only-workflow reference check on top of the admin-only default for
+ * automation-triggers and automation-steps.
+ */
+export const adminUserAnd = (inner: Access): Access => async (args) => {
+  if (!(await isAdminUser(args))) {
+    return false
+  }
+  return inner(args)
+}
+
+/**
  * Merges per-collection access overrides from the plugin's `access` option
  * over the secure defaults. Operations without an override keep the secure
  * default.

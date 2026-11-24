@@ -28,7 +28,15 @@ npm install @xtr-dev/payload-automation
 
 ```typescript
 import { buildConfig } from 'payload'
-import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
+import {
+  workflowsPlugin,
+  HttpRequestStepTask,
+  CreateDocumentStepTask,
+  ReadDocumentStepTask,
+  UpdateDocumentStepTask,
+  DeleteDocumentStepTask,
+  SendEmailStepTask,
+} from '@xtr-dev/payload-automation/server'
 
 export default buildConfig({
   // ... your config
@@ -41,6 +49,16 @@ export default buildConfig({
           update: true
         }
       },
+      // Step types available to workflows. The built-in tasks are not
+      // registered automatically — pass the ones you want to use.
+      steps: [
+        HttpRequestStepTask,
+        CreateDocumentStepTask,
+        ReadDocumentStepTask,
+        UpdateDocumentStepTask,
+        DeleteDocumentStepTask,
+        SendEmailStepTask,
+      ],
       enabled: true,
     }),
   ],
@@ -425,6 +443,22 @@ const runs = await payload.find({
 })
 ```
 
+### Retrying a Run
+
+`retryWorkflowRun` runs the workflow again from a run's stored `triggerData` and returns the new `workflow-runs` document. The original run is not changed. A step that fails again doesn't make the call throw; check `status` on the returned run.
+
+```typescript
+import { retryWorkflowRun } from '@xtr-dev/payload-automation/server'
+
+// Run every step again
+const rerun = await retryWorkflowRun(payload, failedRunId)
+
+// Or skip the steps that already succeeded and reuse their stored output
+const resumed = await retryWorkflowRun(payload, failedRunId, { resumeFromFailedStep: true })
+```
+
+The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`. It always runs inline, also with `execution: { mode: 'queue' }`, so the returned run is finished rather than `pending`.
+
 ## Plugin Configuration
 
 ```typescript
@@ -447,8 +481,39 @@ interface WorkflowsPluginConfig {
     [globalSlug: string]: boolean | { /* hooks */ }
   }
 
-  // Custom step definitions
-  steps?: StepDefinition[]
+  // Where steps run. 'inline' (default) runs them inside the hook that fired
+  // the trigger, so that request waits for every step. 'queue' records a
+  // pending run and queues one `automation-workflow-run` job on `queue`
+  // (default: Payload's 'default' queue); the steps run when your job runner
+  // (jobs.autoRun, `payload jobs:run`) processes it, using the stored
+  // triggerData snapshot.
+  execution?: { mode?: 'inline' | 'queue'; queue?: string }
+
+  // Leave user objects (req.user, the trigger's `user`, afterMe's
+  // response.user, ...) out of the triggerData, context and inputs stored on
+  // workflow-runs; `user` fields of the document itself are kept, and
+  // triggeredBy stores `<collection>:<id>` instead of an email.
+  // With it, step input expressions also see trigger.req.user (and
+  // trigger.user, response.user, result.user) as undefined; conditions still
+  // see them. Default: false. Either way, auth secrets (hash, salt, password,
+  // reset and verification tokens, API keys) are removed from step inputs and
+  // outputs, and neither they nor hook-level session tokens are stored on the
+  // run or in payload-jobs inputs. Stripping is by key: a scalar you pick out
+  // explicitly ({{trigger.previousDoc.hash}}) is stored like any value, and a
+  // task's own output in its payload-jobs log is written by Payload as-is.
+  stripUserData?: boolean
+
+  // How long (ms) the hook handlers reuse the cached list of collection-hook
+  // and global-hook triggers. Trigger edits made through this Payload
+  // instance clear it immediately; the TTL bounds how long edits from other
+  // processes take to apply. 0 queries on every hook call. Default: 60000.
+  triggerCacheTTL?: number
+
+  // Step types available to workflows (Payload TaskConfig objects).
+  // Optional — without it the plugin registers its collections and hooks
+  // but no step types. Built-in tasks are exported from
+  // '@xtr-dev/payload-automation/server'.
+  steps?: TaskConfig[]
 
   // Per-collection access overrides (see "Access Control" below)
   access?: Partial<Record<
