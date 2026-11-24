@@ -116,10 +116,18 @@ export type WorkflowsPluginConfig<
      * afterOperation's `result.user`) is dropped from `triggerData`, `context`
      * and `inputs`, and `triggeredBy` stores a `<collection>:<id>` reference
      * instead of the user's email. `user` fields inside `doc`, `previousDoc`,
-     * `originalDoc` and `data` are document content and are kept. Session
-     * tokens (`token`, `refreshToken`) are never stored, with or without this. The live
+     * `originalDoc` and `data` are document content and are kept.
+     *
+     * Independent of this option, secrets are never stored: auth fields
+     * (`hash`, `salt`, `password`, `resetPasswordToken`,
+     * `resetPasswordExpiration`, `_verificationToken`, `apiKey`, `apiKeyIndex`)
+     * are dropped everywhere, including inside the document, and session
+     * tokens (`token`, `refreshToken`) are dropped outside the document. The live
      * context that trigger conditions and inline steps evaluate is unchanged.
-     * Values a step copies into its own input or output are stored as-is.
+     *
+     * Step inputs and outputs (`stepResults`, `outputs`, `steps.<name>` in
+     * `context`) and the `payload-jobs` input of each step are stored as-is:
+     * a step whose input references a user or a secret stores that value.
      *
      * Defaults to `false`.
      */

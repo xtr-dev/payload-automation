@@ -477,7 +477,10 @@ interface WorkflowsPluginConfig {
   // response.user, ...) out of the triggerData, context and inputs stored on
   // workflow-runs; `user` fields of the document itself are kept, and
   // triggeredBy stores `<collection>:<id>` instead of an email.
-  // Default: false. Session tokens are never stored either way.
+  // Default: false. Either way, auth secrets (hash, salt, password, reset and
+  // verification tokens, API keys) and hook-level session tokens are never
+  // stored. Step inputs/outputs and payload-jobs inputs are stored as-is, so
+  // a step whose input references a secret stores it.
   stripUserData?: boolean
 
   // Step types available to workflows (Payload TaskConfig objects).

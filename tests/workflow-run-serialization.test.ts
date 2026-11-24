@@ -88,4 +88,44 @@ describe('stored workflow run snapshots', () => {
     expect(stored.previousDoc.user).toBe(3)
     expect(stored.req.user).toBeUndefined()
   })
+
+  it('never store auth secrets, even inside doc and previousDoc', () => {
+    // afterChange on an auth collection: previousDoc is read with hidden fields.
+    const secrets = {
+      _verificationToken: 'secret-verification',
+      apiKey: 'secret-api-key',
+      apiKeyIndex: 'secret-api-key-index',
+      hash: 'secret-hash',
+      password: 'secret-password',
+      resetPasswordExpiration: '2030-01-01T00:00:00.000Z',
+      resetPasswordToken: 'secret-reset',
+      salt: 'secret-salt',
+    }
+    for (const config of [{}, { stripUserData: true }]) {
+      const stored = executorWith(config)({
+        collection: 'users',
+        data: { email, password: 'secret-password' },
+        doc: { id: 7, email, ...secrets },
+        previousDoc: { id: 7, email, ...secrets },
+        req: { user: { ...user(), ...secrets } },
+      })
+      const json = JSON.stringify(stored)
+      expect(json).not.toContain('secret-')
+      expect(json).not.toContain('resetPasswordExpiration')
+      // The rest of the document is kept.
+      expect((stored as { doc: { email?: string } }).doc.email).toBe(email)
+    }
+  })
+
+  it("keep a document's own token field, while dropping hook-level session tokens", () => {
+    const stored = executorWith({})({
+      doc: { id: 1, token: 'invite-code' },
+      previousDoc: { id: 1, token: 'old-invite-code' },
+      response: { token: 'session-token-response' },
+      token: 'session-token-top-level',
+    }) as { doc: { token?: string }; previousDoc: { token?: string } }
+    expect(stored.doc.token).toBe('invite-code')
+    expect(stored.previousDoc.token).toBe('old-invite-code')
+    expect(JSON.stringify(stored)).not.toContain('session-token')
+  })
 })

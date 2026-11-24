@@ -461,10 +461,26 @@ export class WorkflowExecutor {
       'url', // request URL
     ])
 
-    // Session tokens are secrets: auth hooks (afterLogin, afterRefresh,
-    // afterMe's `response`) pass them in their arguments, and they are never
-    // stored on a run, whatever the plugin options.
-    const secretKeys = new Set(['token', 'refreshToken'])
+    // Auth secrets are never stored on a run, whatever the plugin options and
+    // wherever they appear. On auth collections `previousDoc` is read with
+    // hidden fields, so it carries the password hash, salt, reset and
+    // verification tokens and API keys.
+    const authSecretKeys = new Set([
+      '_verificationToken',
+      'apiKey',
+      'apiKeyIndex',
+      'hash',
+      'password',
+      'resetPasswordExpiration',
+      'resetPasswordToken',
+      'salt',
+    ])
+
+    // Session tokens passed in hook arguments (afterLogin and afterRefresh
+    // `token`, afterMe `response.token`) are never stored either. Inside the
+    // document they are left alone: a field named `token` there (an invite
+    // code, say) is content that workflows may rely on.
+    const sessionTokenKeys = new Set(['refreshToken', 'token'])
 
     // With `stripUserData`, user objects are left out of every stored
     // snapshot: `req.user`, a trigger's own `user` (custom triggers, auth
@@ -491,7 +507,10 @@ export class WorkflowExecutor {
       const result: Record<string, unknown> = {}
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
         try {
-          if (excludeKeys.has(key) || secretKeys.has(key)) {
+          if (excludeKeys.has(key) || authSecretKeys.has(key)) {
+            continue
+          }
+          if (!inDocument && sessionTokenKeys.has(key)) {
             continue
           }
           if (stripUser && !inDocument && key === 'user') {
@@ -627,18 +646,16 @@ export class WorkflowExecutor {
         req
       }) as unknown as PayloadWorkflow
       resolvedSteps = await this.resolveWorkflowSteps(workflow)
-      // Claim the run with a conditional update so that when two job runners
-      // pick up duplicate jobs for the same run, only one executes the steps.
-      const claimed = await this.payload.update({
+      if (!(await this.claimPendingRun(workflowRun.id, req))) {
+        this.logger.warn({ workflowRunId }, 'Queued workflow run was already claimed by another job runner')
+        return
+      }
+      // The run is ours now; record the start through the normal API so
+      // hooks run. A failure here throws and marks the run failed below.
+      startedRun = await this.payload.update({
         collection: 'workflow-runs',
-        where: {
-          and: [
-            { id: { equals: workflowRun.id } },
-            { status: { equals: 'pending' } }
-          ]
-        },
+        id: workflowRun.id,
         data: {
-          status: 'running',
           startedAt: new Date().toISOString(),
           logs: [
             ...(workflowRun.logs || []),
@@ -651,11 +668,6 @@ export class WorkflowExecutor {
         },
         req
       })
-      if (claimed.docs.length === 0) {
-        this.logger.warn({ workflowRunId }, 'Queued workflow run was already claimed by another job runner')
-        return
-      }
-      startedRun = claimed.docs[0] as { id: number | string; logs?: unknown[] | null }
     } catch (error) {
       // Without this the run would stay 'pending' forever.
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
@@ -678,6 +690,86 @@ export class WorkflowExecutor {
     }
 
     await this.runSteps(workflow, context, req, startedRun, resolvedSteps, firedTriggerId)
+  }
+
+  /**
+   * Atomically switch a run from `pending` to `running`. Returns `false` when
+   * the run was not pending any more, i.e. another job runner claimed it.
+   *
+   * Payload's `update({ where })` reads the matching ids and then updates each
+   * one, so two runners could both see `pending`. Instead:
+   * - MongoDB: the adapter's `updateOne` with a `where` is a single
+   *   `findOneAndUpdate`, which matches and writes atomically.
+   * - SQL adapters (Postgres, SQLite): one `UPDATE ... WHERE status = 'pending'
+   *   RETURNING id` statement through the adapter's `execute`.
+   * - Any other adapter: a conditional `payload.update`, which is best-effort
+   *   under concurrency. Errors there are thrown, never read as "claimed".
+   */
+  private async claimPendingRun(runId: number | string, req: PayloadRequest): Promise<boolean> {
+    const db = this.payload.db as unknown as {
+      drizzle?: unknown
+      execute?: (args: { db?: unknown; drizzle?: unknown; raw: string }) => Promise<unknown>
+      name?: string
+      schemaName?: string
+      sessions?: Record<string, { db?: unknown }>
+      tableNameMap?: Map<string, string>
+    }
+
+    if (db.name === 'mongoose') {
+      const claimed = await this.payload.db.updateOne({
+        collection: 'workflow-runs',
+        data: { status: 'running' },
+        req,
+        where: {
+          and: [
+            { id: { equals: runId } },
+            { status: { equals: 'pending' } }
+          ]
+        }
+      })
+      return claimed !== null
+    }
+
+    if (db.drizzle && typeof db.execute === 'function' && db.tableNameMap) {
+      // The id is inlined into raw SQL, so only accept plain numeric or
+      // uuid/text ids made of safe characters.
+      const idText = String(runId)
+      if (!/^[\w-]+$/.test(idText)) {
+        throw new Error(`Unexpected workflow run id: ${idText}`)
+      }
+      const quote = (name: string) => `"${name.replace(/"/g, '""')}"`
+      const tableName = db.tableNameMap.get('workflow_runs') ?? 'workflow_runs'
+      const table = db.schemaName ? `${quote(db.schemaName)}.${quote(tableName)}` : quote(tableName)
+      const idLiteral = typeof runId === 'number' ? idText : `'${idText}'`
+
+      // Run inside the request's transaction when there is one, so the claim
+      // does not wait on a lock that same transaction holds.
+      const transactionID = req.transactionID instanceof Promise ? await req.transactionID : req.transactionID
+      const session = transactionID !== undefined ? db.sessions?.[String(transactionID)]?.db : undefined
+
+      const result = await db.execute({
+        db: session,
+        drizzle: db.drizzle,
+        raw: `UPDATE ${table} SET "status" = 'running' WHERE "id" = ${idLiteral} AND "status" = 'pending' RETURNING "id"`
+      }) as { rows?: unknown[] } | undefined
+      return (result?.rows?.length ?? 0) > 0
+    }
+
+    const claimed = await this.payload.update({
+      collection: 'workflow-runs',
+      data: { status: 'running' },
+      req,
+      where: {
+        and: [
+          { id: { equals: runId } },
+          { status: { equals: 'pending' } }
+        ]
+      }
+    })
+    if (claimed.errors.length > 0) {
+      throw new Error(`Could not claim workflow run ${String(runId)}: ${claimed.errors.map((e) => e.message).join('; ')}`)
+    }
+    return claimed.docs.length > 0
   }
 
   private pendingStepResults(resolvedSteps: ResolvedStep[]): StepResult[] {
