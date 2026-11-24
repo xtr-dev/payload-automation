@@ -3,7 +3,7 @@ import { buildConfig } from 'payload'
 import type { SanitizedConfig, TaskConfig } from 'payload'
 
 import { workflowsPlugin } from '../../src/plugin/index.js'
-import type { SeedWorkflow } from '../../src/plugin/config-types.js'
+import type { SeedWorkflow, WorkflowsPluginConfig } from '../../src/plugin/config-types.js'
 
 export const noopTask: TaskConfig<string> = {
   slug: 'noop-step',
@@ -13,6 +13,8 @@ export const noopTask: TaskConfig<string> = {
 
 export const buildTestConfig = (options: {
   dbFile: string
+  /** Extra plugin options, merged over the defaults below. */
+  pluginOptions?: Partial<WorkflowsPluginConfig>
   seedWorkflows?: SeedWorkflow[]
 }): Promise<SanitizedConfig> =>
   buildConfig({
@@ -39,6 +41,7 @@ export const buildTestConfig = (options: {
         globalTriggers: { settings: true },
         seedWorkflows: options.seedWorkflows,
         steps: [noopTask],
+        ...options.pluginOptions,
       }),
     ],
     secret: 'test-secret-key',
