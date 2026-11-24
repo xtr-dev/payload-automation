@@ -2,7 +2,7 @@
 // These contain Node.js dependencies and should only be used server-side
 
 export { triggerCustomWorkflow, triggerWorkflowById } from '../core/trigger-custom-workflow.js'
-export { WorkflowExecutor } from '../core/workflow-executor.js'
+export { WORKFLOW_RUN_TASK_SLUG, WorkflowExecutor } from '../core/workflow-executor.js'
 export { workflowsPlugin } from '../plugin/index.js'
 
 // Export all step handlers (server-side only)

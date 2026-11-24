@@ -81,6 +81,12 @@ export interface WorkflowJobMeta {
   automationTriggerId?: string | number
 }
 
+/**
+ * Slug of the job task that runs a queued workflow run's steps when the
+ * plugin is configured with `execution: { mode: 'queue' }`.
+ */
+export const WORKFLOW_RUN_TASK_SLUG = 'automation-workflow-run'
+
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
 
@@ -455,6 +461,14 @@ export class WorkflowExecutor {
       'url', // request URL
     ])
 
+    // With `stripUserData`, the authenticated user is left out of every stored
+    // snapshot: `req.user`, and the `user` key at the trigger's top level
+    // (custom triggers' `trigger.user`, auth hooks' `user` argument). The
+    // root call has no parentKey; a nested trigger has parentKey 'trigger'.
+    const stripUser = this.config.stripUserData === true
+    const isUserKey = (key: string, parentKey?: string) =>
+      stripUser && key === 'user' && (parentKey === undefined || parentKey === 'req' || parentKey === 'trigger')
+
     const serialize = (value: unknown, parentKey?: string): unknown => {
       if (value === null || typeof value !== 'object') {
         return value
@@ -471,7 +485,7 @@ export class WorkflowExecutor {
       const result: Record<string, unknown> = {}
       for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
         try {
-          if (excludeKeys.has(key)) {
+          if (excludeKeys.has(key) || isUserKey(key, parentKey)) {
             continue
           }
           // Special handling for req object - only include allowed keys
@@ -490,7 +504,13 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Execute a workflow with the given context
+   * Execute a workflow with the given context.
+   *
+   * With the default `execution.mode: 'inline'` every step runs before this
+   * method returns, so a caller inside a collection hook waits for all of
+   * them. With `execution.mode: 'queue'` this only records a `pending` run and
+   * queues a `WORKFLOW_RUN_TASK_SLUG` job; the steps run when the host's job
+   * runner picks that job up (see `executeQueuedRun`).
    */
   async execute(
     workflow: PayloadWorkflow,
@@ -506,17 +526,7 @@ export class WorkflowExecutor {
     }, 'Starting workflow execution')
 
     const resolvedSteps = await this.resolveWorkflowSteps(workflow)
-    const stepResults: StepResult[] = []
-
-    for (const step of resolvedSteps) {
-      stepResults.push({
-        step: step.stepId,
-        slug: step.slug,
-        stepName: step.stepName,
-        stepIndex: step.stepIndex,
-        status: 'pending'
-      })
-    }
+    const queued = this.config.execution?.mode === 'queue'
 
     const workflowRun = await this.payload.create({
       collection: 'workflow-runs',
@@ -525,16 +535,16 @@ export class WorkflowExecutor {
         workflowVersion: 1,
         firedTrigger: firedTrigger?.id,
         triggerData: this.safeSerialize(context.trigger),
-        status: 'running',
+        status: queued ? 'pending' : 'running',
         startedAt: new Date().toISOString(),
-        triggeredBy: context.trigger.req?.user?.email || 'system',
-        stepResults,
+        triggeredBy: this.describeTriggeredBy(req?.user ?? context.trigger.req?.user),
+        stepResults: this.pendingStepResults(resolvedSteps),
         context: this.safeSerialize(context),
         inputs: this.safeSerialize(context.trigger),
         logs: [{
           timestamp: new Date().toISOString(),
           level: 'info',
-          message: 'Workflow execution started'
+          message: queued ? 'Workflow execution queued' : 'Workflow execution started'
         }]
       },
       req
@@ -545,11 +555,153 @@ export class WorkflowExecutor {
       workflowId: workflow.id
     }, 'Workflow run record created')
 
+    if (queued) {
+      const queue = this.config.execution?.queue
+      await this.payload.jobs.queue({
+        input: { workflowRunId: String(workflowRun.id) },
+        ...(queue ? { queue } : {}),
+        req,
+        task: WORKFLOW_RUN_TASK_SLUG,
+      })
+      this.logger.info({
+        workflowRunId: workflowRun.id,
+        workflowId: workflow.id,
+        queue: queue ?? 'default'
+      }, 'Workflow run queued')
+      return
+    }
+
+    await this.runSteps(workflow, context, req, workflowRun, resolvedSteps, firedTrigger?.id)
+  }
+
+  /**
+   * Run the steps of a run that `execute` queued with `execution.mode: 'queue'`.
+   * Called by the `WORKFLOW_RUN_TASK_SLUG` job handler.
+   *
+   * The trigger context is rebuilt from the run's stored `triggerData`, so
+   * expressions see the serialized trigger (doc, previousDoc, operation, ...)
+   * rather than the live hook arguments, and steps run with the job runner's
+   * `req` rather than the request that fired the trigger.
+   */
+  async executeQueuedRun(workflowRunId: number | string, req: PayloadRequest): Promise<void> {
+    const workflowRun = await this.payload.findByID({
+      collection: 'workflow-runs',
+      id: workflowRunId,
+      depth: 0,
+      req
+    })
+
+    if (workflowRun.status !== 'pending') {
+      // A job retried after the run already started must not run the steps twice.
+      this.logger.warn({
+        workflowRunId,
+        status: workflowRun.status
+      }, 'Skipping queued workflow run that is no longer pending')
+      return
+    }
+
+    const workflowId = typeof workflowRun.workflow === 'object' && workflowRun.workflow !== null
+      ? (workflowRun.workflow as { id: number | string }).id
+      : workflowRun.workflow as number | string
+    const firedTriggerId = typeof workflowRun.firedTrigger === 'object' && workflowRun.firedTrigger !== null
+      ? (workflowRun.firedTrigger as { id: number | string }).id
+      : (workflowRun.firedTrigger as number | string | null | undefined) ?? undefined
+
+    let workflow: PayloadWorkflow
+    let resolvedSteps: ResolvedStep[]
+    let startedRun: { id: number | string; logs?: unknown[] | null }
+    try {
+      workflow = await this.payload.findByID({
+        collection: 'workflows',
+        id: workflowId,
+        depth: 2,
+        req
+      }) as unknown as PayloadWorkflow
+      resolvedSteps = await this.resolveWorkflowSteps(workflow)
+      startedRun = await this.payload.update({
+        collection: 'workflow-runs',
+        id: workflowRun.id,
+        data: {
+          status: 'running',
+          startedAt: new Date().toISOString(),
+          logs: [
+            ...(workflowRun.logs || []),
+            {
+              timestamp: new Date().toISOString(),
+              level: 'info',
+              message: 'Workflow execution started'
+            }
+          ]
+        },
+        req
+      })
+    } catch (error) {
+      // Without this the run would stay 'pending' forever.
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      await this.payload.update({
+        collection: 'workflow-runs',
+        id: workflowRun.id,
+        data: {
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+          error: `Could not start queued workflow run: ${errorMessage}`
+        },
+        req
+      })
+      throw error
+    }
+
+    const context: ExecutionContext = {
+      steps: {},
+      trigger: (workflowRun.triggerData as ExecutionContext['trigger'] | null) ?? {}
+    }
+
+    await this.runSteps(workflow, context, req, startedRun, resolvedSteps, firedTriggerId)
+  }
+
+  private pendingStepResults(resolvedSteps: ResolvedStep[]): StepResult[] {
+    return resolvedSteps.map((step) => ({
+      step: step.stepId,
+      slug: step.slug,
+      stepName: step.stepName,
+      stepIndex: step.stepIndex,
+      status: 'pending'
+    }))
+  }
+
+  /**
+   * Value stored in `workflow-runs.triggeredBy`. With `stripUserData` the
+   * user's email is replaced by a `<collection>:<id>` reference so the run
+   * record holds no personal data about who triggered it.
+   */
+  private describeTriggeredBy(user?: { collection?: string; email?: string; id?: number | string } | null): string {
+    if (!user) {
+      return 'system'
+    }
+    if (this.config.stripUserData) {
+      return user.id !== undefined ? `${user.collection ?? 'user'}:${user.id}` : 'user'
+    }
+    return user.email || 'system'
+  }
+
+  /**
+   * Run the resolved steps batch by batch and record progress on the run.
+   */
+  private async runSteps(
+    workflow: PayloadWorkflow,
+    context: ExecutionContext,
+    req: PayloadRequest,
+    workflowRun: { id: number | string; logs?: unknown[] | null },
+    resolvedSteps: ResolvedStep[],
+    firedTriggerId?: number | string
+  ): Promise<void> {
+    const stepResults = this.pendingStepResults(resolvedSteps)
+
     // Create job metadata for tracking workflow context in payload-jobs
     const jobMeta: WorkflowJobMeta = {
       automationWorkflowId: workflow.id,
       automationWorkflowRunId: workflowRun.id,
-      automationTriggerId: firedTrigger?.id,
+      automationTriggerId: firedTriggerId,
     }
 
     try {

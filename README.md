@@ -465,6 +465,19 @@ interface WorkflowsPluginConfig {
     [globalSlug: string]: boolean | { /* hooks */ }
   }
 
+  // Where steps run. 'inline' (default) runs them inside the hook that fired
+  // the trigger, so that request waits for every step. 'queue' records a
+  // pending run and queues one `automation-workflow-run` job on `queue`
+  // (default: Payload's 'default' queue); the steps run when your job runner
+  // (jobs.autoRun, `payload jobs:run`) processes it, using the stored
+  // triggerData snapshot.
+  execution?: { mode?: 'inline' | 'queue'; queue?: string }
+
+  // Leave req.user (and a trigger's top-level `user`) out of the triggerData,
+  // context and inputs stored on workflow-runs; triggeredBy then stores
+  // `<collection>:<id>` instead of an email. Default: false.
+  stripUserData?: boolean
+
   // Step types available to workflows (Payload TaskConfig objects).
   // Optional — without it the plugin registers its collections and hooks
   // but no step types. Built-in tasks are exported from

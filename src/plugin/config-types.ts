@@ -90,6 +90,38 @@ export type WorkflowsPluginConfig<
     triggers?: TriggerConfig[]
 
     /**
+     * Where workflow steps run once a trigger fires.
+     *
+     * - `mode: 'inline'` (default): steps run inside the hook or call that
+     *   fired the trigger, so e.g. a payment webhook's request waits for every
+     *   step to finish.
+     * - `mode: 'queue'`: the trigger only records a `pending` workflow run and
+     *   queues one `automation-workflow-run` job on `queue` (Payload's
+     *   `'default'` queue when omitted). The steps run when your job runner
+     *   processes that queue (`jobs.autoRun`, `payload jobs:run`, or
+     *   `payload.jobs.run()`), so nothing runs until one is set up. Queued
+     *   steps see the stored `triggerData` snapshot instead of the live hook
+     *   arguments, and run with the job runner's request rather than the
+     *   triggering user's.
+     */
+    execution?: {
+        mode?: 'inline' | 'queue'
+        queue?: string
+    }
+
+    /**
+     * Leave the triggering user out of what is stored on `workflow-runs`.
+     * When `true`, `req.user` and the trigger's top-level `user` are dropped
+     * from `triggerData`, `context` and `inputs`, and `triggeredBy` stores a
+     * `<collection>:<id>` reference instead of the user's email. The live
+     * context that trigger conditions and inline steps evaluate is unchanged.
+     * Values a step copies into its own input or output are stored as-is.
+     *
+     * Defaults to `false`.
+     */
+    stripUserData?: boolean
+
+    /**
      * Logging configuration.
      * Set to true to enable debug logging.
      */
