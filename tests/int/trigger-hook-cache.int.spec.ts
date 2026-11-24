@@ -98,21 +98,37 @@ describe('collection trigger hooks use a cached trigger lookup', () => {
     expect(await runCount(payload)).toBe(1)
   })
 
-  it('stops firing a trigger once it is deleted', async () => {
+  it('reloads the trigger list after a trigger is deleted', async () => {
     payload = await getTestPayload(buildTestConfig({ dbFile }))
     const trigger = await createWorkflowFor(payload, 'afterChange')
     await payload.create({ collection: 'posts', data: {} })
     expect(await runCount(payload)).toBe(1)
 
-    await payload.update({
-      collection: 'workflows',
-      where: { triggers: { in: [trigger.id] } },
-      data: { triggers: [] },
-    })
+    // Only the trigger is deleted; the workflow is left as it is.
     await payload.delete({ collection: 'automation-triggers', id: trigger.id })
+    const triggerQueries = spyOnTriggerQueries(payload)
     await payload.create({ collection: 'posts', data: {} })
 
+    // The deleted trigger is gone from the cache: the list was reloaded once
+    // (afterChange and afterRead of the create share it) and nothing fired.
+    expect(triggerQueries()).toBe(1)
     expect(await runCount(payload)).toBe(1)
+  })
+
+  it("follows an edit to a trigger's hook", async () => {
+    payload = await getTestPayload(buildTestConfig({ dbFile }))
+    const trigger = await createWorkflowFor(payload, 'afterChange')
+    const post = await payload.create({ collection: 'posts', data: {} })
+    expect(await runCount(payload)).toBe(1)
+
+    // afterDelete rather than afterRead, because create also runs afterRead.
+    await payload.update({ collection: 'automation-triggers', id: trigger.id, data: { hook: 'afterDelete' } })
+
+    await payload.create({ collection: 'posts', data: {} })
+    expect(await runCount(payload)).toBe(1)
+
+    await payload.delete({ collection: 'posts', id: post.id })
+    expect(await runCount(payload)).toBe(2)
   })
 
   it('queries on every hook call when triggerCacheTTL is 0', async () => {
