@@ -50,6 +50,12 @@ export type WorkflowsPluginConfig<
      * Collection triggers configuration.
      * Keys are collection slugs, values configure which hooks to listen to.
      * Set to `true` to enable all default hooks (afterChange, afterDelete, afterRead).
+     *
+     * A registered hook only does work when an `automation-triggers` document
+     * listens to it: the trigger list is cached (see `triggerCacheTTL`), so an
+     * unused hook such as afterRead costs an in-memory lookup per call, not a
+     * database query. List hooks explicitly (e.g. `{ afterChange: true }`) to
+     * skip registering the others altogether.
      */
     collectionTriggers?: {
         [key in TCollection]?: {
@@ -88,6 +94,18 @@ export type WorkflowsPluginConfig<
      * Custom trigger configurations.
      */
     triggers?: TriggerConfig[]
+
+    /**
+     * How long, in milliseconds, the collection/global hook handlers reuse the
+     * list of collection-hook and global-hook triggers before reloading it.
+     * Creating, updating or deleting a trigger through this Payload instance
+     * clears the cache immediately; the TTL only bounds how long changes made
+     * by another process (another server instance, a direct database write)
+     * take to be picked up. Set to `0` to query on every hook call.
+     *
+     * Defaults to 60000 (one minute).
+     */
+    triggerCacheTTL?: number
 
     /**
      * Logging configuration.
