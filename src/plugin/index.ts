@@ -7,7 +7,10 @@ import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
 import { allCollectionHooks, allGlobalHooks } from '../triggers/hook-options.js'
+import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
+import { createWorkflowRunTask } from '../core/workflow-run-task.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
+import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 
 export { getLogger } from './logger.js'
@@ -22,8 +25,8 @@ const applyCollectionsConfig = <T extends string>(
 
   // Add all automation collections
   config.collections.push(
-    createTriggersCollection(pluginOptions),
-    createStepsCollection(pluginOptions.steps),
+    withTriggerCacheInvalidation(createTriggersCollection(pluginOptions)),
+    createStepsCollection(pluginOptions.steps ?? []),
     createWorkflowCollection(),
     WorkflowRunsCollection
   )
@@ -169,9 +172,19 @@ export const workflowsPlugin =
       config.jobs = { tasks: [] }
     }
 
-    for (const step of pluginOptions.steps) {
+    for (const step of pluginOptions.steps ?? []) {
       if (!config.jobs?.tasks?.find(task => task.slug === step.slug)) {
         config.jobs?.tasks?.push(step)
+      }
+    }
+
+    // Queued execution needs a task that runs a pending workflow run's steps.
+    if (pluginOptions.execution?.mode === 'queue') {
+      if (!config.jobs.tasks) {
+        config.jobs.tasks = []
+      }
+      if (!config.jobs.tasks.find(task => task.slug === WORKFLOW_RUN_TASK_SLUG)) {
+        config.jobs.tasks.push(createWorkflowRunTask())
       }
     }
 
@@ -369,7 +382,14 @@ export const workflowsPlugin =
 
             logger.info(`Seeded workflow: ${seedWorkflow.name}`)
           } catch (error) {
-            logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
+            logger.error(
+              {
+                workflowName: seedWorkflow.name,
+                workflowSlug: seedWorkflow.slug,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              'Failed to seed workflow',
+            )
           }
         }
       }
