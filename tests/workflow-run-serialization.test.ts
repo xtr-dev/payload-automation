@@ -1,7 +1,8 @@
 import type { Payload } from 'payload'
 import { describe, expect, it } from 'vitest'
 
-import { WorkflowExecutor } from '../src/core/workflow-executor.js'
+import { resolveStepInput } from '../src/core/expression-engine.js'
+import { type ExecutionContext, WorkflowExecutor } from '../src/core/workflow-executor.js'
 import type { WorkflowsPluginConfig } from '../src/plugin/config-types.js'
 
 const email = 'editor@example.com'
@@ -155,5 +156,78 @@ describe('stored workflow run snapshots', () => {
       list: [{ name: 'a' }],
     })
     expect(cleaned.when).toBe(when)
+  })
+
+  it('clean an object every time it appears, and survive cycles', () => {
+    const executor = new WorkflowExecutor(
+      { config: { custom: { pluginConfigs: { '@xtr-dev/payload-automation': {} } } } } as unknown as Payload,
+      {} as Payload['logger'],
+    ) as unknown as { sanitizeStepData: (value: unknown) => unknown }
+    const previousDoc: Record<string, unknown> = { id: 1, hash: 'secret-hash', salt: 'secret-salt' }
+    previousDoc.self = previousDoc
+    const trigger = { previousDoc }
+
+    const cleaned = executor.sanitizeStepData({ a: previousDoc, b: previousDoc, whole: trigger }) as {
+      a: Record<string, unknown>
+      b: Record<string, unknown>
+      whole: { previousDoc: Record<string, unknown> }
+    }
+
+    for (const copy of [cleaned.a, cleaned.b, cleaned.whole.previousDoc]) {
+      expect(copy.id).toBe(1)
+      expect(copy).not.toHaveProperty('hash')
+      expect(copy).not.toHaveProperty('salt')
+    }
+    // The cycle points at the cleaned copy, never back at the original.
+    expect(cleaned.a.self).toBe(cleaned.a)
+    expect(cleaned.b).toBe(cleaned.a)
+  })
+
+  it('resolve step input the way executeStep does: secrets and, with stripUserData, the user removed', async () => {
+    const executor = new WorkflowExecutor(
+      {
+        config: { custom: { pluginConfigs: { '@xtr-dev/payload-automation': { stripUserData: true } } } },
+      } as unknown as Payload,
+      {} as Payload['logger'],
+    ) as unknown as {
+      sanitizeStepData: (value: unknown) => unknown
+      stepInputContext: (context: ExecutionContext) => ExecutionContext
+    }
+    const previousDoc = { id: 1, email, hash: 'secret-hash' }
+    const context: ExecutionContext = {
+      steps: {},
+      trigger: { previousDoc, req: { payloadAPI: 'local', user: { ...user(), hash: 'secret-hash' } }, user: user() },
+    }
+
+    const input = executor.sanitizeStepData(
+      await resolveStepInput(
+        {
+          a: '{{trigger.previousDoc}}',
+          b: '{{trigger.previousDoc}}',
+          req: '{{trigger.req}}',
+          whole: '{{trigger}}',
+          actor: '{{trigger.req.user}}',
+        },
+        executor.stepInputContext(context),
+      ),
+    ) as {
+      a: unknown
+      actor?: unknown
+      b: unknown
+      req: unknown
+      whole: { previousDoc: unknown; req: unknown; user?: unknown }
+    }
+
+    const json = JSON.stringify(input)
+    expect(json).not.toContain('secret-')
+    expect(input.a).toEqual({ id: 1, email })
+    expect(input.b).toEqual({ id: 1, email })
+    expect(input.whole.previousDoc).toEqual({ id: 1, email })
+    expect(input.req).toEqual({ payloadAPI: 'local' })
+    expect(input.whole.req).toEqual({ payloadAPI: 'local' })
+    expect(input.whole.user).toBeUndefined()
+    expect(input.actor).toBeUndefined()
+    // The live context the conditions see is untouched.
+    expect(context.trigger.req.user.email).toBe(email)
   })
 })

@@ -131,8 +131,15 @@ export type WorkflowsPluginConfig<
      * expressions see `trigger.user`, `trigger.req.user`,
      * `trigger.response.user` and `trigger.result.user` as undefined, so the
      * acting user (or any of its fields) cannot be copied into a step.
-     * Trigger and step conditions still see the full context. What a step's
-     * task itself writes to its `payload-jobs` output is up to that task.
+     * Trigger and step conditions still see the full context.
+     *
+     * Stripping works on object keys, so a scalar picked out explicitly, such
+     * as `{{trigger.previousDoc.hash}}` or `{{trigger.req.user.email}}`
+     * without this option, is stored like any other value. The output a task
+     * returns is also recorded by Payload's job runner in the job's
+     * `payload-jobs` log before the plugin sees it; that copy is not cleaned
+     * (with Payload's default `deleteJobOnComplete` the job row is deleted
+     * once it succeeds).
      *
      * Defaults to `false`.
      */

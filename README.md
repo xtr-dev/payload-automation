@@ -482,7 +482,9 @@ interface WorkflowsPluginConfig {
   // see them. Default: false. Either way, auth secrets (hash, salt, password,
   // reset and verification tokens, API keys) are removed from step inputs and
   // outputs, and neither they nor hook-level session tokens are stored on the
-  // run or in payload-jobs inputs.
+  // run or in payload-jobs inputs. Stripping is by key: a scalar you pick out
+  // explicitly ({{trigger.previousDoc.hash}}) is stored like any value, and a
+  // task's own output in its payload-jobs log is written by Payload as-is.
   stripUserData?: boolean
 
   // Step types available to workflows (Payload TaskConfig objects).

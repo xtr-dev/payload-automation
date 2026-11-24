@@ -479,22 +479,22 @@ export class WorkflowExecutor {
     if (this.config.stripUserData !== true) {
       return context
     }
-    // Object.create keeps every other property readable through the
-    // prototype (including getters on req) while shadowing `user`.
-    const withoutUser = (value: unknown) => {
-      if (value === null || typeof value !== 'object') {
+    // Plain shallow copies without `user`, so the step-data cleaner (which
+    // only walks plain objects) still cleans whatever an expression returns,
+    // e.g. `{{trigger}}` or `{{trigger.req}}`.
+    const withoutUser = (value: unknown): unknown => {
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
         return value
       }
-      return Object.create(value, { user: { enumerable: false, value: undefined } })
+      const { user: _user, ...rest } = value as Record<string, unknown>
+      return rest
     }
     const trigger = withoutUser(context.trigger) as ExecutionContext['trigger']
-    const shadowed: PropertyDescriptorMap = {}
     for (const key of ['req', 'response', 'result']) {
-      if (context.trigger?.[key] !== undefined) {
-        shadowed[key] = { enumerable: true, value: withoutUser(context.trigger[key]) }
+      if (trigger[key] !== undefined) {
+        trigger[key] = withoutUser(trigger[key])
       }
     }
-    Object.defineProperties(trigger, shadowed)
     return { ...context, trigger }
   }
 
@@ -515,26 +515,40 @@ export class WorkflowExecutor {
    */
   private sanitizeStepData<T>(value: T): T {
     const stripUser = this.config.stripUserData === true
-    const seen = new WeakSet<object>()
+    // Maps each visited original to its cleaned copy. The copy is registered
+    // before its children are cleaned, so an object referenced twice (e.g.
+    // `{{trigger}}` next to `{{trigger.previousDoc}}`) is cleaned every time
+    // it appears, and a cycle maps back to the cleaned copy instead of
+    // recursing forever. Inside and outside a document the rules differ, so
+    // each has its own map.
+    const cleanedOutside = new WeakMap<object, unknown>()
+    const cleanedInside = new WeakMap<object, unknown>()
 
     const clean = (current: unknown, inDocument: boolean): unknown => {
       if (current === null || typeof current !== 'object') {
         return current
       }
+      const cleaned = inDocument ? cleanedInside : cleanedOutside
+      const done = cleaned.get(current)
+      if (done !== undefined) {
+        return done
+      }
       if (Array.isArray(current)) {
-        return current.map((item) => clean(item, inDocument))
+        const copy: unknown[] = []
+        cleaned.set(current, copy)
+        for (const item of current) {
+          copy.push(clean(item, inDocument))
+        }
+        return copy
       }
       const proto = Object.getPrototypeOf(current)
       if (proto !== Object.prototype && proto !== null) {
         // Dates, Buffers and class instances are passed through untouched.
         return current
       }
-      if (seen.has(current)) {
-        return current
-      }
-      seen.add(current)
 
-      const result: Record<string, unknown> = {}
+      const copy: Record<string, unknown> = {}
+      cleaned.set(current, copy)
       for (const [key, val] of Object.entries(current as Record<string, unknown>)) {
         if (AUTH_SECRET_KEYS.has(key)) {
           continue
@@ -542,9 +556,9 @@ export class WorkflowExecutor {
         if (stripUser && !inDocument && key === 'user' && val !== null && typeof val === 'object') {
           continue
         }
-        result[key] = clean(val, inDocument || DOCUMENT_KEYS.has(key))
+        copy[key] = clean(val, inDocument || DOCUMENT_KEYS.has(key))
       }
-      return result
+      return copy
     }
 
     return clean(value, false) as T
