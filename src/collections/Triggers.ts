@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
-import { adminUserAccess, adminUserAnd, resolveCollectionAccess } from './access.js'
+import { adminUserAccess, resolveCollectionAccess } from './access.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
 import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
 
@@ -14,6 +14,11 @@ const collectReferencedTriggerIds = (workflow: Record<string, unknown>): (number
     .map((trigger) => (typeof trigger === 'object' && trigger !== null ? (trigger as { id: number | string }).id : trigger))
     .filter((triggerId): triggerId is number | string => triggerId !== null && triggerId !== undefined)
 }
+
+const readOnlyReferenceLock = refuseIfReferencedByReadOnlyWorkflow(
+  (id) => ({ triggers: { contains: id } }),
+  collectReferencedTriggerIds
+)
 
 /**
  * Creates the automation-triggers collection.
@@ -27,22 +32,27 @@ export const createTriggersCollection = <T extends string>(
 
   return {
     slug: 'automation-triggers',
-    access: resolveCollectionAccess(options, 'automation-triggers', {
-      create: adminUserAccess,
-      delete: adminUserAnd(
-        refuseIfReferencedByReadOnlyWorkflow(
-          (id) => ({ triggers: { contains: id } }),
-          collectReferencedTriggerIds
-        )
-      ),
-      read: adminUserAccess,
-      update: adminUserAnd(
-        refuseIfReferencedByReadOnlyWorkflow(
-          (id) => ({ triggers: { contains: id } }),
-          collectReferencedTriggerIds
-        )
-      ),
-    }),
+    access: resolveCollectionAccess(
+      options,
+      'automation-triggers',
+      {
+        create: adminUserAccess,
+        delete: adminUserAccess,
+        read: adminUserAccess,
+        // This collection has no versions or drafts; readVersions is set so
+        // enabling them later does not fall back to Payload's default of
+        // "any logged-in user". unlock releases another user's edit lock.
+        readVersions: adminUserAccess,
+        unlock: adminUserAccess,
+        update: adminUserAccess,
+      },
+      {
+        // Applied on top of the defaults and any `access` override: a
+        // document a read-only workflow references stays locked.
+        delete: readOnlyReferenceLock,
+        update: readOnlyReferenceLock,
+      },
+    ),
     admin: {
       defaultColumns: ['name', 'type', 'target', 'updatedAt'],
       description: 'Reusable trigger definitions that can be shared across workflows.',
