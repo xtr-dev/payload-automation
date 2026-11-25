@@ -514,8 +514,50 @@ interface WorkflowsPluginConfig {
   // but no step types. Built-in tasks are exported from
   // '@xtr-dev/payload-automation/server'.
   steps?: TaskConfig[]
+
+  // Per-collection access overrides (see "Access Control" below)
+  access?: Partial<Record<
+    'workflows' | 'automation-triggers' | 'automation-steps' | 'workflow-runs',
+    Partial<CollectionConfig['access']>
+  >>
 }
 ```
+
+## Access Control
+
+Every operation on the automation collections — reads, version history and
+unlocking included — requires a user who can access /admin by default: a user
+from the admin user collection (`config.admin.user`) who also passes that
+collection's `access.admin`, if it defines one. Workflow documents execute HTTP requests and document writes with
+your application's privileges, step configs can hold credentials (for
+example bearer tokens for the HTTP request step), and run records carry HTTP
+response bodies — so a JWT from any other auth-enabled collection (such as a
+public `customers` collection) is not sufficient.
+
+Reads and writes performed by the plugin itself (seeding, workflow
+execution, usage counts) use the Local API and are unaffected.
+
+Hosts that need different rules can override any operation per collection:
+
+```typescript
+workflowsPlugin({
+  steps: [/* ... */],
+  access: {
+    // Allow the admin panel list view without extra role checks while
+    // keeping every other operation at the secure default
+    'automation-steps': {
+      read: ({ req }) => Boolean(req.user),
+    },
+  },
+})
+```
+
+Operations without an override keep the secure default. Seeded workflows
+are created with `readOnly: true`; read-only workflows, and the triggers and
+steps they reference, cannot be updated or deleted through the API, regardless
+of the request payload. An `update` or `delete` override does not lift that
+lock: the plugin ANDs it with your function, so the override only decides who
+may edit the documents that are not locked.
 
 ## Requirements
 
