@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
-import { adminUserAccess, isAdminUser, resolveCollectionAccess } from './access.js'
+import { adminUserAccess, resolveCollectionAccess } from './access.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
 import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
 import { hashWebhookSecret, normalizeWebhookPath } from '../utils/webhook.js'
@@ -170,29 +170,41 @@ export const createTriggersCollection = <T extends string>(
         },
       },
       {
+        // Write-only input for the webhook secret. It is a virtual field, so
+        // nothing is stored under this name: the beforeChange hook below
+        // hashes a submitted value into webhookSecretHash. Reads therefore
+        // never return the secret, while the field stays readable as far as
+        // field access goes, which Payload's admin UI needs to render it (it
+        // omits fields the user cannot read). Who may set it is decided by
+        // the collection's access: admin users by default.
         name: 'webhookSecret',
         type: 'text',
-        // The collection's own access (above) is `() => true` for every
-        // operation, so without field-level overrides here an anonymous
-        // request could both read the secret (GET) and, worse, overwrite it
-        // with a value of its own choosing (PATCH { webhookSecret }) without
-        // ever needing to read the original — a full bypass of the auth the
-        // webhook endpoint enforces. Payload only gates a field's write path
-        // when field.access[operation] is explicitly set (it defaults to
-        // allowed otherwise), so read and write need independent overrides;
-        // fixing read alone still leaves update open. Local API calls (the
-        // webhook endpoint's own lookup, and seeding) default overrideAccess
-        // to true and skip these checks entirely.
-        access: {
-          create: ({ req }) => Boolean(req.user),
-          read: () => false,
-          update: ({ req }) => Boolean(req.user),
-        },
         admin: {
           condition: (_, siblingData) => siblingData?.type === 'webhook',
           description:
-            'Shared secret the caller must send in the X-Webhook-Secret header (or as an Authorization bearer token). Requests without it are rejected.',
+            'Shared secret the caller must send in the X-Webhook-Secret header (or as an Authorization bearer token). Only a hash is stored: the secret is never shown again after saving. Leave empty to keep the current secret; enter a new one to rotate it.',
         },
+        hooks: {
+          // Guards against a value lingering on the document returned by a
+          // create or update operation.
+          afterRead: [() => null],
+        },
+        virtual: true,
+      },
+      {
+        // SHA-256 of the webhook secret, compared timing-safe by the webhook
+        // endpoint. Hidden fields are left out of API responses and the admin
+        // UI. Field access refuses client-supplied values on create and
+        // update, so the hash can only come from the beforeChange hook (or a
+        // Local API call with overrideAccess, such as seeding).
+        name: 'webhookSecretHash',
+        type: 'text',
+        access: {
+          create: () => false,
+          update: () => false,
+        },
+        hidden: true,
+        index: true,
       },
       // Condition configuration
       {
@@ -235,7 +247,7 @@ export const createTriggersCollection = <T extends string>(
     hooks: {
       beforeChange: [
         // Validate required fields based on type
-        async ({ data, operation }) => {
+        async ({ data, operation, originalDoc }) => {
           if (operation === 'create' || operation === 'update') {
             if (data?.type === 'collection-hook' && !data?.collectionSlug) {
               throw new Error('Collection is required for collection hook triggers')
@@ -264,9 +276,21 @@ export const createTriggersCollection = <T extends string>(
               }
               data.webhookPath = normalizedPath
             }
+            // Store only the hash of a submitted secret. An empty or missing
+            // value keeps the current hash, so saving the admin form without
+            // retyping the secret does not clear it. The check runs whatever
+            // the submitted type, so a partial update that only sends a new
+            // secret still rotates it.
+            if (typeof data?.webhookSecret === 'string' && data.webhookSecret.length > 0) {
+              data.webhookSecretHash = hashWebhookSecret(data.webhookSecret)
+            }
+            if (data) {
+              delete data.webhookSecret
+            }
             // Without a secret the endpoint would start workflows for anyone
             // who can reach it, so a webhook trigger cannot be saved open.
-            if (data?.type === 'webhook' && !data?.webhookSecret) {
+            const type = data?.type ?? originalDoc?.type
+            if (type === 'webhook' && !(data?.webhookSecretHash ?? originalDoc?.webhookSecretHash)) {
               throw new Error('Webhook secret is required for webhook triggers')
             }
           }

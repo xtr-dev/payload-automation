@@ -16,6 +16,7 @@ vi.mock('../core/workflow-executor.js', () => ({
 }))
 
 const { webhookEndpoint } = await import('./webhook-endpoint.js')
+const { hashWebhookSecret } = await import('../utils/webhook.js')
 
 const webhookTrigger = {
   id: 't1',
@@ -23,7 +24,7 @@ const webhookTrigger = {
   condition: null,
   type: 'webhook',
   webhookPath: 'orders',
-  webhookSecret: 'correct-secret',
+  webhookSecretHash: hashWebhookSecret('correct-secret'),
 }
 
 const matchingWorkflow = {
@@ -174,7 +175,33 @@ describe('webhookEndpoint', () => {
     expect(executeMock).toHaveBeenCalledTimes(1)
     const [, context, , firedTrigger] = executeMock.mock.calls[0]
 
-    expect(context.trigger.firedTrigger.webhookSecret).toBeUndefined()
-    expect(firedTrigger.webhookSecret).toBeUndefined()
+    expect(context.trigger.firedTrigger.webhookSecretHash).toBeUndefined()
+    expect(firedTrigger.webhookSecretHash).toBeUndefined()
+    expect(JSON.stringify(executeMock.mock.calls[0])).not.toContain(webhookTrigger.webhookSecretHash)
+  })
+
+  it('looks the trigger up by path in the query instead of filtering a fetched page', async () => {
+    const payload = createMockPayload({ triggers: [webhookTrigger], workflows: [matchingWorkflow] })
+    await webhookEndpoint.handler(
+      createRequest({
+        headers: { 'x-webhook-secret': 'correct-secret' },
+        payload,
+        webhookPath: '/orders/',
+      })
+    )
+
+    const triggerQuery = payload.find.mock.calls[0][0] as Record<string, any>
+    expect(triggerQuery.collection).toBe('automation-triggers')
+    expect(triggerQuery.pagination).toBe(false)
+    expect(triggerQuery).not.toHaveProperty('limit')
+    expect(triggerQuery.showHiddenFields).toBe(true)
+    expect(triggerQuery.where.and).toContainEqual({
+      webhookPath: { in: ['orders', '/orders', 'orders/', '/orders/'] },
+    })
+
+    const workflowQuery = payload.find.mock.calls[1][0] as Record<string, any>
+    expect(workflowQuery.collection).toBe('workflows')
+    expect(workflowQuery.pagination).toBe(false)
+    expect(workflowQuery).not.toHaveProperty('limit')
   })
 })

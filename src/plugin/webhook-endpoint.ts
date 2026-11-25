@@ -1,10 +1,9 @@
 import type { Endpoint, PayloadRequest } from 'payload'
 
-import { createHash, timingSafeEqual } from 'crypto'
-
 import type { ExecutionContext, PayloadWorkflow } from '../core/workflow-executor.js'
 
 import { WorkflowExecutor } from '../core/workflow-executor.js'
+import { normalizeWebhookPath, webhookSecretMatches } from '../utils/webhook.js'
 
 /**
  * Path pattern for the webhook endpoint. Payload mounts custom endpoints under
@@ -13,33 +12,13 @@ import { WorkflowExecutor } from '../core/workflow-executor.js'
  */
 export const WEBHOOK_ENDPOINT_PATH = '/automation/webhooks/:webhookPath'
 
-/**
- * Stored webhookPath values may be entered with or without a leading/trailing
- * slash ("my-webhook" vs "/my-webhook") — the Triggers collection normalizes
- * new saves through this same function, but documents written before that
- * validation existed may still hold the un-normalized spelling. Compare both
- * sides normalized so neither spelling silently 404s.
- */
-export const normalizeWebhookPath = (path: string): string =>
-  path.trim().replace(/^\/+/, '').replace(/\/+$/, '')
-
-/**
- * Compare secrets without leaking where they differ. Hashing both sides first
- * gives equal-length buffers, which timingSafeEqual requires — comparing raw
- * strings would throw on length mismatch, itself a length oracle.
- */
-const secretsMatch = (provided: string, expected: string): boolean => {
-  const providedHash = createHash('sha256').update(provided).digest()
-  const expectedHash = createHash('sha256').update(expected).digest()
-  return timingSafeEqual(providedHash, expectedHash)
-}
-
 interface WebhookTriggerDoc {
   id: number | string
   condition?: null | string
   name?: string
   webhookPath?: null | string
   webhookSecret?: null | string
+  webhookSecretHash?: null | string
 }
 
 interface WebhookWorkflowResult {
@@ -69,18 +48,30 @@ export const webhookEndpoint: Endpoint = {
         return Response.json({ error: 'Not found' }, { status: 404 })
       }
 
-      // Webhook paths are free-form text, so match in JS after normalizing
-      // rather than in the query, where "/my-webhook" and "my-webhook" differ.
+      // The Triggers collection stores paths normalized, so an exact match
+      // finds them. The slash-wrapped spellings also match documents saved
+      // before that normalization existed. Filtering in the query rather
+      // than over a fetched page means every trigger is reachable, however
+      // many webhook triggers exist.
       const { docs } = await payload.find({
         collection: 'automation-triggers',
         depth: 0,
-        limit: 100,
-        where: { type: { equals: 'webhook' } },
+        pagination: false,
+        // webhookSecretHash is a hidden field, left out of reads otherwise.
+        showHiddenFields: true,
+        where: {
+          and: [
+            { type: { equals: 'webhook' } },
+            {
+              webhookPath: {
+                in: [requestedPath, `/${requestedPath}`, `${requestedPath}/`, `/${requestedPath}/`],
+              },
+            },
+          ],
+        },
       })
 
-      const matchingTriggers = (docs as WebhookTriggerDoc[]).filter(
-        (trigger) => normalizeWebhookPath(String(trigger.webhookPath ?? '')) === requestedPath
-      )
+      const matchingTriggers = docs as WebhookTriggerDoc[]
 
       if (matchingTriggers.length === 0) {
         return Response.json({ error: 'Not found' }, { status: 404 })
@@ -97,9 +88,9 @@ export const webhookEndpoint: Endpoint = {
       const authenticatedTriggers = providedSecret
         ? matchingTriggers.filter(
             (trigger) =>
-              typeof trigger.webhookSecret === 'string' &&
-              trigger.webhookSecret.length > 0 &&
-              secretsMatch(providedSecret, trigger.webhookSecret)
+              typeof trigger.webhookSecretHash === 'string' &&
+              trigger.webhookSecretHash.length > 0 &&
+              webhookSecretMatches(providedSecret, trigger.webhookSecretHash)
           )
         : []
 
@@ -123,7 +114,7 @@ export const webhookEndpoint: Endpoint = {
       const { docs: workflows } = await payload.find({
         collection: 'workflows',
         depth: 2,
-        limit: 100,
+        pagination: false,
         where: {
           enabled: { equals: true },
           triggers: { in: triggerIds },
@@ -145,12 +136,15 @@ export const webhookEndpoint: Endpoint = {
           continue
         }
 
-        // The secret's only job is authenticating the caller, which happened
-        // above. Anything in the context is stored verbatim on the
+        // The secret hash's only job is authenticating the caller, which
+        // happened above. Anything in the context is stored verbatim on the
         // workflow-runs record and readable by every JSONata expression as
-        // trigger.firedTrigger.*, so the secret must not travel past this
-        // point — observed leaking into triggerData on 2026-08-14.
-        const { webhookSecret: _webhookSecret, ...safeTrigger } = firedTrigger
+        // trigger.firedTrigger.*, so the hash must not travel past this point.
+        const {
+          webhookSecret: _webhookSecret,
+          webhookSecretHash: _webhookSecretHash,
+          ...safeTrigger
+        } = firedTrigger
 
         // The live req is deliberately NOT part of this context: JSONata
         // evaluates against it raw, and req.payload would hand expressions the

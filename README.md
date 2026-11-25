@@ -389,6 +389,8 @@ curl -X POST https://your-app.com/api/automation/webhooks/my-webhook \
   -d '{"orderId": "abc-123"}'
 ```
 
+The plugin stores only a SHA-256 hash of the secret, so it is never returned by the API or shown again in the admin UI after you save it. To rotate it, enter a new secret on the trigger; leaving the field empty keeps the current one. Use a long random value (for example `openssl rand -hex 32`): a fast hash does not protect a short, guessable secret. Seeded webhook triggers take theirs from `parameters.webhookSecret`.
+
 The JSON request body is available to expressions as `trigger.doc` (and `trigger.body`), query parameters as `trigger.query`. The response lists each workflow the call reached and whether it was `triggered`, `skipped` (trigger condition evaluated false), or `failed`. Each execution is recorded in `workflow-runs` like any other trigger.
 
 ## JSONata Expressions

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { hashWebhookSecret } from '../utils/webhook.js'
 import { createTriggersCollection } from './Triggers.js'
 
 // The beforeChange hook is a pure validation function — no db or request
@@ -8,6 +9,7 @@ import { createTriggersCollection } from './Triggers.js'
 const validate = createTriggersCollection({ steps: [] }).hooks?.beforeChange?.[0] as unknown as (args: {
   data: Record<string, unknown>
   operation: 'create' | 'update'
+  originalDoc?: Record<string, unknown>
 }) => Promise<Record<string, unknown>>
 
 describe('automation-triggers webhookPath validation', () => {
@@ -55,41 +57,59 @@ describe('automation-triggers webhookPath validation', () => {
   })
 })
 
-describe('automation-triggers webhookSecret field access', () => {
-  const getWebhookSecretField = () => {
-    const fields = createTriggersCollection({ steps: [] }).fields
-    return fields.find((field) => 'name' in field && field.name === 'webhookSecret') as
-      | {
-          access?: {
-            create?: (args: { req: { user: unknown } }) => boolean
-            read?: () => boolean
-            update?: (args: { req: { user: unknown } }) => boolean
-          }
-        }
-      | undefined
-  }
+describe('automation-triggers webhook secret storage', () => {
+  const findField = (name: string) =>
+    createTriggersCollection({ steps: [] }).fields.find(
+      (field) => 'name' in field && field.name === name
+    ) as Record<string, any> | undefined
 
-  it('is not readable through the collection access, even though the collection itself is public', () => {
-    expect(getWebhookSecretField()?.access?.read?.()).toBe(false)
+  // Payload's admin UI omits fields the user cannot read, so a read-denied
+  // secret field could never be filled in from /admin.
+  it('keeps the secret input readable for the admin UI, but virtual and blanked on read', () => {
+    const field = findField('webhookSecret')
+    expect(field?.access?.read).toBeUndefined()
+    expect(field?.virtual).toBe(true)
+    expect(field?.hooks?.afterRead?.[0]({ value: 'leaked' })).toBeNull()
   })
 
-  // The collection's own access is `() => true` for every operation, so
-  // without these overrides an anonymous PATCH/POST could set the secret to
-  // a value of the caller's own choosing without ever needing to read the
-  // original one.
-  it('rejects create and update from a request with no authenticated user', () => {
-    const field = getWebhookSecretField()
-    const anonymousReq = { user: null }
-
-    expect(field?.access?.create?.({ req: anonymousReq })).toBe(false)
-    expect(field?.access?.update?.({ req: anonymousReq })).toBe(false)
+  it('stores the hash in a hidden field that clients cannot write', () => {
+    const field = findField('webhookSecretHash')
+    expect(field?.hidden).toBe(true)
+    expect(field?.access?.create()).toBe(false)
+    expect(field?.access?.update()).toBe(false)
   })
 
-  it('allows create and update from a request with an authenticated user', () => {
-    const field = getWebhookSecretField()
-    const authenticatedReq = { user: { id: 'admin-1' } }
+  it('hashes a submitted secret and drops the plaintext', async () => {
+    const result = await validate({
+      data: { type: 'webhook', webhookPath: 'orders', webhookSecret: 's3cret' },
+      operation: 'create',
+    })
+    expect(result.webhookSecretHash).toBe(hashWebhookSecret('s3cret'))
+    expect(result).not.toHaveProperty('webhookSecret')
+  })
 
-    expect(field?.access?.create?.({ req: authenticatedReq })).toBe(true)
-    expect(field?.access?.update?.({ req: authenticatedReq })).toBe(true)
+  it('requires a secret when creating a webhook trigger', async () => {
+    await expect(
+      validate({ data: { type: 'webhook', webhookPath: 'orders' }, operation: 'create' })
+    ).rejects.toThrow('Webhook secret is required for webhook triggers')
+  })
+
+  it('keeps the stored hash when an update leaves the secret empty', async () => {
+    const storedHash = hashWebhookSecret('old')
+    const result = await validate({
+      data: { type: 'webhook', webhookPath: 'orders', webhookSecret: '' },
+      operation: 'update',
+      originalDoc: { type: 'webhook', webhookPath: 'orders', webhookSecretHash: storedHash },
+    })
+    expect(result.webhookSecretHash ?? storedHash).toBe(storedHash)
+  })
+
+  it('rotates the secret on a partial update that only sends a new one', async () => {
+    const result = await validate({
+      data: { webhookSecret: 'new' },
+      operation: 'update',
+      originalDoc: { type: 'webhook', webhookPath: 'orders', webhookSecretHash: hashWebhookSecret('old') },
+    })
+    expect(result.webhookSecretHash).toBe(hashWebhookSecret('new'))
   })
 })
