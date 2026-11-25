@@ -134,7 +134,6 @@ export async function triggerCustomWorkflow(
           trigger: {
             type: slug,
             data,
-            req: workflowReq,
             triggeredAt: new Date().toISOString(),
             user: (user || workflowReq.user) ? {
               id: (user || workflowReq.user)?.id?.toString(),
@@ -242,7 +241,6 @@ export async function triggerWorkflowById(
       trigger: {
         type: triggerSlug,
         data: data || {},
-        req: workflowReq,
         triggeredAt: new Date().toISOString()
       }
     }
