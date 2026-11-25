@@ -65,7 +65,7 @@ const seedAutomationDocuments = async (payload: Payload) => {
   return { step, trigger, workflow, run }
 }
 
-describe('automation collection access control', { timeout: 15000 }, () => {
+describe('automation collection access control', () => {
   it('refuses every operation for anonymous requests on all automation collections', async () => {
     const payload = await createTestPayload()
     const { run } = await seedAutomationDocuments(payload)
@@ -436,8 +436,8 @@ describe('automation collection access control', { timeout: 15000 }, () => {
     // collection rather than left to Payload's "any logged-in user" default.
     for (const slug of AUTOMATION_COLLECTIONS) {
       const access = payload.collections[slug].config.access
-      expect(await access.readVersions!({ req: { payload, user: asUser(user, 'users') } } as never)).toBe(false)
-      expect(await access.unlock!({ req: { payload, user: asUser(user, 'users') } } as never)).toBe(false)
+      expect(await access.readVersions({ req: { payload, user: asUser(user, 'users') } } as never)).toBe(false)
+      expect(await access.unlock({ req: { payload, user: asUser(user, 'users') } } as never)).toBe(false)
     }
   })
 
