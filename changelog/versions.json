@@ -1,0 +1,192 @@
+{
+  "$schema": "https://unpkg.com/@xtr-dev/changelog/schema/versions.schema.json",
+  "schemaVersion": 2,
+  "versions": [
+    {
+      "version": "0.1.0",
+      "date": "2026-11-25",
+      "commit": "08c6f3f",
+      "breaking": true,
+      "groups": {
+        "breaking": [
+          {
+            "type": "fix",
+            "scope": "types",
+            "description": "re-export the runtime trigger and execution types from the main entry (#35)",
+            "commit": "5f79d29",
+            "hash": "5f79d29624aae3b5381ec986dbbf0a664186b3fa",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "alioth.1a05 <alioth.1a05@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "features": [
+          {
+            "type": "feat",
+            "scope": "triggers",
+            "description": "serve webhook triggers through an authenticated endpoint (#15)",
+            "commit": "08c6f3f",
+            "hash": "08c6f3f1255391adf2d604921101b7a290e4bcba",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "lyra.6c42 <lyra.6c42@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "carina.da2b <carina.da2b@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "asterope.4095 <asterope.4095@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "proteus.716e <proteus.716e@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "eltanin.c7fb <eltanin.c7fb@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "pixelfalcon.8c00 <pixelfalcon.8c00@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "snazzyllama.6ab4 <snazzyllama.6ab4@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "turbobacon.d3c1 <turbobacon.d3c1@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "segfault171.08ae <segfault171.08ae@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "ninjapotato714.1ee4 <ninjapotato714.1ee4@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "bvdaakster <bvdaakster@users.noreply.github.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "security",
+            "scope": "access",
+            "description": "restrict automation collections to users who can access /admin (#24)",
+            "commit": "53cf369",
+            "hash": "53cf36920473cbe9da4e4205031fc3d8b732f675",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "turbobacon.d3c1 <turbobacon.d3c1@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Haiku 4.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "segfault171.08ae <segfault171.08ae@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "ninjapotato714.1ee4 <ninjapotato714.1ee4@agents.wandel.local>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "types",
+            "description": "re-export the runtime trigger and execution types from the main entry (#35)",
+            "commit": "5f79d29",
+            "hash": "5f79d29624aae3b5381ec986dbbf0a664186b3fa",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "alioth.1a05 <alioth.1a05@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "security",
+            "scope": "triggers",
+            "description": "keep the live PayloadRequest out of the JSONata trigger context (#14)",
+            "commit": "2fe4e90",
+            "hash": "2fe4e905e27f0c60b3f229ebb2642a8bd70ff232",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "angrytomato804.3baf <angrytomato804.3baf@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas <30904649+bvdaakster@users.noreply.github.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "ci",
+            "scope": null,
+            "description": "release through the shared workflow with xtr-dev/changelog (#51)",
+            "commit": "3555cf1",
+            "hash": "3555cf146c09c9a3654bcade5e087998a70c8ded",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
