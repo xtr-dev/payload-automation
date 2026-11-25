@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
-import { adminUserAccess, adminUserAnd, resolveCollectionAccess } from './access.js'
+import { adminUserAccess, resolveCollectionAccess } from './access.js'
 
 import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
 
@@ -17,6 +17,11 @@ const collectReferencedStepIds = (workflow: Record<string, unknown>): (number | 
     })
     .filter((stepId): stepId is number | string => stepId !== null && stepId !== undefined)
 }
+
+const readOnlyReferenceLock = refuseIfReferencedByReadOnlyWorkflow(
+  (id) => ({ 'steps.step': { equals: id } }),
+  collectReferencedStepIds
+)
 
 /**
  * Creates the automation-steps collection.
@@ -33,24 +38,29 @@ export const createStepsCollection = (
 
   return {
     slug: 'automation-steps',
-    access: resolveCollectionAccess(options, 'automation-steps', {
-      create: adminUserAccess,
-      delete: adminUserAnd(
-        refuseIfReferencedByReadOnlyWorkflow(
-          (id) => ({ 'steps.step': { equals: id } }),
-          collectReferencedStepIds
-        )
-      ),
-      // Step configs are JSON and can hold credentials (e.g. bearer tokens
-      // for the HTTP request step), so reads are not public by default.
-      read: adminUserAccess,
-      update: adminUserAnd(
-        refuseIfReferencedByReadOnlyWorkflow(
-          (id) => ({ 'steps.step': { equals: id } }),
-          collectReferencedStepIds
-        )
-      ),
-    }),
+    access: resolveCollectionAccess(
+      options,
+      'automation-steps',
+      {
+        create: adminUserAccess,
+        delete: adminUserAccess,
+        // Step configs are JSON and can hold credentials (e.g. bearer tokens
+        // for the HTTP request step), so reads are not public by default.
+        read: adminUserAccess,
+        // This collection has no versions or drafts; readVersions is set so
+        // enabling them later does not fall back to Payload's default of
+        // "any logged-in user". unlock releases another user's edit lock.
+        readVersions: adminUserAccess,
+        unlock: adminUserAccess,
+        update: adminUserAccess,
+      },
+      {
+        // Applied on top of the defaults and any `access` override: a
+        // document a read-only workflow references stays locked.
+        delete: readOnlyReferenceLock,
+        update: readOnlyReferenceLock,
+      },
+    ),
     admin: {
       defaultColumns: ['name', 'type', 'updatedAt'],
       description: 'Reusable step templates that can be used across workflows.',

@@ -19,6 +19,11 @@ export const createWorkflowRunsCollection = (
       // Run records carry trigger snapshots, step inputs/outputs and HTTP
       // response bodies, so reads are not public by default.
       read: adminUserAccess,
+      // This collection has no versions or drafts; readVersions is set so
+      // enabling them later does not fall back to Payload's default of
+      // "any logged-in user". unlock releases another user's edit lock.
+      readVersions: adminUserAccess,
+      unlock: adminUserAccess,
       update: adminUserAccess,
     }),
   admin: {

@@ -118,6 +118,13 @@ export type WorkflowsPluginConfig<
      * that collection; operations left out keep the secure default. Plugin
      * internals (seeding, execution, usage counts) use the Local API and
      * are unaffected by these functions.
+     *
+     * Overrides decide who may perform an operation; they do not switch off
+     * the read-only locks. Update and delete on `workflows` still refuse
+     * stored `readOnly: true` workflows, and update and delete on
+     * `automation-triggers` and `automation-steps` still refuse documents a
+     * read-only workflow references: the lock is ANDed with the override
+     * (a `Where` it returns is combined with the override's result).
      */
     access?: Partial<Record<AutomationCollectionSlug, Partial<CollectionConfig['access']>>>
 

@@ -2,7 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
-import { adminUserAccess, adminUserUnlessReadOnly, resolveCollectionAccess } from './access.js'
+import { adminUserAccess, readOnlyWorkflowLock, resolveCollectionAccess } from './access.js'
 
 /**
  * Creates the workflows collection.
@@ -13,12 +13,29 @@ export const createWorkflowCollection = (
 ): CollectionConfig => {
   return {
     slug: 'workflows',
-    access: resolveCollectionAccess(options, 'workflows', {
-      create: adminUserAccess,
-      delete: adminUserUnlessReadOnly,
-      read: adminUserAccess,
-      update: adminUserUnlessReadOnly,
-    }),
+    access: resolveCollectionAccess(
+      options,
+      'workflows',
+      {
+        create: adminUserAccess,
+        delete: adminUserAccess,
+        read: adminUserAccess,
+        // Versions are enabled below, and version snapshots carry the same
+        // data as the workflow itself (step inputOverrides can hold
+        // credentials), so reading them needs the same bar as reading the
+        // workflow. Payload's fallback for an unset readVersions/unlock is
+        // "any logged-in user from any auth collection".
+        readVersions: adminUserAccess,
+        unlock: adminUserAccess,
+        update: adminUserAccess,
+      },
+      {
+        // Applied on top of the defaults and any `access` override, so seeded
+        // read-only workflows stay locked whoever is allowed to edit workflows.
+        delete: readOnlyWorkflowLock,
+        update: readOnlyWorkflowLock,
+      },
+    ),
     admin: {
       defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
       description: 'Create and manage automated workflows.',

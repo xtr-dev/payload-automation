@@ -65,7 +65,7 @@ const seedAutomationDocuments = async (payload: Payload) => {
   return { step, trigger, workflow, run }
 }
 
-describe('automation collection access control', { timeout: 15000 }, () => {
+describe('automation collection access control', () => {
   it('refuses every operation for anonymous requests on all automation collections', async () => {
     const payload = await createTestPayload()
     const { run } = await seedAutomationDocuments(payload)
@@ -358,5 +358,170 @@ describe('automation collection access control', { timeout: 15000 }, () => {
         user: userContext,
       }) as Promise<unknown>,
     )
+  })
+
+  it('keeps workflow version snapshots admin-only, including inputOverrides', async () => {
+    const payload = await createTestPayload()
+    const { workflow } = await seedAutomationDocuments(payload)
+    // A second save so the workflow has more than one version snapshot.
+    await payload.update({
+      collection: 'workflows',
+      id: workflow.id,
+      data: {
+        steps: [
+          {
+            step: (workflow.steps as { step: unknown }[])[0].step as number,
+            slug: 'call-http-endpoint',
+            stepName: 'Call HTTP endpoint',
+            inputOverrides: { headers: { Authorization: 'Bearer s3cr3t' } },
+          },
+        ],
+      },
+    })
+
+    const allVersions = await payload.findVersions({ collection: 'workflows' })
+    expect(allVersions.totalDocs).toBeGreaterThan(0)
+    const versionId = allVersions.docs[0].id
+
+    const customer = await payload.create({
+      collection: 'customers',
+      data: { email: 'customer@example.com', password: 'customer-password' },
+    })
+    const editor = await payload.create({
+      collection: 'users',
+      data: { email: 'editor@example.com', password: 'editor-password' },
+    })
+
+    // Anonymous requests and sessions from a non-admin auth collection.
+    for (const user of [undefined, asUser(customer, 'customers')]) {
+      await expectForbidden(
+        payload.findVersions({ collection: 'workflows', overrideAccess: false, user }) as Promise<unknown>,
+      )
+      await expectForbidden(
+        payload.findVersionByID({
+          collection: 'workflows',
+          id: versionId,
+          overrideAccess: false,
+          user,
+        }) as Promise<unknown>,
+      )
+    }
+
+    const admin = asUser(editor, 'users')
+    const adminVersions = await payload.findVersions({
+      collection: 'workflows',
+      overrideAccess: false,
+      user: admin,
+    })
+    expect(adminVersions.totalDocs).toBe(allVersions.totalDocs)
+  })
+
+  it('refuses version reads and unlocking when access.admin denies the admin collection user', async () => {
+    const payload = await createTestPayload({}, () => false)
+    await seedAutomationDocuments(payload)
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'editor@example.com', password: 'password' },
+    })
+
+    await expectForbidden(
+      payload.findVersions({
+        collection: 'workflows',
+        overrideAccess: false,
+        user: asUser(user, 'users'),
+      }) as Promise<unknown>,
+    )
+
+    // readVersions and unlock are set explicitly on every automation
+    // collection rather than left to Payload's "any logged-in user" default.
+    for (const slug of AUTOMATION_COLLECTIONS) {
+      const access = payload.collections[slug].config.access
+      expect(await access.readVersions({ req: { payload, user: asUser(user, 'users') } } as never)).toBe(false)
+      expect(await access.unlock({ req: { payload, user: asUser(user, 'users') } } as never)).toBe(false)
+    }
+  })
+
+  it('keeps the read-only lock when update/delete access is overridden', async () => {
+    const payload = await createTestPayload({
+      access: {
+        // A permissive override: anyone may update and delete.
+        'automation-steps': { delete: () => true, update: () => true },
+        'automation-triggers': { delete: () => true, update: () => true },
+        workflows: { delete: () => true, update: () => true },
+      },
+    })
+
+    const step = await payload.create({
+      collection: 'automation-steps',
+      data: { name: 'Seeded step', type: 'http-request-step', config: {} },
+    })
+    const trigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'Seeded trigger', type: 'manual' },
+    })
+    const readOnly = await payload.create({
+      collection: 'workflows',
+      data: {
+        name: 'Seeded template',
+        slug: 'seeded-template',
+        readOnly: true,
+        triggers: [trigger.id],
+        steps: [{ step: step.id, slug: 'seeded-step', stepName: 'Seeded step' }],
+      },
+    })
+    const editable = await payload.create({
+      collection: 'workflows',
+      data: { name: 'Editable workflow', slug: 'editable-workflow' },
+    })
+
+    // The override is in effect: an anonymous update of an unlocked workflow succeeds.
+    await payload.update({
+      collection: 'workflows',
+      id: editable.id,
+      data: { name: 'Renamed anonymously' },
+      overrideAccess: false,
+    })
+    expect((await payload.findByID({ collection: 'workflows', id: editable.id })).name).toBe(
+      'Renamed anonymously',
+    )
+
+    // …but the stored read-only workflow stays locked.
+    await expectForbidden(
+      payload.update({
+        collection: 'workflows',
+        id: readOnly.id,
+        data: { name: 'Tampered', readOnly: false },
+        overrideAccess: false,
+      }) as Promise<unknown>,
+    )
+    await expectForbidden(
+      payload.delete({ collection: 'workflows', id: readOnly.id, overrideAccess: false }) as Promise<unknown>,
+    )
+
+    // Bulk routes are filtered by the lock rather than refused outright.
+    const bulk = await payload.update({
+      collection: 'workflows',
+      where: { id: { exists: true } },
+      data: { description: 'bulk edit' },
+      overrideAccess: false,
+    })
+    expect(bulk.docs.map((doc) => doc.id)).toEqual([editable.id])
+
+    // The trigger and step a read-only workflow references stay locked too.
+    await expectForbidden(
+      payload.update({
+        collection: 'automation-triggers',
+        id: trigger.id,
+        data: { name: 'Tampered' },
+        overrideAccess: false,
+      }) as Promise<unknown>,
+    )
+    await expectForbidden(
+      payload.delete({ collection: 'automation-steps', id: step.id, overrideAccess: false }) as Promise<unknown>,
+    )
+
+    const stored = await payload.findByID({ collection: 'workflows', id: readOnly.id })
+    expect(stored.name).toBe('Seeded template')
+    expect(stored.readOnly).toBe(true)
   })
 })
