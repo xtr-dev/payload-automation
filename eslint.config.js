@@ -57,6 +57,7 @@ export default [
                         'tests/int/*.ts',
                         'test/*.ts',
                         'test/utils/*.ts',
+                        'type-tests/*.ts',
                     ],
                 },
                 // projectService: true,
