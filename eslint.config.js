@@ -55,6 +55,7 @@ export default [
                         'vitest.config.ts',
                         'tests/*.ts',
                         'tests/int/*.ts',
+                        'type-tests/*.ts',
                     ],
                 },
                 // projectService: true,

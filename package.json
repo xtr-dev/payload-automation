@@ -3,6 +3,14 @@
   "version": "0.0.53",
   "description": "PayloadCMS Automation Plugin - Comprehensive workflow automation system with visual workflow building, execution tracking, and step types",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xtr-dev/payload-automation.git"
+  },
+  "homepage": "https://github.com/xtr-dev/payload-automation#readme",
+  "bugs": {
+    "url": "https://github.com/xtr-dev/payload-automation/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -56,9 +64,10 @@
     "lint": "eslint",
     "lint:fix": "eslint ./src --fix",
     "prepublishOnly": "pnpm clean && pnpm build",
-    "test": "pnpm test:int && pnpm test:e2e",
+    "test": "pnpm test:types && pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
-    "test:int": "vitest run"
+    "test:int": "vitest run",
+    "test:types": "tsc --noEmit -p tsconfig.type-test.json"
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "3.81.0",
