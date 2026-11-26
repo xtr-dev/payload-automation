@@ -267,6 +267,8 @@ Use `{{steps.<stepName>.output.<field>}}` to reference data from completed steps
 }
 ```
 
+Step outputs are captured from the task handler as it returns, so they work with Payload's default `jobs.deleteJobOnComplete: true`. The exception is a task whose `handler` is a module path string (or a task added to the config after this plugin runs): its output is read back from the job, so it is only available when completed jobs are kept (`deleteJobOnComplete: false`).
+
 ## Step Types
 
 > **Note:** Steps are just regular [PayloadCMS tasks](https://payloadcms.com/docs/jobs/overview). This plugin uses Payload's built-in job queue system, so you can leverage all of Payload's task features including retries, scheduling, and monitoring. Any `TaskConfig` you create is a valid step.
