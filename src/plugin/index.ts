@@ -6,6 +6,11 @@ import { createTriggersCollection } from '../collections/Triggers.js'
 import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { createWorkflowRunsCollection } from '../collections/WorkflowRuns.js'
+import {
+  createScheduledTriggersTask,
+  DEFAULT_SCHEDULED_TRIGGERS_TICK,
+  SCHEDULED_TRIGGERS_TASK_SLUG,
+} from '../core/scheduled-triggers.js'
 import { withStepOutputCapture } from '../core/step-output-capture.js'
 import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
 import { createWorkflowRunTask } from '../core/workflow-run-task.js'
@@ -187,6 +192,20 @@ export const workflowsPlugin =
       }
       if (!config.jobs.tasks.find(task => task.slug === WORKFLOW_RUN_TASK_SLUG)) {
         config.jobs.tasks.push(createWorkflowRunTask())
+      }
+    }
+
+    // Scheduled triggers fire from a task that Payload's scheduler queues
+    // every tick. Added after withStepOutputCapture: it is not a step.
+    if (pluginOptions.scheduledTriggers !== false) {
+      if (!config.jobs.tasks) {
+        config.jobs.tasks = []
+      }
+      if (!config.jobs.tasks.find(task => task.slug === SCHEDULED_TRIGGERS_TASK_SLUG)) {
+        config.jobs.tasks.push(createScheduledTriggersTask(
+          pluginOptions.scheduledTriggers?.tick ?? DEFAULT_SCHEDULED_TRIGGERS_TICK,
+          pluginOptions.scheduledTriggers?.queue ?? 'default'
+        ))
       }
     }
 
