@@ -1,9 +1,9 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { buildConfig } from 'payload'
-import type { SanitizedConfig, TaskConfig } from 'payload'
+import type { Config, DatabaseAdapterObj, SanitizedConfig, TaskConfig } from 'payload'
 
 import { workflowsPlugin } from '../../src/plugin/index.js'
-import type { SeedWorkflow } from '../../src/plugin/config-types.js'
+import type { SeedWorkflow, WorkflowsPluginConfig } from '../../src/plugin/config-types.js'
 
 export const noopTask: TaskConfig<string> = {
   slug: 'noop-step',
@@ -12,13 +12,26 @@ export const noopTask: TaskConfig<string> = {
 }
 
 export const buildTestConfig = (options: {
+  /** Database adapter to use instead of SQLite on `dbFile`. */
+  db?: DatabaseAdapterObj
   dbFile: string
+  /** Payload `jobs` config; Payload's defaults apply when omitted. */
+  jobs?: Config['jobs']
+  /** Extra plugin options, merged over the defaults below. */
+  pluginOptions?: Partial<WorkflowsPluginConfig>
   seedWorkflows?: SeedWorkflow[]
 }): Promise<SanitizedConfig> =>
   buildConfig({
     collections: [
       {
         slug: 'posts',
+        fields: [],
+      },
+      // Declared here (rather than left to Payload's default) so that plugin
+      // options can register trigger hooks on an auth collection.
+      {
+        slug: 'users',
+        auth: true,
         fields: [],
       },
     ],
@@ -28,7 +41,7 @@ export const buildTestConfig = (options: {
         fields: [],
       },
     ],
-    db: sqliteAdapter({
+    db: options.db ?? sqliteAdapter({
       client: {
         url: `file:${options.dbFile}`,
       },
@@ -39,7 +52,9 @@ export const buildTestConfig = (options: {
         globalTriggers: { settings: true },
         seedWorkflows: options.seedWorkflows,
         steps: [noopTask],
+        ...options.pluginOptions,
       }),
     ],
+    ...(options.jobs ? { jobs: options.jobs } : {}),
     secret: 'test-secret-key',
   })

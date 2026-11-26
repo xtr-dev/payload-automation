@@ -15,4 +15,16 @@ describe('evaluate', () => {
     await expect(short).rejects.toThrow('Expression evaluation timed out after 1ms')
     await expect(long).resolves.toHaveLength(50000)
   })
+
+  it('stops non-terminating recursion with a depth error instead of overflowing the stack', async () => {
+    const expression = '($f := function($n) { 1 + $f($n + 1) }; $f(0))'
+
+    await expect(evaluate(expression, { trigger: {}, steps: {} })).rejects.toThrow(
+      'exceeded maximum recursion depth',
+    )
+  })
+
+  it('still evaluates ordinary expressions', async () => {
+    await expect(evaluate('trigger.doc.title & "!"', { trigger: { doc: { title: 'Hi' } }, steps: {} })).resolves.toBe('Hi!')
+  })
 })

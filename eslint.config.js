@@ -48,7 +48,6 @@ export default [
                     maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 40,
                     allowDefaultProject: [
                         'scripts/*.ts',
-                        'test/*.test.ts',
                         '*.js',
                         '*.mjs',
                         '*.spec.ts',
@@ -56,6 +55,9 @@ export default [
                         'vitest.config.ts',
                         'tests/*.ts',
                         'tests/int/*.ts',
+                        'test/*.ts',
+                        'test/utils/*.ts',
+                        'type-tests/*.ts',
                     ],
                 },
                 // projectService: true,
