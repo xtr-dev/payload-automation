@@ -34,7 +34,7 @@ const allTriggerTypesWorkflow: SeedWorkflow = {
     { type: 'collection-hook', parameters: { collectionSlug: 'posts', hook: 'afterChange' } },
     { type: 'global-hook', parameters: { globalSlug: 'settings', hook: 'afterChange' } },
     { type: 'scheduled', parameters: { schedule: '0 9 * * *' } },
-    { type: 'webhook', parameters: { webhookPath: 'my-webhook' } },
+    { type: 'webhook', parameters: { webhookPath: 'my-webhook', webhookSecret: 'seed-test-secret' } },
   ],
   steps: [
     {
@@ -163,5 +163,7 @@ describe('seedWorkflows', () => {
 
     expect(webhook.type).toBe('webhook')
     expect(webhook.webhookPath).toBe('my-webhook')
+    // The secret from parameters.webhookSecret is write-only: only its hash is stored.
+    expect(webhook.webhookSecret ?? undefined).toBeUndefined()
   })
 })
