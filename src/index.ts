@@ -2,19 +2,23 @@
 // Server-side functions are exported via '@xtr-dev/payload-automation/server'
 
 export type {
+  ExecutionContext,
   PayloadWorkflow as Workflow,
   ResolvedStep,
   StepResult,
   WorkflowJobMeta
 } from './core/workflow-executor.js'
 
-// Pure types only - completely safe for client bundling
+// The shapes triggerCustomWorkflow actually accepts and returns, re-exported
+// type-only so the main entry stays free of server runtime code
 export type {
   CustomTriggerOptions,
-  ExecutionContext,
-  TriggerResult,
-  SeedWorkflow,
-  WorkflowLoggingConfig
+  TriggerResult
+} from './core/trigger-custom-workflow.js'
+
+// Pure types only - completely safe for client bundling
+export type {
+  SeedWorkflow
 } from './types/index.js'
 
 // Re-export the full plugin config type from server exports
