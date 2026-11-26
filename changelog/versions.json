@@ -3,6 +3,63 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.2.0",
+      "date": "2026-11-26",
+      "commit": "7eae958",
+      "breaking": true,
+      "groups": {
+        "breaking": [
+          {
+            "type": "fix",
+            "scope": "triggers",
+            "description": "report failed run ids from triggerWorkflowById and honour enabled (#53)",
+            "commit": "7eae958",
+            "hash": "7eae9581301562924b399a2bb2bcd9ff0a3d3fc3",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "triggers",
+            "description": "report failed run ids from triggerWorkflowById and honour enabled (#53)",
+            "commit": "7eae958",
+            "hash": "7eae9581301562924b399a2bb2bcd9ff0a3d3fc3",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "executor",
+            "description": "capture step outputs when Payload deletes completed jobs (#52)",
+            "commit": "454ba26",
+            "hash": "454ba2603c39d85db799b13ab7b40353daa6fedb",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.1.0",
       "date": "2026-11-25",
       "commit": "08c6f3f",

@@ -2,6 +2,14 @@
 
 Release notes from before this changelog was generated (up to v0.0.39) are in [changelog/HISTORY.md](changelog/HISTORY.md).
 
+## [0.2.0](https://github.com/xtr-dev/payload-automation/compare/v0.1.0...v0.2.0) - 2026-11-26
+
+### Breaking
+- **triggers:** report failed run ids from triggerWorkflowById and honour enabled ([#53](https://github.com/xtr-dev/payload-automation/issues/53)) ([7eae958](https://github.com/xtr-dev/payload-automation/commit/7eae9581301562924b399a2bb2bcd9ff0a3d3fc3))
+
+### Fixes
+- **executor:** capture step outputs when Payload deletes completed jobs ([#52](https://github.com/xtr-dev/payload-automation/issues/52)) ([454ba26](https://github.com/xtr-dev/payload-automation/commit/454ba2603c39d85db799b13ab7b40353daa6fedb))
+
 ## [0.1.0] - 2026-11-25
 
 ### Breaking
