@@ -1,0 +1,11 @@
+{
+  // Used by `pnpm build:types` only. Test files stay in tsconfig.json so
+  // `tsc --noEmit` still type-checks them, but no .d.ts is emitted for them.
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "./src/test",
+    "./test-results",
+    "./src/**/*.test.ts",
+    "./src/**/*.test-d.ts"
+  ]
+}
