@@ -5,6 +5,7 @@ import {
   resolveStepInput as resolveInput,
   type ExpressionContext
 } from './expression-engine.js'
+import { expectStepOutput, releaseStepOutput } from './step-output-capture.js'
 import {getPluginConfig} from "../plugin/get-plugin-config.js";
 import {WorkflowsPluginConfig} from "../plugin/config-types.js";
 
@@ -441,12 +442,20 @@ export class WorkflowExecutor {
         req,
       })
 
-      // Run the job and capture the result directly from runByID
-      // This is important because PayloadCMS may delete jobs on completion (deleteJobOnComplete: true by default)
-      const runResult = await this.payload.jobs.runByID({
-        id: job.id,
-        req
-      })
+      // Payload's job runner only reports a status, and with its default
+      // jobs.deleteJobOnComplete it deletes the job (and the output logged in
+      // it) before runByID returns. The wrapped task handler hands the output
+      // over through this slot instead.
+      const outputSlot = expectStepOutput(this.payload, job.id)
+      let runResult: unknown
+      try {
+        runResult = await this.payload.jobs.runByID({
+          id: job.id,
+          req
+        })
+      } finally {
+        releaseStepOutput(this.payload, job.id, outputSlot)
+      }
 
       if (this.config.debug) {
         this.logger.info(runResult, `Run result for step '${step.stepName}'`)
@@ -458,21 +467,25 @@ export class WorkflowExecutor {
       const jobSucceeded = jobStatus?.status === 'success'
 
       if (jobSucceeded) {
-        // Job completed successfully - try to get output from the job if it still exists
-        // Note: Job may have been deleted if deleteJobOnComplete is true
-        let output: Record<string, unknown> = {}
-        try {
-          const completedJob = await this.payload.findByID({
-            id: job.id,
-            collection: 'payload-jobs',
-            req
-          })
-          const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
-          output = taskStatus?.output || {}
-        } catch {
-          // Job was deleted after completion - this is expected behavior with deleteJobOnComplete: true
-          // The job succeeded, so we proceed without the output
-          this.logger.debug({ stepName: step.stepName }, 'Job was deleted after successful completion (deleteJobOnComplete)')
+        let output: Record<string, unknown> = outputSlot.output ?? {}
+        if (!outputSlot.captured) {
+          // The handler was not wrapped (a task with a module-path handler, or
+          // one added to the config after this plugin ran). Read the output
+          // from the job, which only works if the job has not been deleted.
+          try {
+            const completedJob = await this.payload.findByID({
+              id: job.id,
+              collection: 'payload-jobs',
+              req
+            })
+            const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
+            output = taskStatus?.output || {}
+          } catch {
+            this.logger.warn(
+              { stepName: step.stepName, stepType: step.stepType },
+              'Step output unavailable: the job was deleted on completion and the task handler is not a function the plugin could wrap'
+            )
+          }
         }
 
         result.status = 'succeeded'
