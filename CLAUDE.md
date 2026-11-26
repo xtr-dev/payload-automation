@@ -219,7 +219,7 @@ export const myStep: TaskConfig<'my-step'> = {
 - JSONata-based expression evaluation
 - Expression caching for performance
 - Custom function registration
-- Timeout protection (5s default)
+- Timeout protection (5s default): evaluation is timeboxed via jsonata's evaluate hooks, so a synchronously spinning expression is interrupted rather than hanging the event loop; a recursion-depth guard catches non-terminating recursion
 
 #### Workflow Execution Engine (`src/core/workflow-executor.ts`)
 - **WorkflowExecutor Class**: Core execution engine with dependency resolution

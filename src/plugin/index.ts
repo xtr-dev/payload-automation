@@ -5,9 +5,19 @@ import type { WorkflowsPluginConfig } from './config-types.js'
 import { createTriggersCollection } from '../collections/Triggers.js'
 import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
-import { WorkflowRunsCollection } from '../collections/WorkflowRuns.js'
+import { createWorkflowRunsCollection } from '../collections/WorkflowRuns.js'
+import {
+  createScheduledTriggersTask,
+  DEFAULT_SCHEDULED_TRIGGERS_TICK,
+  SCHEDULED_TRIGGERS_TASK_SLUG,
+} from '../core/scheduled-triggers.js'
+import { withStepOutputCapture } from '../core/step-output-capture.js'
+import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
+import { createWorkflowRunTask } from '../core/workflow-run-task.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
+import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
+import { webhookEndpoint } from './webhook-endpoint.js'
 
 export { getLogger } from './logger.js'
 
@@ -21,10 +31,10 @@ const applyCollectionsConfig = <T extends string>(
 
   // Add all automation collections
   config.collections.push(
-    createTriggersCollection(pluginOptions),
-    createStepsCollection(pluginOptions.steps),
-    createWorkflowCollection(),
-    WorkflowRunsCollection
+    withTriggerCacheInvalidation(createTriggersCollection(pluginOptions)),
+    createStepsCollection(pluginOptions),
+    createWorkflowCollection(pluginOptions),
+    createWorkflowRunsCollection(pluginOptions)
   )
 }
 
@@ -46,6 +56,13 @@ export const workflowsPlugin =
     }
 
     applyCollectionsConfig<TSlug>(pluginOptions, config)
+
+    // Registered at config time, not in onInit — Payload only serves endpoints
+    // that exist on the config before init runs.
+    if (!config.endpoints) {
+      config.endpoints = []
+    }
+    config.endpoints.push(webhookEndpoint)
 
     const logger = getConfigLogger()
 
@@ -158,9 +175,37 @@ export const workflowsPlugin =
       config.jobs = { tasks: [] }
     }
 
-    for (const step of pluginOptions.steps) {
+    for (const step of pluginOptions.steps ?? []) {
       if (!config.jobs?.tasks?.find(task => task.slug === step.slug)) {
         config.jobs?.tasks?.push(step)
+      }
+    }
+
+    // Any task can be used as a workflow step, so every task registered so far
+    // reports its output to the executor directly (see step-output-capture.ts).
+    config.jobs.tasks = (config.jobs.tasks ?? []).map(withStepOutputCapture)
+
+    // Queued execution needs a task that runs a pending workflow run's steps.
+    if (pluginOptions.execution?.mode === 'queue') {
+      if (!config.jobs.tasks) {
+        config.jobs.tasks = []
+      }
+      if (!config.jobs.tasks.find(task => task.slug === WORKFLOW_RUN_TASK_SLUG)) {
+        config.jobs.tasks.push(createWorkflowRunTask())
+      }
+    }
+
+    // Scheduled triggers fire from a task that Payload's scheduler queues
+    // every tick. Added after withStepOutputCapture: it is not a step.
+    if (pluginOptions.scheduledTriggers !== false) {
+      if (!config.jobs.tasks) {
+        config.jobs.tasks = []
+      }
+      if (!config.jobs.tasks.find(task => task.slug === SCHEDULED_TRIGGERS_TASK_SLUG)) {
+        config.jobs.tasks.push(createScheduledTriggersTask(
+          pluginOptions.scheduledTriggers?.tick ?? DEFAULT_SCHEDULED_TRIGGERS_TICK,
+          pluginOptions.scheduledTriggers?.queue ?? 'default'
+        ))
       }
     }
 
@@ -290,6 +335,7 @@ export const workflowsPlugin =
                   triggerData.schedule = triggerDef.parameters.schedule
                 } else if (triggerDef.type === 'webhook') {
                   triggerData.webhookPath = triggerDef.parameters.webhookPath
+                  triggerData.webhookSecret = triggerDef.parameters.webhookSecret
                 }
               }
 
@@ -358,7 +404,14 @@ export const workflowsPlugin =
 
             logger.info(`Seeded workflow: ${seedWorkflow.name}`)
           } catch (error) {
-            logger.error(`Failed to seed workflow '${seedWorkflow.name}':`, error)
+            logger.error(
+              {
+                workflowName: seedWorkflow.name,
+                workflowSlug: seedWorkflow.slug,
+                error: error instanceof Error ? error.message : String(error),
+              },
+              'Failed to seed workflow',
+            )
           }
         }
       }
