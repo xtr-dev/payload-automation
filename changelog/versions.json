@@ -3,6 +3,31 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.3.0",
+      "date": "2026-11-26",
+      "commit": "8486c0d",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "triggers",
+            "description": "fire scheduled (cron) triggers through Payload's job scheduler (#54)",
+            "commit": "8486c0d",
+            "hash": "8486c0de92f5db5cb87deb7183f5811ef7899278",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.2.0",
       "date": "2026-11-26",
       "commit": "7eae958",

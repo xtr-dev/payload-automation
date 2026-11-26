@@ -2,6 +2,11 @@
 
 Release notes from before this changelog was generated (up to v0.0.39) are in [changelog/HISTORY.md](changelog/HISTORY.md).
 
+## [0.3.0](https://github.com/xtr-dev/payload-automation/compare/v0.2.0...v0.3.0) - 2026-11-26
+
+### Features
+- **triggers:** fire scheduled (cron) triggers through Payload's job scheduler ([#54](https://github.com/xtr-dev/payload-automation/issues/54)) ([8486c0d](https://github.com/xtr-dev/payload-automation/commit/8486c0de92f5db5cb87deb7183f5811ef7899278))
+
 ## [0.2.0](https://github.com/xtr-dev/payload-automation/compare/v0.1.0...v0.2.0) - 2026-11-26
 
 ### Breaking
