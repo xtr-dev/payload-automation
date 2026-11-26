@@ -6,6 +6,7 @@ import { createTriggersCollection } from '../collections/Triggers.js'
 import { createStepsCollection } from '../collections/Steps.js'
 import { createWorkflowCollection } from '../collections/Workflow.js'
 import { createWorkflowRunsCollection } from '../collections/WorkflowRuns.js'
+import { withStepOutputCapture } from '../core/step-output-capture.js'
 import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
 import { createWorkflowRunTask } from '../core/workflow-run-task.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
@@ -174,6 +175,10 @@ export const workflowsPlugin =
         config.jobs?.tasks?.push(step)
       }
     }
+
+    // Any task can be used as a workflow step, so every task registered so far
+    // reports its output to the executor directly (see step-output-capture.ts).
+    config.jobs.tasks = (config.jobs.tasks ?? []).map(withStepOutputCapture)
 
     // Queued execution needs a task that runs a pending workflow run's steps.
     if (pluginOptions.execution?.mode === 'queue') {
