@@ -454,9 +454,9 @@ Hyphenated slugs must be backtick-quoted in expressions, e.g. `` steps.`fetch-us
 {{steps.createOrder.output.id}}
 {{steps.fetchUser.output.name}}
 
-// Conditions (in step config)
-{{trigger.doc.status = 'published'}}
-{{trigger.doc.total > 100}}
+// Conditions (in step config) - bare JSONata, no {{ }} wrapping
+trigger.doc.status = 'published'
+trigger.doc.total > 100
 
 // String transformation
 {{$uppercase(trigger.doc.title)}}
