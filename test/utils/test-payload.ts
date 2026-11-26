@@ -53,6 +53,9 @@ export const createTestPayload = async (
   }
 
   const config = await buildConfig({
+    // Payload otherwise spawns a detached `payload generate:types` process on
+    // every init; with one init per test those pile up and outlive the run.
+    typescript: { autoGenerate: false },
     admin: {
       user: 'users',
     },
