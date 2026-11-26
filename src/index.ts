@@ -30,4 +30,4 @@ export type { WorkflowsPluginConfig } from './plugin/config-types.js'
 // Server functions and plugin should be imported from '/server':
 // import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
 // UI components should be imported from '/client':
-// import { TriggerWorkflowButton } from '@xtr-dev/payload-automation/client'
+// import { StatusCell } from '@xtr-dev/payload-automation/client'

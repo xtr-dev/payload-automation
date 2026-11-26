@@ -32,11 +32,11 @@ const exampleWorkflows: SeedWorkflow[] = [
         name: 'Create Audit Log',
         type: 'create-document',
         input: {
-          collection: 'auditLog',
+          collectionSlug: 'auditLog',
           data: {
-            post: '$.trigger.doc.id',
+            post: '{{trigger.doc.id}}',
             message: 'Post was modified',
-            user: '$.trigger.context.req.user.id',
+            user: '{{trigger.req.user.id}}',
           },
         },
       },
@@ -65,8 +65,8 @@ const exampleWorkflows: SeedWorkflow[] = [
           method: 'POST',
           body: {
             event: 'post.created',
-            postId: '$.trigger.doc.id',
-            content: '$.trigger.doc.content',
+            postId: '{{trigger.doc.id}}',
+            content: '{{trigger.doc.content}}',
           },
         },
       },

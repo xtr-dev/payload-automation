@@ -2,27 +2,30 @@
 
 [![npm version](https://badge.fury.io/js/@xtr-dev%2Fpayload-automation.svg)](https://www.npmjs.com/package/@xtr-dev/payload-automation)
 
-A workflow automation plugin for PayloadCMS 3.x. Build visual workflows triggered by document changes, cron schedules, webhooks, or manual execution.
+A workflow automation plugin for PayloadCMS 3.x. Workflows are configured in the admin panel and run when documents change, on a cron schedule, from a webhook, or from your own code.
 
 > **Pre-release Warning**: This package is currently in active development (v0.0.x). Breaking changes may occur before v1.0.0.
 
 ## Features
 
-- 🔄 Visual workflow builder in PayloadCMS admin
-- ⚡ Run workflows when documents are created/updated/deleted
-- 🎯 Trigger workflows via webhooks
-- ⏰ Run workflows on a cron schedule
-- 📊 Track workflow execution history
-- 🔧 HTTP requests, document operations, email sending
-- 🔗 Use data from previous steps in templates
-- ⚙️ Step dependencies with parallel and sequential execution
+- Run workflows from collection and global hooks, cron schedules, authenticated webhooks, or code
+- Built-in steps for HTTP requests, document CRUD and email; any Payload task can be a step
+- JSONata expressions for step inputs and conditions, including output from earlier steps
+- Step dependencies: independent steps run in parallel, dependent ones in order
+- Inline or queued (Payload job queue) execution
+- Run history in `workflow-runs`, with retry from a stored run
+- Read-only template workflows seeded from code
+
+## Requirements
+
+- PayloadCMS ^3.79.1
+- Node.js ^18.20.2 || >=20.9.0
+- React ^19.0.0 (for client components; declared as a peer dependency)
 
 ## Installation
 
 ```bash
 pnpm add @xtr-dev/payload-automation
-# or
-npm install @xtr-dev/payload-automation
 ```
 
 ## Quick Start
@@ -44,14 +47,11 @@ export default buildConfig({
   plugins: [
     workflowsPlugin({
       collectionTriggers: {
-        posts: true,    // Enable all CRUD triggers for posts
-        users: { 
-          create: true, // Only enable create trigger for users
-          update: true
-        }
+        posts: true,                 // afterChange, afterDelete and afterRead
+        users: { afterChange: true }, // only the hooks you list
       },
       // Step types available to workflows. The built-in tasks are not
-      // registered automatically — pass the ones you want to use.
+      // registered automatically: pass the ones you want to use.
       steps: [
         HttpRequestStepTask,
         CreateDocumentStepTask,
@@ -60,330 +60,165 @@ export default buildConfig({
         DeleteDocumentStepTask,
         SendEmailStepTask,
       ],
-      enabled: true,
     }),
   ],
 })
 ```
 
+Then, in the admin panel, create a trigger in **Automation Triggers**, a step in **Automation Steps**, and a **Workflow** that references both. SQL adapters (Postgres, SQLite) need a migration for the new collections (`payload migrate:create`).
+
 ## Imports
 
 ```typescript
-// Server plugin
-import { workflowsPlugin } from '@xtr-dev/payload-automation/server'
+// Plugin, step tasks and server functions
+import { workflowsPlugin, triggerWorkflowById, retryWorkflowRun } from '@xtr-dev/payload-automation/server'
 
-// Client components  
-import { StatusCell, ErrorDisplay } from '@xtr-dev/payload-automation/client'
+// Admin components (used by the plugin's collections)
+import { StatusCell, ErrorDisplay, ReadOnlyBanner } from '@xtr-dev/payload-automation/client'
 
-// Types
-import type { WorkflowsPluginConfig, SeedWorkflow } from '@xtr-dev/payload-automation'
+// Types only
+import type { WorkflowsPluginConfig, SeedWorkflow, TriggerResult } from '@xtr-dev/payload-automation'
 ```
 
-## Seeding Template Workflows
+## Collections
 
-Provide read-only example workflows for users to learn from and reference:
+| Collection | Slug | Description |
+|------------|------|-------------|
+| Triggers | `automation-triggers` | Reusable trigger definitions: collection hook, global hook, scheduled, webhook, manual |
+| Steps | `automation-steps` | Reusable step definitions: a step type plus its `config` (input) |
+| Workflows | `workflows` | References triggers and steps; each workflow step has a `slug`, optional `inputOverrides`, `condition` and `dependencies` |
+| Workflow Runs | `workflow-runs` | Execution history |
+
+A trigger's `condition` and a workflow step's `condition` are bare JSONata expressions (no `{{ }}`). A trigger whose condition is false skips the workflow; a step whose condition is false is recorded as `skipped`.
+
+## Expressions
+
+Step inputs use JSONata. A string is evaluated only when the **whole** value is wrapped in `{{ }}`; anything else is passed through as a literal. To build a string, concatenate inside one expression:
 
 ```typescript
-import type { SeedWorkflow } from '@xtr-dev/payload-automation'
-
-const exampleWorkflows: SeedWorkflow[] = [
-  {
-    slug: 'example-welcome-email',
-    name: 'Example: Send Welcome Email',
-    description: 'Send email when user is created',
-    triggers: [
-      {
-        type: 'collection-hook',
-        parameters: {
-          collectionSlug: 'users',
-          hook: 'afterChange',
-        },
-        condition: 'trigger.operation = "create"',
-      },
-    ],
-    steps: [
-      {
-        name: 'Send Email',
-        type: 'send-email',
-        input: {
-          to: '{{trigger.doc.email}}',
-          subject: 'Welcome!',
-          text: 'Thanks for joining us!',
-        },
-      },
-    ],
-  },
-  {
-    slug: 'example-order-processing',
-    name: 'Example: Order Processing Pipeline',
-    description: 'Process order with validation, inventory check, and notifications',
-    triggers: [
-      {
-        type: 'collection-hook',
-        parameters: {
-          collectionSlug: 'orders',
-          hook: 'afterChange',
-        },
-        condition: 'trigger.operation = "create"',
-      },
-    ],
-    steps: [
-      {
-        name: 'Validate Order',
-        slug: 'validate-order',  // Unique identifier for this step
-        type: 'http-request-step',
-        input: {
-          url: 'https://api.example.com/validate',
-          method: 'POST',
-          body: {
-            orderId: '{{trigger.doc.id}}',
-            items: '{{trigger.doc.items}}',
-          },
-        },
-      },
-      {
-        name: 'Check Inventory',
-        slug: 'check-inventory',
-        type: 'http-request-step',
-        input: {
-          url: 'https://api.example.com/inventory/check',
-          method: 'POST',
-          body: {
-            items: '{{trigger.doc.items}}',
-          },
-        },
-        // Dependencies reference other steps by slug
-        dependencies: ['validate-order'],
-      },
-      {
-        name: 'Create Shipment',
-        slug: 'create-shipment',
-        type: 'create-document',
-        input: {
-          collection: 'shipments',
-          data: {
-            orderId: '{{trigger.doc.id}}',
-            status: 'pending',
-            items: '{{trigger.doc.items}}',
-          },
-        },
-        // This step waits for both validation and inventory check
-        dependencies: ['validate-order', 'check-inventory'],
-      },
-      {
-        name: 'Send Confirmation Email',
-        slug: 'send-email',
-        type: 'send-email',
-        input: {
-          to: '{{trigger.doc.customer.email}}',
-          subject: 'Order Confirmed',
-          text: 'Your order {{trigger.doc.id}} has been confirmed!',
-        },
-        // Dependencies reference step slugs
-        dependencies: ['create-shipment'],
-      },
-    ],
-  },
-]
-
-workflowsPlugin({
-  seedWorkflows: exampleWorkflows,
-  // ... other config
-})
+{
+  to: '{{trigger.doc.email}}',
+  subject: '{{"Order " & trigger.doc.id & " confirmed"}}',
+  body: { orderId: '{{trigger.doc.id}}', total: '{{$sum(trigger.doc.items.price)}}' },
+  // Not evaluated: 'Order {{trigger.doc.id}} confirmed'
+}
 ```
 
-Seeded workflows:
-- Are automatically created on first startup
-- Use slug as unique identifier (stable across renames)
-- Automatically update when definition changes in code
-- Cannot be edited or deleted via UI or API
-- Show a warning banner in the admin panel
-- Can be duplicated to create editable versions
+Objects and arrays are evaluated value by value.
 
-See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for detailed documentation.
+### Available Context
+
+| Path | Description |
+|------|-------------|
+| `trigger.type` | `'collection'`, `'global'`, `'webhook'`, `'scheduled'`, or the trigger type passed to `triggerWorkflowById` / `triggerCustomWorkflow` |
+| `trigger.doc`, `trigger.previousDoc`, `trigger.operation` | Hook arguments, as Payload passes them to the hook |
+| `trigger.collection` / `trigger.global` | Slug of the collection or global |
+| `trigger.req` | `{ user, locale, fallbackLocale }` only; the rest of the request is not exposed |
+| `trigger.body`, `trigger.query` | Webhook JSON body (also as `trigger.doc`) and query parameters |
+| `trigger.scheduledAt`, `trigger.firedAt` | Scheduled triggers (see [Scheduled Triggers](#scheduled-triggers)) |
+| `trigger.data` | Data passed to `triggerWorkflowById` / `triggerCustomWorkflow` |
+| `trigger.firedTrigger` | The `automation-triggers` document that fired |
+| `steps.<slug>.output`, `steps.<slug>.state` | Output and state (`succeeded`, `failed`, `skipped`) of an earlier step |
+
+Steps are keyed by their `slug`, and also by their display name. Hyphenated slugs must be backtick-quoted, because JSONata parses an unquoted `-` as subtraction: `` {{steps.`fetch-user`.output.name}} ``.
+
+### Custom Functions
+
+| Function | Description |
+|----------|-------------|
+| `$now()` / `$timestamp()` | Current time as an ISO string / in ms |
+| `$uuid()` | UUID v4 |
+| `$default(value, fallback)` | `fallback` when `value` is null or undefined |
+| `$coalesce(a, b, ...)` | First non-null value |
+| `$json(string)` / `$stringify(value)` | Parse / serialize JSON |
+| `$keys(obj)`, `$values(obj)`, `$has(obj, key)` | Object helpers |
+| `$env('PUBLIC_*')` | Environment variables with a `PUBLIC_` prefix only |
+
+Expressions time out after 5 seconds. See the [JSONata docs](https://docs.jsonata.org) for the built-in functions.
 
 ## Step Dependencies
 
-Steps can declare dependencies on other steps to control execution order. Dependencies reference steps by their **slug** (not by name or index), making them stable across renames and reordering.
-
-### How Dependencies Work
-
-- **Parallel Execution**: Steps without dependencies run in parallel
-- **Sequential Execution**: Steps with dependencies wait for their dependencies to complete successfully
-- **Multiple Dependencies**: A step can depend on multiple other steps (all must succeed)
-- **Failure Handling**: If a dependency fails, the dependent step is skipped
-- **Slug-based**: Dependencies reference step `slug` fields, not names or positions
-
-### Example: Parallel and Sequential Steps
+Each workflow step has a `slug`. `dependencies` lists the slugs a step waits for; steps whose dependencies are done run together in parallel.
 
 ```typescript
 steps: [
-  {
-    name: 'Fetch User Data',
-    slug: 'fetch-user',
-    type: 'http-request-step',
-    // No dependencies - runs immediately
-  },
-  {
-    name: 'Fetch Order Data',
-    slug: 'fetch-orders',
-    type: 'http-request-step',
-    // No dependencies - runs in parallel with fetch-user
-  },
+  { name: 'Fetch User', slug: 'fetch-user', type: 'http-request-step', input: { url: 'https://api.example.com/user' } },
+  { name: 'Fetch Orders', slug: 'fetch-orders', type: 'http-request-step', input: { url: 'https://api.example.com/orders' } },
   {
     name: 'Generate Report',
     slug: 'generate-report',
     type: 'http-request-step',
-    dependencies: ['fetch-user', 'fetch-orders'],  // Reference by slug
-    // Waits for both API calls to complete
+    dependencies: ['fetch-user', 'fetch-orders'],
     input: {
       url: 'https://api.example.com/reports',
+      method: 'POST',
       body: {
-        user: '{{steps.`fetch-user`.output.user}}',
-        orders: '{{steps.`fetch-orders`.output.orders}}',
+        user: '{{steps.`fetch-user`.output.data}}',
+        orders: '{{steps.`fetch-orders`.output.data}}',
       },
     },
   },
 ]
 ```
 
-### Accessing Step Output
+A dependency on a slug that doesn't exist, or a cycle, fails the run. When a step fails, the workflow's `errorHandling` decides what happens: `stop` (default) fails the run, `continue` runs the remaining steps, including steps that depend on the failed one (guard them with a condition such as `` steps.`fetch-user`.state = 'succeeded' ``).
 
-Use `{{steps.<slug>.output.<field>}}` to reference data from completed steps — the same slug that dependencies use. Slugs containing a hyphen must be backtick-quoted, because JSONata parses an unquoted `-` as subtraction:
-
-```typescript
-{
-  name: 'Process Result',
-  slug: 'process-result',
-  type: 'create-document',
-  dependencies: ['api-call'],  // Reference by slug
-  input: {
-    collection: 'results',
-    data: {
-      // Access output from the step with slug "api-call"
-      apiResponse: '{{steps.`api-call`.output.data}}',
-      status: '{{steps.`api-call`.output.status}}',
-    },
-  },
-}
-```
-
-Step outputs are captured from the task handler as it returns, so they work with Payload's default `jobs.deleteJobOnComplete: true`. The exception is a task whose `handler` is a module path string (or a task added to the config after this plugin runs): its output is read back from the job, so it is only available when completed jobs are kept (`deleteJobOnComplete: false`).
+Step outputs are captured as the task handler returns, so they work with Payload's default `jobs.deleteJobOnComplete: true`. The exception is a task whose `handler` is a module path string (or a task added to the config after this plugin runs): its output is read back from the job, so it is only available when completed jobs are kept (`deleteJobOnComplete: false`).
 
 ## Step Types
 
-> **Note:** Steps are just regular [PayloadCMS tasks](https://payloadcms.com/docs/jobs/overview). This plugin uses Payload's built-in job queue system, so you can leverage all of Payload's task features including retries, scheduling, and monitoring. Any `TaskConfig` you create is a valid step.
+Steps are ordinary [Payload tasks](https://payloadcms.com/docs/jobs-queue/tasks) and run through Payload's job queue. The built-in ones:
 
-The plugin comes with a few built-in step types found below.
+| Type | Input |
+|------|-------|
+| `http-request-step` | `url`, `method` (GET, POST, PUT, DELETE, PATCH), `headers`, `body`, `timeout`, `authentication` (bearer, basic, API key header), `retries`, `retryDelay`. Output: `status`, `statusText`, `headers`, `body`, `data`, `duration` |
+| `create-document` | `collectionSlug`, `data`, `draft`, `locale` |
+| `read-document` | `collectionSlug`, `id` or `where`, `limit`, `sort`, `locale`, `depth` |
+| `update-document` | `collectionSlug`, `id`, `data`, `draft`, `locale` |
+| `delete-document` | `collectionSlug`, `id` or `where` |
+| `send-email` | `to`, `from`, `subject`, `text`, `html`, `cc`, `bcc` (uses Payload's email adapter) |
 
-### HTTP Request
-Call external APIs with full configuration:
+### Custom Steps
 
-```typescript
-{
-  type: 'http-request-step',
-  config: {
-    url: 'https://api.example.com/webhook',
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{"orderId": "{{trigger.doc.id}}"}'
-  }
-}
-```
-
-Supports GET, POST, PUT, DELETE, PATCH. Authentication via Bearer tokens, API keys, or basic auth.
-
-### Document Operations
-
-- **Create Document** - Create new PayloadCMS documents
-- **Read Document** - Query documents with filters
-- **Update Document** - Modify existing documents
-- **Delete Document** - Remove documents
-
-### Send Email
-Send notifications via PayloadCMS email adapter:
-
-```typescript
-{
-  type: 'send-email',
-  config: {
-    to: '{{trigger.doc.customer.email}}',
-    subject: 'Order Confirmed',
-    template: 'order-confirmation'
-  }
-}
-```
-
-## Custom Steps
-
-Steps are standard PayloadCMS tasks, so creating custom steps is just defining a `TaskConfig`. No proprietary APIs to learn:
+Any `TaskConfig` works as a step:
 
 ```typescript
 import type { TaskConfig } from 'payload'
 
-// Define the step configuration
 export const SlackNotificationStep: TaskConfig<'slack-notification'> = {
   slug: 'slack-notification',
   label: 'Send Slack Message',
-
   inputSchema: [
     { name: 'channel', type: 'text', required: true },
     { name: 'message', type: 'textarea', required: true },
   ],
-
-  outputSchema: [
-    { name: 'messageId', type: 'text' },
-    { name: 'timestamp', type: 'text' },
-  ],
-
-  handler: async ({ input, req }) => {
-    try {
-      const response = await fetch('https://slack.com/api/chat.postMessage', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${process.env.SLACK_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          channel: input.channel,
-          text: input.message,
-        }),
-      })
-
-      const data = await response.json()
-
-      return {
-        output: {
-          messageId: data.message.ts,
-          timestamp: new Date().toISOString(),
-        },
-        state: 'succeeded'
-      }
-    } catch (error) {
-      return {
-        output: {},
-        state: 'failed',
-        errorMessage: error instanceof Error ? error.message : 'Unknown error'
-      }
-    }
+  outputSchema: [{ name: 'messageId', type: 'text' }],
+  handler: async ({ input }) => {
+    const response = await fetch('https://slack.com/api/chat.postMessage', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ channel: input.channel, text: input.message }),
+    })
+    const data = await response.json()
+    return { output: { messageId: data.ts }, state: 'succeeded' }
   },
 }
 
-// Register in plugin config
-workflowsPlugin({
-  steps: [SlackNotificationStep],
-})
+workflowsPlugin({ steps: [SlackNotificationStep] })
 ```
 
 ## Webhook Triggers
 
-Workflows can be started from outside your app over HTTP. Create a trigger of type **Webhook** in the `automation-triggers` collection, give it a path and a secret, and reference it from a workflow. The plugin serves the endpoint at:
+Create a trigger of type **Webhook** with a path and a secret, and reference it from a workflow. The plugin serves:
 
 ```
 POST /api/automation/webhooks/<webhookPath>
 ```
 
-Every request must carry the trigger's secret, either in an `X-Webhook-Secret` header or as an `Authorization: Bearer` token — requests without a valid secret are rejected with a 401 and start nothing:
+Every request must carry the trigger's secret, in an `X-Webhook-Secret` header or as an `Authorization: Bearer` token. Requests without a valid secret get a 401 and start nothing:
 
 ```bash
 curl -X POST https://your-app.com/api/automation/webhooks/my-webhook \
@@ -392,113 +227,65 @@ curl -X POST https://your-app.com/api/automation/webhooks/my-webhook \
   -d '{"orderId": "abc-123"}'
 ```
 
-The plugin stores only a SHA-256 hash of the secret, so it is never returned by the API or shown again in the admin UI after you save it. To rotate it, enter a new secret on the trigger; leaving the field empty keeps the current one. Use a long random value (for example `openssl rand -hex 32`): a fast hash does not protect a short, guessable secret. Seeded webhook triggers take theirs from `parameters.webhookSecret`.
+Only a SHA-256 hash of the secret is stored, so it is never returned by the API or shown again after saving. To rotate it, enter a new secret; leaving the field empty keeps the current one. Use a long random value (for example `openssl rand -hex 32`): a fast hash does not protect a short, guessable secret. Seeded webhook triggers take theirs from `parameters.webhookSecret`.
 
-The JSON request body is available to expressions as `trigger.doc` (and `trigger.body`), query parameters as `trigger.query`. The response lists each workflow the call reached and whether it was `triggered`, `skipped` (trigger condition evaluated false), or `failed`. Each execution is recorded in `workflow-runs` like any other trigger.
+The response lists each workflow the call reached and whether it was `triggered`, `skipped` (condition false) or `failed`.
 
 ## Scheduled Triggers
 
-A trigger of type **Scheduled (Cron)** runs its workflows on a cron expression (`schedule`, e.g. `0 9 * * *`; a leading seconds field is optional), evaluated in the trigger's `timezone` (an IANA name such as `Europe/Amsterdam`; empty means the server's timezone). Invalid expressions and timezones are rejected on save.
+A trigger of type **Scheduled (Cron)** runs its workflows on a cron expression (`schedule`, e.g. `0 9 * * *`; a leading seconds field is optional) in the trigger's `timezone` (an IANA name such as `Europe/Amsterdam`; empty means the server's timezone). Invalid expressions and timezones are rejected on save.
 
-The plugin fires them from a Payload job task, `automation-scheduled-triggers`, registered with a Payload `schedule` so Payload's scheduler queues it every `tick` (default every minute). **Nothing fires unless your app runs Payload's job queue with scheduling**, using one of:
+The plugin fires them from a Payload job task, `automation-scheduled-triggers`, which Payload's scheduler queues every `tick` (default every minute). **Nothing fires unless your app runs Payload's job queue with scheduling**, using one of:
 
 ```typescript
-// Long-running server: handles schedules and runs jobs every minute.
-// The queue must match scheduledTriggers.queue ('default' unless you set it).
+// Long-running server. The queue must match scheduledTriggers.queue ('default' unless set).
 buildConfig({
   jobs: { autoRun: [{ cron: '* * * * *', queue: 'default' }] },
 })
 ```
 
-- Serverless: call `GET /api/payload-jobs/run?queue=default` from an external cron (e.g. Vercel Cron) at least as often as the tick. It handles schedules before running jobs unless you pass `disableScheduling=true`. It requires a logged-in user by default, so set `jobs.access.run` to accept your cron's credentials (for example, compare the `Authorization` header with a `CRON_SECRET` environment variable).
-- Your own runner: `await payload.jobs.handleSchedules()` then `await payload.jobs.run()`. Or skip Payload's scheduler and call `runScheduledTriggers(payload)` from `@xtr-dev/payload-automation/server` yourself.
+- Serverless: call `GET /api/payload-jobs/run?queue=default` from an external cron (e.g. Vercel Cron) at least as often as the tick. It requires a logged-in user by default, so set `jobs.access.run` to accept your cron's credentials (for example, compare the `Authorization` header with a `CRON_SECRET` environment variable).
+- Your own runner: `await payload.jobs.handleSchedules()` then `await payload.jobs.run()`. Or skip Payload's scheduler and call `runScheduledTriggers(payload)` from `@xtr-dev/payload-automation/server`.
 
 How firing works:
 
-- On each tick, every scheduled trigger whose next occurrence after its `lastFiredAt` has passed fires once: each enabled workflow that uses it runs (subject to the trigger's `condition`) and is recorded in `workflow-runs` like any other trigger. `lastFiredAt` is shown read-only on the trigger.
-- Each occurrence is claimed with an atomic conditional update before anything runs, so overlapping ticks and multiple server instances do not fire it twice. Firing is at most once: a crash between the claim and the run skips that occurrence.
-- Occurrences missed while nothing ran (downtime, a stopped job runner) fire once in total, not once each. Saving a new or changed schedule starts counting from the save time, so past occurrences are never backfilled; triggers saved before this feature existed start counting at the first tick.
+- On each tick, every trigger whose next occurrence after its `lastFiredAt` has passed fires once. Each occurrence is claimed with an atomic update first, so overlapping ticks and multiple server instances don't fire it twice. Firing is at most once: a crash between the claim and the run skips that occurrence.
+- Occurrences missed during downtime fire once in total, not once each. A new or changed schedule starts counting from the save time, so past occurrences are never backfilled.
 - Occurrences that pass while a workflow is disabled, or whose condition is false, are consumed, not fired later.
-- A trigger fires no more precisely than the tick: with the default, up to about a minute after its occurrence.
+- Precision is the tick: with the default, up to about a minute late.
 
-Expressions see `trigger.type` (`'scheduled'`), `trigger.scheduledAt` (the occurrence being fired, the latest one after downtime), `trigger.firedAt`, `trigger.previousFiredAt`, `trigger.schedule`, `trigger.timezone` and `trigger.firedTrigger`.
+Expressions see `trigger.type` (`'scheduled'`), `trigger.scheduledAt` (the occurrence being fired), `trigger.firedAt`, `trigger.previousFiredAt`, `trigger.schedule`, `trigger.timezone` and `trigger.firedTrigger`.
 
-Database schema: scheduled triggers add two columns to `automation-triggers` (`timezone`, `last_fired_at`), and because the plugin registers a scheduled task, Payload adds its `payload-jobs-stats` global. SQL adapters with migrations (Postgres, SQLite) need a new migration (`payload migrate:create`); MongoDB needs nothing.
+Database schema: scheduled triggers add `timezone` and `last_fired_at` to `automation-triggers`, and the scheduled task makes Payload add its `payload-jobs-stats` global. Postgres and SQLite need a migration; MongoDB needs nothing.
 
-Configure the task with the `scheduledTriggers` plugin option (see [Plugin Configuration](#plugin-configuration)).
+## Triggering From Code
 
-## JSONata Expressions
+Workflows with a trigger of type **Manual** can be started from server code:
 
-Use `{{expression}}` syntax for dynamic values. [JSONata](https://jsonata.org) provides powerful data transformation.
+```typescript
+import { triggerWorkflowById, triggerCustomWorkflow } from '@xtr-dev/payload-automation/server'
 
-### Available Context
-
-- `trigger.doc` - The document that triggered the workflow (for webhooks: the JSON request body)
-- `trigger.type` - Trigger type ('collection' | 'global' | 'webhook' | 'scheduled')
-- `trigger.collection` - Collection slug for collection triggers
-- `trigger.query` - Query parameters for webhook triggers
-- `trigger.scheduledAt` / `trigger.firedAt` - Occurrence and actual fire time for scheduled triggers
-- `steps.<slug>.output` - Output from a completed step (also available under the step's display name)
-- `steps.<slug>.state` - Step state ('succeeded' | 'failed' | 'pending' | 'skipped')
-
-Hyphenated slugs must be backtick-quoted in expressions, e.g. `` steps.`fetch-user`.output ``, because JSONata parses an unquoted `-` as subtraction.
-
-### Examples
-
-```javascript
-// Access trigger data
-{{trigger.doc.id}}
-{{trigger.doc.customer.email}}
-
-// Use previous step output
-{{steps.createOrder.output.id}}
-{{steps.fetchUser.output.name}}
-
-// Conditions (in step config) - bare JSONata, no {{ }} wrapping
-trigger.doc.status = 'published'
-trigger.doc.total > 100
-
-// String transformation
-{{$uppercase(trigger.doc.title)}}
-{{$join(trigger.doc.tags, ', ')}}
-
-// Object construction
-{
-  "orderId": "{{trigger.doc.id}}",
-  "total": "{{$sum(trigger.doc.items.price)}}"
+// One workflow. The data is available as trigger.data.
+const result = await triggerWorkflowById(payload, workflowId, 'manual', { source: 'import' })
+if (result.status === 'failed') {
+  console.error(result.error, result.runId)
 }
+
+// Every enabled workflow with a manual trigger
+const results = await triggerCustomWorkflow(payload, { slug: 'manual', data: { source: 'import' } })
 ```
 
-### Custom Functions
-
-| Function | Description |
-|----------|-------------|
-| `$now()` | Current ISO timestamp |
-| `$uuid()` | Generate UUID v4 |
-| `$default(value, fallback)` | Return fallback if null |
-| `$coalesce(a, b, ...)` | First non-null value |
-| `$env('PUBLIC_*')` | Access PUBLIC_ env vars |
+`triggerWorkflowById` throws, without creating a run, when the workflow doesn't exist, has no trigger of that type, or is disabled. Once a run exists it resolves to `{ status: 'triggered' | 'failed', runId, workflowId, workflowName, error? }` instead of throwing.
 
 ## Execution Tracking
 
-All workflow executions are stored in the `workflow-runs` collection with:
-
-- Trigger data that initiated the run
-- Step-by-step results with status and duration
-- Execution logs with timestamps
-- Total duration and final status
-
-Query runs programmatically:
+Every execution is stored in `workflow-runs` with the trigger data, per-step results (status, input, output, error, duration), logs and the final status.
 
 ```typescript
 const runs = await payload.find({
   collection: 'workflow-runs',
-  where: {
-    workflow: { equals: workflowId },
-    status: { equals: 'completed' },
-  },
+  where: { workflow: { equals: workflowId }, status: { equals: 'completed' } },
   sort: '-createdAt',
-  limit: 10,
 })
 ```
 
@@ -512,104 +299,114 @@ import { retryWorkflowRun } from '@xtr-dev/payload-automation/server'
 // Run every step again
 const rerun = await retryWorkflowRun(payload, failedRunId)
 
-// Or skip the steps that already succeeded and reuse their stored output
+// Or reuse the stored output of the steps that already succeeded
 const resumed = await retryWorkflowRun(payload, failedRunId, { resumeFromFailedStep: true })
 ```
 
-The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`. It always runs inline, also with `execution: { mode: 'queue' }`, so the returned run is finished rather than `pending`.
+The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`, and always runs inline, also with `execution: { mode: 'queue' }`.
+
+## Seeding Template Workflows
+
+`seedWorkflows` creates read-only workflows (with their triggers and steps) on startup:
+
+```typescript
+import type { SeedWorkflow } from '@xtr-dev/payload-automation'
+
+const seedWorkflows: SeedWorkflow[] = [
+  {
+    slug: 'example-welcome-email',
+    name: 'Example: Send Welcome Email',
+    triggers: [
+      {
+        type: 'collection-hook',
+        parameters: { collectionSlug: 'users', hook: 'afterChange' },
+        condition: 'trigger.operation = "create"',
+      },
+    ],
+    steps: [
+      {
+        name: 'Send Email',
+        slug: 'send-email',
+        type: 'send-email',
+        input: {
+          to: '{{trigger.doc.email}}',
+          subject: 'Welcome!',
+          text: '{{"Thanks for joining, " & trigger.doc.email}}',
+        },
+      },
+    ],
+  },
+]
+
+workflowsPlugin({ seedWorkflows, steps: [SendEmailStepTask] })
+```
+
+A workflow whose `slug` already exists is left as it is, so later changes in code are not applied to it. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
 
 ## Plugin Configuration
 
 ```typescript
-interface WorkflowsPluginConfig {
-  // Enable/disable the plugin
+type WorkflowsPluginConfig = {
+  // false returns the Payload config unchanged. Default: true.
   enabled?: boolean
 
-  // Collection triggers
-  collectionTriggers?: {
-    [collectionSlug: string]: boolean | {
-      afterChange?: boolean
-      afterDelete?: boolean
-      afterRead?: boolean
-      // ... other hooks
-    }
-  }
-
-  // Global triggers
-  globalTriggers?: {
-    [globalSlug: string]: boolean | { /* hooks */ }
-  }
-
-  // Where steps run. 'inline' (default) runs them inside the hook that fired
-  // the trigger, so that request waits for every step. 'queue' records a
-  // pending run and queues one `automation-workflow-run` job on `queue`
-  // (default: Payload's 'default' queue); the steps run when your job runner
-  // (jobs.autoRun, `payload jobs:run`) processes it, using the stored
-  // triggerData snapshot.
-  execution?: { mode?: 'inline' | 'queue'; queue?: string }
-
-  // Scheduled (cron) triggers: the automation-scheduled-triggers task is
-  // scheduled every `tick` (default '* * * * *') on `queue` (default
-  // 'default'). Needs a job runner with scheduling (see "Scheduled
-  // Triggers"). false registers no task.
-  scheduledTriggers?: false | { tick?: string; queue?: string }
-
-  // Leave user objects (req.user, the trigger's `user`, afterMe's
-  // response.user, ...) out of the triggerData, context and inputs stored on
-  // workflow-runs; `user` fields of the document itself are kept, and
-  // triggeredBy stores `<collection>:<id>` instead of an email.
-  // With it, step input expressions also see trigger.req.user (and
-  // trigger.user, response.user, result.user) as undefined; conditions still
-  // see them. Default: false. Either way, auth secrets (hash, salt, password,
-  // reset and verification tokens, API keys) are removed from step inputs and
-  // outputs, and neither they nor hook-level session tokens are stored on the
-  // run or in payload-jobs inputs. Stripping is by key: a scalar you pick out
-  // explicitly ({{trigger.previousDoc.hash}}) is stored like any value, and a
-  // task's own output in its payload-jobs log is written by Payload as-is.
-  stripUserData?: boolean
-
-  // How long (ms) the hook handlers reuse the cached list of collection-hook
-  // and global-hook triggers. Trigger edits made through this Payload
-  // instance clear it immediately; the TTL bounds how long edits from other
-  // processes take to apply. 0 queries on every hook call. Default: 60000.
-  triggerCacheTTL?: number
+  // Collections/globals whose hooks can fire triggers. `true` registers
+  // afterChange, afterDelete and afterRead (globals: afterChange, afterRead);
+  // an object registers only the hooks set to true. Unknown hook names log a warning.
+  collectionTriggers?: { [slug: string]: true | { [hook: string]: true } }
+  globalTriggers?: { [slug: string]: true | { [hook: string]: true } }
 
   // Step types available to workflows (Payload TaskConfig objects).
-  // Optional — without it the plugin registers its collections and hooks
-  // but no step types. Built-in tasks are exported from
-  // '@xtr-dev/payload-automation/server'.
   steps?: TaskConfig[]
 
-  // Per-collection access overrides (see "Access Control" below)
+  // Read-only workflows created on startup (see "Seeding Template Workflows").
+  seedWorkflows?: SeedWorkflow[]
+
+  // Per-collection access overrides (see "Access Control").
   access?: Partial<Record<
     'workflows' | 'automation-triggers' | 'automation-steps' | 'workflow-runs',
     Partial<CollectionConfig['access']>
   >>
+
+  // 'inline' (default) runs the steps inside the hook or call that fired the
+  // trigger, so that request waits for them. 'queue' records a pending run and
+  // queues one `automation-workflow-run` job on `queue` (default 'default');
+  // the steps run when your job runner processes it, using the stored
+  // triggerData snapshot and the job runner's request.
+  execution?: { mode?: 'inline' | 'queue'; queue?: string }
+
+  // The automation-scheduled-triggers task, scheduled every `tick`
+  // (default '* * * * *') on `queue` (default 'default'). false registers no
+  // task; scheduled triggers then only fire via runScheduledTriggers(payload).
+  scheduledTriggers?: false | { tick?: string; queue?: string }
+
+  // Leave user objects (req.user, the trigger's `user`, afterMe's
+  // response.user, ...) out of what is stored on workflow-runs, and store
+  // triggeredBy as `<collection>:<id>`. Step input expressions then also see
+  // those users as undefined; conditions still see them. Default: false.
+  stripUserData?: boolean
+
+  // How long (ms) hook handlers cache the list of hook triggers. Edits through
+  // this Payload instance clear it immediately; the TTL bounds how long edits
+  // from other processes take to apply. 0 disables caching. Default: 60000.
+  triggerCacheTTL?: number
+
+  // Extra info-level logging of queued step jobs.
+  debug?: boolean
 }
 ```
 
+Independent of `stripUserData`, auth secrets (`hash`, `salt`, `password`, reset and verification tokens, API keys) are removed from step inputs, outputs and stored runs, and session tokens are never stored. Stripping works on object keys: a scalar you pick out explicitly (`{{trigger.previousDoc.hash}}`) is stored like any value, and a task's own output in its `payload-jobs` log is written by Payload as-is.
+
 ## Access Control
 
-Every operation on the automation collections — reads, version history and
-unlocking included — requires a user who can access /admin by default: a user
-from the admin user collection (`config.admin.user`) who also passes that
-collection's `access.admin`, if it defines one. Workflow documents execute HTTP requests and document writes with
-your application's privileges, step configs can hold credentials (for
-example bearer tokens for the HTTP request step), and run records carry HTTP
-response bodies — so a JWT from any other auth-enabled collection (such as a
-public `customers` collection) is not sufficient.
+By default every operation on the automation collections, reads included, requires a user who can access /admin: a user from `config.admin.user` who also passes that collection's `access.admin`, if defined. Workflows run HTTP requests and document writes with your application's privileges, step configs can hold credentials, and runs hold response bodies, so a user from any other auth collection is not enough. The plugin's own reads and writes (seeding, execution) use the Local API and are unaffected.
 
-Reads and writes performed by the plugin itself (seeding, workflow
-execution, usage counts) use the Local API and are unaffected.
-
-Hosts that need different rules can override any operation per collection:
+Override any operation per collection; operations without an override keep the default:
 
 ```typescript
 workflowsPlugin({
-  steps: [/* ... */],
   access: {
-    // Allow the admin panel list view without extra role checks while
-    // keeping every other operation at the secure default
     'automation-steps': {
       read: ({ req }) => Boolean(req.user),
     },
@@ -617,39 +414,15 @@ workflowsPlugin({
 })
 ```
 
-Operations without an override keep the secure default. Seeded workflows
-are created with `readOnly: true`; read-only workflows, and the triggers and
-steps they reference, cannot be updated or deleted through the API, regardless
-of the request payload. An `update` or `delete` override does not lift that
-lock: the plugin ANDs it with your function, so the override only decides who
-may edit the documents that are not locked.
-
-## Requirements
-
-- PayloadCMS ^3.79.1
-- Node.js ^18.20.2 || >=20.9.0
-- React ^19.0.0 (for client components; declared as a peer dependency)
+Read-only (seeded) workflows, and the triggers and steps they reference, can't be updated or deleted through the API. An `update` or `delete` override doesn't lift that lock: the plugin ANDs it with your function.
 
 ## Logging
-
-Control log verbosity with `PAYLOAD_AUTOMATION_LOG_LEVEL`:
 
 ```bash
 PAYLOAD_AUTOMATION_LOG_LEVEL=debug pnpm dev
 ```
 
 Levels: `silent` | `error` | `warn` (default) | `info` | `debug` | `trace`
-
-## Collections
-
-The plugin creates these collections:
-
-| Collection | Slug | Description |
-|------------|------|-------------|
-| Triggers | `automation-triggers` | Reusable trigger definitions |
-| Steps | `automation-steps` | Step templates with configuration |
-| Workflows | `workflows` | Workflow definitions |
-| Workflow Runs | `workflow-runs` | Execution history |
 
 ## License
 
