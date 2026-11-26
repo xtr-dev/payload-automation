@@ -20,7 +20,7 @@ export interface RetryWorkflowRunOptions {
   /**
    * Skip the steps that succeeded in the original run and start at the first
    * step that did not. A skipped step's stored input and output are copied
-   * into the new run, so later steps can still read `steps.<name>.output`.
+   * into the new run, so later steps can still read `steps.<slug>.output`.
    * A step only counts as already done when it sits at the same position and
    * references the same `automation-steps` document as before, so steps that
    * were added, removed or reordered since then run again.

@@ -111,4 +111,52 @@ describe('step outputs', () => {
     expect(produced?.output).toEqual({ greeting: 'hello', nested: { count: 3 } })
     expect(consumedInputs).toEqual([{ greeting: 'hello', count: 3 }])
   })
+
+  it('exposes a step output under its slug and under its display name', async () => {
+    dbFile = path.join(os.tmpdir(), `payload-automation-outputs-${uniqueId()}.db`)
+    payload = await getPayload({
+      config: buildTestConfig({
+        dbFile,
+        pluginOptions: { steps: [noopTask, produceTask, consumeTask] },
+      }),
+      key: uniqueId(),
+    })
+    consumedInputs.length = 0
+
+    const trigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'posts afterChange', type: 'collection-hook', collectionSlug: 'posts', hook: 'afterChange' },
+    })
+    const produce = await payload.create({
+      collection: 'automation-steps',
+      data: { name: 'produce', type: produceTask.slug },
+    })
+    const consume = await payload.create({
+      collection: 'automation-steps',
+      data: {
+        name: 'consume',
+        type: consumeTask.slug,
+        config: {
+          bySlug: '{{steps.`make-greeting`.output.greeting}}',
+          byName: '{{steps.`Make Greeting`.output.nested.count}}',
+        },
+      },
+    })
+    await payload.create({
+      collection: 'workflows',
+      data: {
+        name: 'slug and name keys',
+        slug: `slug-name-${uniqueId()}`,
+        triggers: [trigger.id],
+        steps: [
+          { step: produce.id, slug: 'make-greeting', stepName: 'Make Greeting' },
+          { step: consume.id, slug: 'consume', stepName: 'Consume', dependencies: [{ slug: 'make-greeting' }] },
+        ],
+      },
+    })
+
+    await payload.create({ collection: 'posts', data: {} })
+
+    expect(consumedInputs).toEqual([{ bySlug: 'hello', byName: 3 }])
+  })
 })

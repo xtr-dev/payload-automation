@@ -143,7 +143,7 @@ export interface ExecuteOptions {
    * Step results of an earlier run of the same workflow. A step whose earlier
    * result succeeded, at the same position and referencing the same
    * `automation-steps` document, is not run again: its stored input and output
-   * are copied into this run and into `steps.<name>` for later expressions.
+   * are copied into this run and into `steps.<slug>` (and the step name alias) for later expressions.
    */
   reuseSucceededSteps?: PreviousStepResult[]
 
@@ -167,12 +167,74 @@ const relationId = (value: PreviousStepResult['step']): number | string | undefi
 
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
+  private stepContextOwners = new WeakMap<ExecutionContext, Map<string, string>>()
 
   constructor(
     private payload: Payload,
     private logger: Payload['logger']
   ) {
     this.config = getPluginConfig(payload)
+  }
+
+  /**
+   * Record a step's state in the expression context under both its slug and its
+   * display name. Slug is the stable identifier everywhere else in the plugin —
+   * dependencies resolve by slug in resolveExecutionOrder — but output references
+   * used to be keyed by name only, so `{{steps.<slug>.output}}` silently resolved
+   * to nothing (the engine returns the unevaluated `{{...}}` string as a literal
+   * on failure) while `dependencies: ['<slug>']` worked. The name stays as a key
+   * so workflows written against it keep resolving.
+   */
+  private setStepContext(
+    context: ExecutionContext,
+    step: ResolvedStep,
+    entry: Record<string, unknown>
+  ): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    context.steps[step.slug] = entry
+    owners.set(step.slug, step.slug)
+
+    if (step.stepName && step.stepName !== step.slug) {
+      const existingSlug = owners.get(step.stepName)
+      if (existingSlug && existingSlug !== step.slug) {
+        this.logger.warn({
+          contextKey: step.stepName,
+          existingSlug,
+          stepSlug: step.slug
+        }, 'Skipping step name context alias because it collides with another step slug')
+        return
+      }
+
+      context.steps[step.stepName] = entry
+      owners.set(step.stepName, step.slug)
+    }
+  }
+
+  /**
+   * Claim every step's own slug as its context-key owner before any batch runs.
+   * Batches execute concurrently (see `execute`), and a step only calls
+   * setStepContext for the first time partway through its own execution — so
+   * without this, a step whose display name equals another step's not-yet-run
+   * slug could transiently win that key and have a third step's expression
+   * silently resolve against the wrong step's data. All slugs are known from
+   * `resolvedSteps` before batch execution begins, so they can all be claimed
+   * upfront instead of racing to claim themselves at execution time.
+   */
+  private seedStepContextOwners(context: ExecutionContext, steps: ResolvedStep[]): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    for (const step of steps) {
+      owners.set(step.slug, step.slug)
+    }
   }
 
   /**
@@ -335,10 +397,10 @@ export class WorkflowExecutor {
         result.completedAt = new Date().toISOString()
         result.output = { reason: 'Condition not met', skipped: true }
 
-        context.steps[step.stepName] = {
+        this.setStepContext(context, step, {
           state: 'skipped',
           output: result.output
-        }
+        })
 
         return result
       }
@@ -350,10 +412,10 @@ export class WorkflowExecutor {
     )
     result.input = resolvedInput
 
-    context.steps[step.stepName] = {
+    this.setStepContext(context, step, {
       state: 'running',
       input: resolvedInput
-    }
+    })
 
     try {
       const job = await this.payload.jobs.queue({
@@ -454,11 +516,11 @@ export class WorkflowExecutor {
         throw new Error(errorMessage)
       }
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'succeeded',
         input: resolvedInput,
         output: result.output
-      }
+      })
 
       this.logger.info({
         stepName: step.stepName,
@@ -472,11 +534,11 @@ export class WorkflowExecutor {
       result.completedAt = new Date().toISOString()
       result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'failed',
         input: resolvedInput,
         error: errorMessage
-      }
+      })
 
       this.logger.error({
         stepName: step.stepName,
@@ -560,7 +622,7 @@ export class WorkflowExecutor {
   /**
    * Clean a step's resolved input or its output before it is passed to the
    * step's job, stored on the run, or exposed to later steps as
-   * `steps.<name>`. Unlike `safeSerialize`, this keeps every other key and
+   * `steps.<slug>`. Unlike `safeSerialize`, this keeps every other key and
    * value as it is, because the step receives the result at runtime:
    * - AUTH_SECRET_KEYS are dropped at any depth (an input like
    *   `{{trigger.previousDoc}}` on an auth collection would otherwise carry
@@ -1026,6 +1088,10 @@ export class WorkflowExecutor {
     reuseSucceededSteps?: PreviousStepResult[]
   ): Promise<void> {
     const stepResults = this.pendingStepResults(resolvedSteps)
+    // Claim every step's slug before any batch runs, so a display-name alias
+    // can never take another step's slug key (see setStepContext). Done here
+    // so inline, queued and retried runs all get it.
+    this.seedStepContextOwners(context, resolvedSteps)
 
     // Create job metadata for tracking workflow context in payload-jobs
     const jobMeta: WorkflowJobMeta = {
@@ -1072,11 +1138,11 @@ export class WorkflowExecutor {
                 input: this.sanitizeStepData(reusable.input ?? undefined),
                 output: this.sanitizeStepData(reusable.output ?? {})
               }
-              context.steps[step.stepName] = {
+              this.setStepContext(context, step, {
                 state: 'succeeded',
                 input: reused.input,
                 output: reused.output
-              }
+              })
               const reusedIdx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
               if (reusedIdx !== -1) {
                 stepResults[reusedIdx] = reused
