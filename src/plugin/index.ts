@@ -12,6 +12,7 @@ import {
   SCHEDULED_TRIGGERS_TASK_SLUG,
 } from '../core/scheduled-triggers.js'
 import { withStepOutputCapture } from '../core/step-output-capture.js'
+import { allCollectionHooks, allGlobalHooks } from '../triggers/hook-options.js'
 import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
 import { createWorkflowRunTask } from '../core/workflow-run-task.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
@@ -90,6 +91,11 @@ export const workflowsPlugin =
           : triggerConfig
 
         Object.entries(hooksToRegister).forEach(([hookName, enabled]) => {
+          if (!allCollectionHooks.includes(hookName)) {
+            logger.warn(`Unknown hook '${hookName}' for collection '${collectionSlug}' — valid hooks are: ${allCollectionHooks.join(', ')}`)
+            return
+          }
+
           if (!enabled) {
             return
           }
@@ -142,6 +148,11 @@ export const workflowsPlugin =
           : triggerConfig
 
         Object.entries(hooksToRegister).forEach(([hookName, enabled]) => {
+          if (!allGlobalHooks.includes(hookName)) {
+            logger.warn(`Unknown hook '${hookName}' for global '${globalSlug}' — valid hooks are: ${allGlobalHooks.join(', ')}`)
+            return
+          }
+
           if (!enabled) {
             return
           }
