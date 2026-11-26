@@ -313,7 +313,7 @@ export const createWorkflowRunsCollection = (
   hooks: {
     beforeChange: [
       // Calculate duration when completedAt is set
-      async ({ data }) => {
+      ({ data }) => {
         if (data?.completedAt && data?.startedAt) {
           const started = new Date(data.startedAt).getTime()
           const completed = new Date(data.completedAt).getTime()

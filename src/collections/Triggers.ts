@@ -290,7 +290,7 @@ export const createTriggersCollection = <T extends string>(
     hooks: {
       beforeChange: [
         // Validate required fields based on type
-        async ({ data, operation, originalDoc }) => {
+        ({ data, operation, originalDoc }) => {
           if (operation === 'create' || operation === 'update') {
             if (data?.type === 'collection-hook' && !data?.collectionSlug) {
               throw new Error('Collection is required for collection hook triggers')

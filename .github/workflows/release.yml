@@ -30,6 +30,5 @@ jobs:
       dry-run: ${{ inputs.dry-run }}
       release-as: ${{ inputs.release-as }}
       preid: ${{ inputs.preid }}
-      # pnpm lint is left out: it fails on main (10 errors, mostly require-await). Add it back once fixed.
       # pnpm test also runs Playwright e2e, which needs a browser and a running dev server.
-      check: pnpm test:int
+      check: pnpm lint && pnpm test:int

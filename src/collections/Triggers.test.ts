@@ -10,50 +10,50 @@ const validate = createTriggersCollection({ steps: [] }).hooks?.beforeChange?.[0
   data: Record<string, unknown>
   operation: 'create' | 'update'
   originalDoc?: Record<string, unknown>
-}) => Promise<Record<string, unknown>>
+}) => Record<string, unknown>
 
 describe('automation-triggers webhookPath validation', () => {
-  it('rejects a path containing a slash between segments', async () => {
-    await expect(
+  it('rejects a path containing a slash between segments', () => {
+    expect(() =>
       validate({
         data: { type: 'webhook', webhookPath: 'my/webhook', webhookSecret: 'secret' },
         operation: 'create',
       })
-    ).rejects.toThrow('Webhook path must be a single path segment without whitespace')
+    ).toThrow('Webhook path must be a single path segment without whitespace')
   })
 
-  it('rejects a path containing whitespace', async () => {
-    await expect(
+  it('rejects a path containing whitespace', () => {
+    expect(() =>
       validate({
         data: { type: 'webhook', webhookPath: 'my webhook', webhookSecret: 'secret' },
         operation: 'create',
       })
-    ).rejects.toThrow('Webhook path must be a single path segment without whitespace')
+    ).toThrow('Webhook path must be a single path segment without whitespace')
   })
 
-  it('accepts a valid single path segment', async () => {
-    const result = await validate({
+  it('accepts a valid single path segment', () => {
+    const result = validate({
       data: { type: 'webhook', webhookPath: 'my-webhook', webhookSecret: 'secret' },
       operation: 'create',
     })
     expect(result.webhookPath).toBe('my-webhook')
   })
 
-  it('accepts and normalizes a leading/trailing slash, matching what the webhook endpoint accepts', async () => {
-    const result = await validate({
+  it('accepts and normalizes a leading/trailing slash, matching what the webhook endpoint accepts', () => {
+    const result = validate({
       data: { type: 'webhook', webhookPath: '/my-webhook/', webhookSecret: 'secret' },
       operation: 'create',
     })
     expect(result.webhookPath).toBe('my-webhook')
   })
 
-  it('rejects a path that is only slashes', async () => {
-    await expect(
+  it('rejects a path that is only slashes', () => {
+    expect(() =>
       validate({
         data: { type: 'webhook', webhookPath: '///', webhookSecret: 'secret' },
         operation: 'create',
       })
-    ).rejects.toThrow('Webhook path must be a single path segment without whitespace')
+    ).toThrow('Webhook path must be a single path segment without whitespace')
   })
 })
 
@@ -79,8 +79,8 @@ describe('automation-triggers webhook secret storage', () => {
     expect(field?.access?.update()).toBe(false)
   })
 
-  it('hashes a submitted secret and drops the plaintext', async () => {
-    const result = await validate({
+  it('hashes a submitted secret and drops the plaintext', () => {
+    const result = validate({
       data: { type: 'webhook', webhookPath: 'orders', webhookSecret: 's3cret' },
       operation: 'create',
     })
@@ -88,15 +88,15 @@ describe('automation-triggers webhook secret storage', () => {
     expect(result).not.toHaveProperty('webhookSecret')
   })
 
-  it('requires a secret when creating a webhook trigger', async () => {
-    await expect(
+  it('requires a secret when creating a webhook trigger', () => {
+    expect(() =>
       validate({ data: { type: 'webhook', webhookPath: 'orders' }, operation: 'create' })
-    ).rejects.toThrow('Webhook secret is required for webhook triggers')
+    ).toThrow('Webhook secret is required for webhook triggers')
   })
 
-  it('keeps the stored hash when an update leaves the secret empty', async () => {
+  it('keeps the stored hash when an update leaves the secret empty', () => {
     const storedHash = hashWebhookSecret('old')
-    const result = await validate({
+    const result = validate({
       data: { type: 'webhook', webhookPath: 'orders', webhookSecret: '' },
       operation: 'update',
       originalDoc: { type: 'webhook', webhookPath: 'orders', webhookSecretHash: storedHash },
@@ -104,8 +104,8 @@ describe('automation-triggers webhook secret storage', () => {
     expect(result.webhookSecretHash ?? storedHash).toBe(storedHash)
   })
 
-  it('rotates the secret on a partial update that only sends a new one', async () => {
-    const result = await validate({
+  it('rotates the secret on a partial update that only sends a new one', () => {
+    const result = validate({
       data: { webhookSecret: 'new' },
       operation: 'update',
       originalDoc: { type: 'webhook', webhookPath: 'orders', webhookSecretHash: hashWebhookSecret('old') },

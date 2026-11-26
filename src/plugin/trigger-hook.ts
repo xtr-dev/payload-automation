@@ -177,7 +177,7 @@ export const createTriggerHook = (config: TriggerConfig) => {
         }
 
         try {
-          await executor.execute(workflow as any, context, req, firedTrigger)
+          await executor.execute(workflow, context, req, firedTrigger)
           logger.info({
             workflowId: workflow.id,
             workflowName: workflow.name,

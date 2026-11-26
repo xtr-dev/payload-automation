@@ -201,7 +201,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         borderRadius: '6px',
         fontSize: '13px'
       }}>
-        <strong>💡 Quick fixes:</strong>
+        <strong><span aria-label="Tip" role="img">💡</span> Quick fixes:</strong>
         <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
           {errorInfo.type === 'timeout' && (
             <>

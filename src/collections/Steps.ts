@@ -194,7 +194,7 @@ export const createStepsCollection = (
     hooks: {
       beforeChange: [
         // Validate that type is selected
-        async ({ data, operation }) => {
+        ({ data, operation }) => {
           if ((operation === 'create' || operation === 'update') && !data?.type) {
             throw new Error('Step type is required')
           }
