@@ -18,14 +18,14 @@ export const ReadDocumentStepTask = {
       name: 'id',
       type: 'text',
       admin: {
-        description: 'The ID of a specific document to read. Use JSONPath (e.g., "$.trigger.doc.relatedId"). Leave empty to find multiple.'
+        description: 'The ID of a specific document to read. Use a whole-string JSONata template (e.g., "{{trigger.doc.relatedId}}"). Leave empty to find multiple.'
       }
     },
     {
       name: 'where',
       type: 'json',
       admin: {
-        description: 'Query conditions to find documents when ID is not provided. Use JSONPath in values (e.g., {"category": "$.trigger.doc.category", "status": "published"})'
+        description: 'Query conditions to find documents when ID is not provided. Use whole-string JSONata templates in values (e.g., {"category": "{{trigger.doc.category}}", "status": "published"})'
       }
     },
     {

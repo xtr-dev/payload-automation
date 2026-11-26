@@ -1,17 +1,31 @@
 import type { CollectionConfig } from 'payload'
 
+import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
+
+import { adminUserAccess, resolveCollectionAccess } from './access.js'
+
 /**
  * WorkflowRuns collection for tracking workflow executions.
  * Enhanced with structured step results and trigger tracking.
  */
-export const WorkflowRunsCollection: CollectionConfig = {
-  slug: 'workflow-runs',
-  access: {
-    create: () => true,
-    delete: () => true,
-    read: () => true,
-    update: () => true,
-  },
+export const createWorkflowRunsCollection = (
+  options: WorkflowsPluginConfig
+): CollectionConfig => {
+  return {
+    slug: 'workflow-runs',
+    access: resolveCollectionAccess(options, 'workflow-runs', {
+      create: adminUserAccess,
+      delete: adminUserAccess,
+      // Run records carry trigger snapshots, step inputs/outputs and HTTP
+      // response bodies, so reads are not public by default.
+      read: adminUserAccess,
+      // This collection has no versions or drafts; readVersions is set so
+      // enabling them later does not fall back to Payload's default of
+      // "any logged-in user". unlock releases another user's edit lock.
+      readVersions: adminUserAccess,
+      unlock: adminUserAccess,
+      update: adminUserAccess,
+    }),
   admin: {
     defaultColumns: ['workflow', 'status', 'firedTrigger', 'startedAt', 'duration'],
     group: 'Automation',
@@ -309,4 +323,5 @@ export const WorkflowRunsCollection: CollectionConfig = {
       }
     ],
   },
+  }
 }
