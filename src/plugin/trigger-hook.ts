@@ -8,6 +8,32 @@ import {
 
 export type TriggerType = 'collection' | 'global'
 
+/**
+ * The parts of a PayloadRequest that trigger expressions may read as
+ * `trigger.req`: the acting user and the request locale. Everything else on
+ * the request (payload, transactionID, headers, the raw request) stays out of
+ * the expression context.
+ */
+const toExpressionReq = (req: any) =>
+  req && typeof req === 'object'
+    ? { fallbackLocale: req.fallbackLocale, locale: req.locale, user: req.user }
+    : req
+
+/**
+ * Copies hook arguments for the expression context, replacing each request
+ * object with its plain projection from toExpressionReq.
+ */
+const toExpressionArgs = (args: any) => {
+  const copy = { ...args }
+  if ('req' in copy) {
+    copy.req = toExpressionReq(copy.req)
+  }
+  if (copy.args && typeof copy.args === 'object' && 'req' in copy.args) {
+    copy.args = { ...copy.args, req: toExpressionReq(copy.args.req) }
+  }
+  return copy
+}
+
 export interface TriggerConfig {
   type: TriggerType
   slug: string
@@ -21,11 +47,15 @@ export interface TriggerConfig {
 export const createTriggerHook = (config: TriggerConfig) => {
   const { type, slug, hookType } = config
 
-  // Build context based on trigger type
+  // Build context based on trigger type. JSONata conditions and step inputs
+  // are evaluated against this object as-is, so it must not hold the live
+  // PayloadRequest: through `trigger.req.payload` an expression could reach
+  // the whole Payload instance. Hook args carry req at the top level and, for
+  // operation hooks (beforeOperation, me, refresh), also under `args.req`.
   const buildContext = (args: any, firedTrigger?: any) => ({
     steps: {},
     trigger: {
-      ...args,
+      ...toExpressionArgs(args),
       type,
       firedTrigger,
       ...(type === 'collection'

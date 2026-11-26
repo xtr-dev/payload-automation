@@ -229,6 +229,49 @@ describe('workflow execution options', () => {
     expect(JSON.stringify(run)).not.toMatch(AUTH_SECRET_PATTERN)
   })
 
+  it('keeps the live PayloadRequest out of hook trigger expressions', async () => {
+    payload = await getTestPayload(dbFile, { steps: [noopTask, captureTask] })
+    capturedInputs.length = 0
+    const trigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'posts afterChange', type: 'collection-hook', collectionSlug: 'posts', hook: 'afterChange' },
+    })
+    const step = await payload.create({
+      collection: 'automation-steps',
+      data: {
+        name: 'capture',
+        type: captureTask.slug,
+        config: {
+          leakedSecret: '{{trigger.req.payload.secret}}',
+          reqKeys: '{{$keys(trigger.req)}}',
+          actorEmail: '{{trigger.req.user.email}}',
+        },
+      },
+    })
+    await payload.create({
+      collection: 'workflows',
+      data: {
+        name: 'probe req',
+        slug: `probe-req-${uniqueId()}`,
+        triggers: [trigger.id],
+        steps: [{ step: step.id, slug: 'capture', stepName: 'capture' }],
+      },
+    })
+    const user = await payload.create({
+      collection: 'users',
+      data: { email: 'editor@example.com', password: 'test-password' },
+    })
+
+    await payload.create({ collection: 'posts', data: {}, user })
+
+    expect(capturedInputs).toHaveLength(1)
+    const received = capturedInputs[0] as { actorEmail?: string; leakedSecret?: unknown; reqKeys?: unknown }
+    expect(received.leakedSecret).toBeUndefined()
+    expect(received.reqKeys).not.toContain('payload')
+    // The acting user stays readable, as documented for trigger.req.user.
+    expect(received.actorEmail).toBe('editor@example.com')
+  })
+
   it('with stripUserData, hides the acting user from step input expressions', async () => {
     payload = await getTestPayload(dbFile, {
       collectionTriggers: { users: { afterChange: true } },
