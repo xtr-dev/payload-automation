@@ -5,6 +5,7 @@ import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 import { adminUserAccess, resolveCollectionAccess } from './access.js'
 import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
 import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
+import { assertValidSchedule } from '../utils/schedule.js'
 import { hashWebhookSecret, normalizeWebhookPath } from '../utils/webhook.js'
 
 const collectReferencedTriggerIds = (workflow: Record<string, unknown>): (number | string)[] => {
@@ -154,8 +155,40 @@ export const createTriggersCollection = <T extends string>(
         type: 'text',
         admin: {
           condition: (_, siblingData) => siblingData?.type === 'scheduled',
-          description: 'Cron expression (e.g., "0 9 * * *" for 9 AM daily)',
+          description:
+            'Cron expression (e.g., "0 9 * * *" for 9 AM daily; an optional leading seconds field is supported). Fired by the plugin\'s scheduled job task, which needs a running Payload job runner.',
           placeholder: '0 9 * * *',
+        },
+      },
+      {
+        name: 'timezone',
+        type: 'text',
+        admin: {
+          condition: (_, siblingData) => siblingData?.type === 'scheduled',
+          description:
+            'IANA timezone the schedule is evaluated in (e.g., "Europe/Amsterdam"). Leave empty to use the server\'s timezone.',
+          placeholder: 'Europe/Amsterdam',
+        },
+      },
+      {
+        // Written by the scheduler (scheduled-triggers.ts) when it claims an
+        // occurrence, and by the beforeChange hook below when the schedule
+        // changes. Field access refuses client-supplied values, so saving an
+        // admin form opened before the last fire cannot move it back in time
+        // and make an occurrence fire twice.
+        name: 'lastFiredAt',
+        type: 'date',
+        access: {
+          create: () => false,
+          update: () => false,
+        },
+        admin: {
+          condition: (_, siblingData) => siblingData?.type === 'scheduled',
+          date: { pickerAppearance: 'dayAndTime' },
+          description:
+            'When the scheduler last fired this trigger. Set to the save time when the schedule is created or changed, so only occurrences after that fire.',
+          position: 'sidebar',
+          readOnly: true,
         },
       },
       // Webhook fields
@@ -260,6 +293,23 @@ export const createTriggersCollection = <T extends string>(
             }
             if (data?.type === 'scheduled' && !data?.schedule) {
               throw new Error('Schedule is required for scheduled triggers')
+            }
+            if (data?.type === 'scheduled' && typeof data.schedule === 'string') {
+              if (typeof data.timezone === 'string') {
+                data.timezone = data.timezone.trim() || null
+              }
+              assertValidSchedule(data.schedule, data.timezone)
+              // Occurrences before the schedule was saved are not owed: start
+              // counting from now, so a new or edited schedule neither fires
+              // immediately for the past nor skips its first occurrence.
+              const scheduleChanged =
+                operation === 'create' ||
+                originalDoc?.type !== 'scheduled' ||
+                originalDoc?.schedule !== data.schedule ||
+                (originalDoc?.timezone ?? null) !== (data.timezone ?? null)
+              if (scheduleChanged) {
+                data.lastFiredAt = new Date().toISOString()
+              }
             }
             if (data?.type === 'webhook' && !data?.webhookPath) {
               throw new Error('Webhook path is required for webhook triggers')

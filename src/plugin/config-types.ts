@@ -149,6 +149,30 @@ export type WorkflowsPluginConfig<
     }
 
     /**
+     * Firing of `scheduled` (cron) triggers.
+     *
+     * The plugin registers the `automation-scheduled-triggers` job task with a
+     * Payload `schedule`, so Payload's scheduler queues it every `tick` on
+     * `queue`. Each run fires the scheduled triggers that came due since they
+     * last fired (at most once each, however many occurrences were missed).
+     * Nothing fires unless the host runs Payload's job queue with scheduling:
+     * `jobs.autoRun` on a long-running server, or a cron calling
+     * `GET /api/payload-jobs/run` (see the README).
+     *
+     * - `tick`: how often to look for due triggers, as a cron expression
+     *   (an optional leading seconds field is supported). A trigger can fire
+     *   no more precisely than this. Default: `'* * * * *'` (every minute).
+     * - `queue`: the jobs queue the task is scheduled on. Default: `'default'`.
+     *
+     * Set to `false` to register no task; scheduled triggers then only fire
+     * when `runScheduledTriggers(payload)` is called.
+     */
+    scheduledTriggers?: false | {
+        queue?: string
+        tick?: string
+    }
+
+    /**
      * Leave the triggering user out of what is stored on `workflow-runs`.
      * When `true`, every `user` object outside the document being acted on
      * (`req.user`, the trigger's own `user`, afterMe's `response.user`,

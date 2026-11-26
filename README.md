@@ -2,7 +2,7 @@
 
 [![npm version](https://badge.fury.io/js/@xtr-dev%2Fpayload-automation.svg)](https://www.npmjs.com/package/@xtr-dev/payload-automation)
 
-A workflow automation plugin for PayloadCMS 3.x. Build visual workflows triggered by document changes, webhooks, or manual execution.
+A workflow automation plugin for PayloadCMS 3.x. Build visual workflows triggered by document changes, cron schedules, webhooks, or manual execution.
 
 > **Pre-release Warning**: This package is currently in active development (v0.0.x). Breaking changes may occur before v1.0.0.
 
@@ -11,6 +11,7 @@ A workflow automation plugin for PayloadCMS 3.x. Build visual workflows triggere
 - 🔄 Visual workflow builder in PayloadCMS admin
 - ⚡ Run workflows when documents are created/updated/deleted
 - 🎯 Trigger workflows via webhooks
+- ⏰ Run workflows on a cron schedule
 - 📊 Track workflow execution history
 - 🔧 HTTP requests, document operations, email sending
 - 🔗 Use data from previous steps in templates
@@ -395,6 +396,37 @@ The plugin stores only a SHA-256 hash of the secret, so it is never returned by 
 
 The JSON request body is available to expressions as `trigger.doc` (and `trigger.body`), query parameters as `trigger.query`. The response lists each workflow the call reached and whether it was `triggered`, `skipped` (trigger condition evaluated false), or `failed`. Each execution is recorded in `workflow-runs` like any other trigger.
 
+## Scheduled Triggers
+
+A trigger of type **Scheduled (Cron)** runs its workflows on a cron expression (`schedule`, e.g. `0 9 * * *`; a leading seconds field is optional), evaluated in the trigger's `timezone` (an IANA name such as `Europe/Amsterdam`; empty means the server's timezone). Invalid expressions and timezones are rejected on save.
+
+The plugin fires them from a Payload job task, `automation-scheduled-triggers`, registered with a Payload `schedule` so Payload's scheduler queues it every `tick` (default every minute). **Nothing fires unless your app runs Payload's job queue with scheduling**, using one of:
+
+```typescript
+// Long-running server: handles schedules and runs jobs every minute.
+// The queue must match scheduledTriggers.queue ('default' unless you set it).
+buildConfig({
+  jobs: { autoRun: [{ cron: '* * * * *', queue: 'default' }] },
+})
+```
+
+- Serverless: call `GET /api/payload-jobs/run?queue=default` from an external cron (e.g. Vercel Cron) at least as often as the tick. It handles schedules before running jobs unless you pass `disableScheduling=true`. It requires a logged-in user by default, so set `jobs.access.run` to accept your cron's credentials (for example, compare the `Authorization` header with a `CRON_SECRET` environment variable).
+- Your own runner: `await payload.jobs.handleSchedules()` then `await payload.jobs.run()`. Or skip Payload's scheduler and call `runScheduledTriggers(payload)` from `@xtr-dev/payload-automation/server` yourself.
+
+How firing works:
+
+- On each tick, every scheduled trigger whose next occurrence after its `lastFiredAt` has passed fires once: each enabled workflow that uses it runs (subject to the trigger's `condition`) and is recorded in `workflow-runs` like any other trigger. `lastFiredAt` is shown read-only on the trigger.
+- Each occurrence is claimed with an atomic conditional update before anything runs, so overlapping ticks and multiple server instances do not fire it twice. Firing is at most once: a crash between the claim and the run skips that occurrence.
+- Occurrences missed while nothing ran (downtime, a stopped job runner) fire once in total, not once each. Saving a new or changed schedule starts counting from the save time, so past occurrences are never backfilled; triggers saved before this feature existed start counting at the first tick.
+- Occurrences that pass while a workflow is disabled, or whose condition is false, are consumed, not fired later.
+- A trigger fires no more precisely than the tick: with the default, up to about a minute after its occurrence.
+
+Expressions see `trigger.type` (`'scheduled'`), `trigger.scheduledAt` (the occurrence being fired, the latest one after downtime), `trigger.firedAt`, `trigger.previousFiredAt`, `trigger.schedule`, `trigger.timezone` and `trigger.firedTrigger`.
+
+Database schema: scheduled triggers add two columns to `automation-triggers` (`timezone`, `last_fired_at`), and because the plugin registers a scheduled task, Payload adds its `payload-jobs-stats` global. SQL adapters with migrations (Postgres, SQLite) need a new migration (`payload migrate:create`); MongoDB needs nothing.
+
+Configure the task with the `scheduledTriggers` plugin option (see [Plugin Configuration](#plugin-configuration)).
+
 ## JSONata Expressions
 
 Use `{{expression}}` syntax for dynamic values. [JSONata](https://jsonata.org) provides powerful data transformation.
@@ -402,9 +434,10 @@ Use `{{expression}}` syntax for dynamic values. [JSONata](https://jsonata.org) p
 ### Available Context
 
 - `trigger.doc` - The document that triggered the workflow (for webhooks: the JSON request body)
-- `trigger.type` - Trigger type ('collection' | 'global' | 'webhook')
+- `trigger.type` - Trigger type ('collection' | 'global' | 'webhook' | 'scheduled')
 - `trigger.collection` - Collection slug for collection triggers
 - `trigger.query` - Query parameters for webhook triggers
+- `trigger.scheduledAt` / `trigger.firedAt` - Occurrence and actual fire time for scheduled triggers
 - `steps.<stepName>.output` - Output from a completed step
 - `steps.<stepName>.state` - Step state ('succeeded' | 'failed' | 'pending' | 'skipped')
 
@@ -512,6 +545,12 @@ interface WorkflowsPluginConfig {
   // (jobs.autoRun, `payload jobs:run`) processes it, using the stored
   // triggerData snapshot.
   execution?: { mode?: 'inline' | 'queue'; queue?: string }
+
+  // Scheduled (cron) triggers: the automation-scheduled-triggers task is
+  // scheduled every `tick` (default '* * * * *') on `queue` (default
+  // 'default'). Needs a job runner with scheduling (see "Scheduled
+  // Triggers"). false registers no task.
+  scheduledTriggers?: false | { tick?: string; queue?: string }
 
   // Leave user objects (req.user, the trigger's `user`, afterMe's
   // response.user, ...) out of the triggerData, context and inputs stored on
