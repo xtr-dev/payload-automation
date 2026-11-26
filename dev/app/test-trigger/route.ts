@@ -20,39 +20,52 @@ export async function GET() {
     
     console.log('Created test user:', user.id)
     
-    // Create a workflow with collection trigger
+    // Triggers and steps are separate collections that workflows reference
+    const trigger = await payload.create({
+      collection: 'automation-triggers',
+      data: {
+        name: 'Test: post created',
+        type: 'collection-hook',
+        collectionSlug: 'posts',
+        hook: 'afterChange',
+        condition: 'trigger.operation = "create"'
+      }
+    })
+
+    const step = await payload.create({
+      collection: 'automation-steps',
+      data: {
+        name: 'Test: log post',
+        type: 'http-request-step',
+        config: {
+          url: 'https://httpbin.org/post',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: {
+            message: 'Post created',
+            postId: '{{trigger.doc.id}}',
+            content: '{{trigger.doc.content}}'
+          }
+        }
+      }
+    })
+
     const workflow = await payload.create({
       collection: 'workflows',
       data: {
         name: 'Test Post Creation Workflow',
         description: 'Triggers when a post is created',
-        triggers: [
-          {
-            type: 'collection-trigger',
-            collectionSlug: 'posts',
-            operation: 'create'
-          }
-        ],
+        triggers: [trigger.id],
         steps: [
           {
-            name: 'log-post',
-            taskSlug: 'http-request-step',
-            input: JSON.stringify({
-              url: 'https://httpbin.org/post',
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              body: {
-                message: 'Post created',
-                postId: '$.trigger.doc.id',
-                postTitle: '$.trigger.doc.title'
-              }
-            })
+            step: step.id,
+            slug: 'log-post',
+            stepName: 'Log post'
           }
         ]
-      },
-      user: user.id
+      }
     })
     
     console.log('Created workflow:', workflow.id, workflow.name)
@@ -63,7 +76,6 @@ export async function GET() {
     const post = await payload.create({
       collection: 'posts',
       data: {
-        title: 'Test Post',
         content: 'This should trigger the workflow',
         _status: 'published'
       },
