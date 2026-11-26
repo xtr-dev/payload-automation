@@ -628,7 +628,7 @@ may edit the documents that are not locked.
 
 - PayloadCMS ^3.79.1
 - Node.js ^18.20.2 || >=20.9.0
-- React 18+ (for client components)
+- React ^19.0.0 (for client components; declared as a peer dependency)
 
 ## Logging
 
