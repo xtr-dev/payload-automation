@@ -18,8 +18,7 @@ export type {
 
 // Pure types only - completely safe for client bundling
 export type {
-  SeedWorkflow,
-  WorkflowLoggingConfig
+  SeedWorkflow
 } from './types/index.js'
 
 // Re-export the full plugin config type from server exports
