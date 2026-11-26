@@ -33,8 +33,6 @@
   ],
   "exclude": [
     "./src/test",
-    "./test-results",
-    "./src/**/*.test.ts",
-    "./src/**/*.test-d.ts"
+    "./test-results"
   ]
 }
