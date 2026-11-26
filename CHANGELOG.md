@@ -1,90 +1,31 @@
 # Changelog
 
-All notable changes to the PayloadCMS Automation Plugin will be documented in this file.
+Release notes from before this changelog was generated (up to v0.0.39) are in [changelog/HISTORY.md](changelog/HISTORY.md).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.3.0](https://github.com/xtr-dev/payload-automation/compare/v0.2.0...v0.3.0) - 2026-11-26
 
-## [0.0.39] - 2025-09-11
+### Features
+- **triggers:** fire scheduled (cron) triggers through Payload's job scheduler ([#54](https://github.com/xtr-dev/payload-automation/issues/54)) ([8486c0d](https://github.com/xtr-dev/payload-automation/commit/8486c0de92f5db5cb87deb7183f5811ef7899278))
 
-### Changed
-- **Breaking Change**: Replaced JSONPath with Handlebars template system for better string interpolation
-- Automatic type conversion for numeric and boolean fields based on field names
-- Enhanced condition evaluation with Handlebars template support
-- Simplified data resolution syntax: `{{steps.stepName.output.field}}` instead of `$.steps.stepName.output.field`
+## [0.2.0](https://github.com/xtr-dev/payload-automation/compare/v0.1.0...v0.2.0) - 2026-11-26
 
-### Removed
-- **Breaking Change**: Removed JSONPath dependency (`jsonpath-plus`) and all backward compatibility
-- Removed `resolveJSONPathValue` and `parseConditionValue` methods
+### Breaking
+- **triggers:** report failed run ids from triggerWorkflowById and honour enabled ([#53](https://github.com/xtr-dev/payload-automation/issues/53)) ([7eae958](https://github.com/xtr-dev/payload-automation/commit/7eae9581301562924b399a2bb2bcd9ff0a3d3fc3))
 
-### Added
-- Handlebars template engine for dynamic data interpolation
-- Smart type conversion: strings to numbers/booleans based on field patterns
-- Enhanced template examples and documentation
-- Support for complex string building: `"Post {{trigger.doc.title}} was updated"`
+### Fixes
+- **executor:** capture step outputs when Payload deletes completed jobs ([#52](https://github.com/xtr-dev/payload-automation/issues/52)) ([454ba26](https://github.com/xtr-dev/payload-automation/commit/454ba2603c39d85db799b13ab7b40353daa6fedb))
 
-### Migration Notes
-- Update all workflow configurations to use Handlebars syntax:
-  - `$.steps.stepName.output.id` → `{{steps.stepName.output.id}}`
-  - `$.trigger.doc.status == 'published'` → `{{trigger.doc.status}} == 'published'`
-- String interpolation now works naturally: `"Message: {{steps.step1.output.result}}"`
-- Numeric fields (`timeout`, `retries`, etc.) are automatically converted from strings to numbers
+## [0.1.0] - 2026-11-25
 
-## [0.0.38] - 2025-09-10
+### Breaking
+- **types:** re-export the runtime trigger and execution types from the main entry ([#35](https://github.com/xtr-dev/payload-automation/issues/35)) ([5f79d29](https://github.com/xtr-dev/payload-automation/commit/5f79d29624aae3b5381ec986dbbf0a664186b3fa))
 
-### Changed
-- Updated dependencies to PayloadCMS 3.45.0
-- Enhanced plugin configuration and stability
+### Features
+- **triggers:** serve webhook triggers through an authenticated endpoint ([#15](https://github.com/xtr-dev/payload-automation/issues/15)) ([08c6f3f](https://github.com/xtr-dev/payload-automation/commit/08c6f3f1255391adf2d604921101b7a290e4bcba))
 
-## [0.0.37] - 2025-09-XX
+### Fixes
+- **access:** restrict automation collections to users who can access /admin ([#24](https://github.com/xtr-dev/payload-automation/issues/24)) ([53cf369](https://github.com/xtr-dev/payload-automation/commit/53cf36920473cbe9da4e4205031fc3d8b732f675))
+- **triggers:** keep the live PayloadRequest out of the JSONata trigger context ([#14](https://github.com/xtr-dev/payload-automation/issues/14)) ([2fe4e90](https://github.com/xtr-dev/payload-automation/commit/2fe4e905e27f0c60b3f229ebb2642a8bd70ff232))
 
-### Removed
-- **Breaking Change**: Removed built-in cron trigger implementation in favor of webhook-based scheduling
-- Removed unused plugin modules and associated tests
-- Removed `initCollectionHooks` and associated migration guides
-
-### Changed
-- Refactored triggers to TriggerConfig pattern
-- Simplified executor architecture by removing executorRegistry pattern
-- Updated to on-demand workflow execution creation
-
-### Added
-- Migration guide for v0.0.37 (MIGRATION-v0.0.37.md)
-- Enhanced parameter field configuration
-
-### Migration Notes
-- Built-in cron triggers are no longer supported. Use webhook triggers with external cron services (GitHub Actions, Vercel Cron, etc.)
-- Update trigger configurations to use the new TriggerConfig pattern
-- See MIGRATION-v0.0.37.md for detailed migration steps
-
-## [0.0.16] - 2025-09-01
-
-### Fixed
-- **Critical Bug**: Removed problematic `hooksInitialized` flag that prevented proper hook registration in development environments
-- **Silent Failures**: Added comprehensive error logging with "AUTOMATION PLUGIN:" prefix for easier debugging
-- **Hook Execution**: Added try/catch blocks in hook execution to prevent silent failures and ensure workflow execution continues
-- **Development Mode**: Fixed issue where workflows would not execute even when properly configured due to hook registration being skipped
-
-### Changed
-- Enhanced logging throughout the hook execution pipeline for better debugging visibility
-- Improved error handling to prevent workflow execution failures from breaking other hooks
-
-### Migration Notes
-- No breaking changes - this is a critical bug fix release
-- Existing workflows should now execute properly after updating to this version
-- Enhanced logging will provide better visibility into workflow execution
-
-## [0.0.15] - 2025-08-XX
-
-### Changed
-- Updated workflow condition evaluation to use JSONPath expressions
-- Changed step configuration from `type`/`inputs` to `step`/`input`
-- Updated workflow collection schema for improved flexibility
-
-## [0.0.14] - 2025-08-XX
-
-### Added
-- Initial workflow automation functionality
-- Collection trigger support
-- Step execution engine
-- Basic workflow management
+### Other
+- release through the shared workflow with xtr-dev/changelog ([#51](https://github.com/xtr-dev/payload-automation/issues/51)) ([3555cf1](https://github.com/xtr-dev/payload-automation/commit/3555cf146c09c9a3654bcade5e087998a70c8ded))

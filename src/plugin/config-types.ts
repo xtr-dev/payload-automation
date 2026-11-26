@@ -35,6 +35,15 @@ export type SeedWorkflow = {
 }
 
 /**
+ * Slugs of the collections registered by the plugin.
+ */
+export type AutomationCollectionSlug =
+    | 'workflows'
+    | 'automation-triggers'
+    | 'automation-steps'
+    | 'workflow-runs'
+
+/**
  * Plugin configuration for the workflows automation plugin.
  */
 export type WorkflowsPluginConfig<
@@ -96,6 +105,30 @@ export type WorkflowsPluginConfig<
     triggers?: TriggerConfig[]
 
     /**
+     * Per-collection access overrides for the automation collections.
+     *
+     * By default every operation on the automation collections — reads
+     * included — requires an authenticated user from the admin user
+     * collection (`config.admin.user`). Workflow documents execute HTTP
+     * requests and document writes with the host application's privileges,
+     * and step configs and run records can hold credentials and response
+     * bodies, so Payload's "any logged-in user" default is not safe here.
+     *
+     * Each key replaces the default access function for that operation on
+     * that collection; operations left out keep the secure default. Plugin
+     * internals (seeding, execution, usage counts) use the Local API and
+     * are unaffected by these functions.
+     *
+     * Overrides decide who may perform an operation; they do not switch off
+     * the read-only locks. Update and delete on `workflows` still refuse
+     * stored `readOnly: true` workflows, and update and delete on
+     * `automation-triggers` and `automation-steps` still refuse documents a
+     * read-only workflow references: the lock is ANDed with the override
+     * (a `Where` it returns is combined with the override's result).
+     */
+    access?: Partial<Record<AutomationCollectionSlug, Partial<CollectionConfig['access']>>>
+
+    /**
      * Where workflow steps run once a trigger fires.
      *
      * - `mode: 'inline'` (default): steps run inside the hook or call that
@@ -113,6 +146,30 @@ export type WorkflowsPluginConfig<
     execution?: {
         mode?: 'inline' | 'queue'
         queue?: string
+    }
+
+    /**
+     * Firing of `scheduled` (cron) triggers.
+     *
+     * The plugin registers the `automation-scheduled-triggers` job task with a
+     * Payload `schedule`, so Payload's scheduler queues it every `tick` on
+     * `queue`. Each run fires the scheduled triggers that came due since they
+     * last fired (at most once each, however many occurrences were missed).
+     * Nothing fires unless the host runs Payload's job queue with scheduling:
+     * `jobs.autoRun` on a long-running server, or a cron calling
+     * `GET /api/payload-jobs/run` (see the README).
+     *
+     * - `tick`: how often to look for due triggers, as a cron expression
+     *   (an optional leading seconds field is supported). A trigger can fire
+     *   no more precisely than this. Default: `'* * * * *'` (every minute).
+     * - `queue`: the jobs queue the task is scheduled on. Default: `'default'`.
+     *
+     * Set to `false` to register no task; scheduled triggers then only fire
+     * when `runScheduledTriggers(payload)` is called.
+     */
+    scheduledTriggers?: false | {
+        queue?: string
+        tick?: string
     }
 
     /**

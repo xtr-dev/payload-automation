@@ -44,6 +44,8 @@ export const collectionHookGroups: HookOptionGroup[] = [
       { value: 'afterForgotPassword', label: 'After Forgot Password', description: 'Fires after forgot password request' },
       { value: 'afterRefresh', label: 'After Token Refresh', description: 'Fires after auth token is refreshed' },
       { value: 'afterMe', label: 'After Me Query', description: 'Fires after /me endpoint is called' },
+      { value: 'refresh', label: 'Refresh', description: 'Fires during the token refresh operation, can return early' },
+      { value: 'me', label: 'Me', description: 'Fires during the /me operation, can return early' },
     ]
   },
   {
@@ -73,6 +75,7 @@ export const globalHookGroups: HookOptionGroup[] = [
       { value: 'beforeValidate', label: 'Before Validate', description: 'Fires before field validation runs' },
       { value: 'beforeChange', label: 'Before Save', description: 'Fires after validation, before saving' },
       { value: 'beforeRead', label: 'Before Read', description: 'Fires before the global is fetched' },
+      { value: 'beforeOperation', label: 'Before Operation', description: 'Fires before any CRUD operation on the global' },
     ]
   }
 ]
