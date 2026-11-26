@@ -38,7 +38,8 @@ export interface TriggerResult {
 }
 
 /**
- * Programmatically trigger workflows that have a matching custom trigger
+ * Programmatically trigger the enabled workflows that have a matching custom
+ * trigger. Workflows with `enabled: false` are skipped.
  *
  * @example
  * ```typescript
@@ -74,6 +75,9 @@ export async function triggerCustomWorkflow(
       depth: 2,
       limit: 100,
       where: {
+        enabled: {
+          equals: true
+        },
         'triggers.type': {
           equals: slug
         }
@@ -134,7 +138,6 @@ export async function triggerCustomWorkflow(
           trigger: {
             type: slug,
             data,
-            req: workflowReq,
             triggeredAt: new Date().toISOString(),
             user: (user || workflowReq.user) ? {
               id: (user || workflowReq.user)?.id?.toString(),
@@ -198,8 +201,15 @@ export async function triggerCustomWorkflow(
 }
 
 /**
- * Helper function to trigger a single workflow by ID with custom trigger data
- * This is useful when you know exactly which workflow you want to trigger
+ * Trigger a single workflow by ID with custom trigger data.
+ *
+ * Throws, without creating a run, when the workflow does not exist, has no
+ * trigger of type `triggerSlug`, or is disabled (`enabled: false`).
+ *
+ * Once the `workflow-runs` record exists the call resolves instead of
+ * throwing: with `status: 'triggered'` when the run succeeded (or, in queue
+ * mode, was queued), or with `status: 'failed'`, the step's `error` and the
+ * failed run's `runId` when a step failed.
  */
 export async function triggerWorkflowById(
   payload: Payload,
@@ -209,6 +219,10 @@ export async function triggerWorkflowById(
   req?: PayloadRequest
 ): Promise<TriggerResult> {
   const logger = initializeLogger(payload)
+
+  // Set once the run record exists, so a failed run still reports its id.
+  let createdRunId: number | string | undefined
+  let workflowName: string | undefined
 
   try {
     const workflow = await payload.findByID({
@@ -220,13 +234,18 @@ export async function triggerWorkflowById(
     if (!workflow) {
       throw new Error(`Workflow ${workflowId} not found`)
     }
+    workflowName = workflow.name as string
 
     // Verify the workflow has the specified custom trigger
-    const triggers = workflow.triggers as Array<{type: string}>
-    const hasMatchingTrigger = triggers?.some(trigger => trigger.type === triggerSlug)
+    const triggers = workflow.triggers as Array<{ id?: number | string; type: string }>
+    const firedTrigger = triggers?.find(trigger => trigger?.type === triggerSlug)
 
-    if (!hasMatchingTrigger) {
+    if (!firedTrigger) {
       throw new Error(`Workflow ${workflowId} does not have trigger ${triggerSlug}`)
+    }
+
+    if (workflow.enabled === false) {
+      throw new Error(`Workflow ${workflowId} is disabled`)
     }
 
     // Create a minimal request if not provided
@@ -242,29 +261,44 @@ export async function triggerWorkflowById(
       trigger: {
         type: triggerSlug,
         data: data || {},
-        req: workflowReq,
         triggeredAt: new Date().toISOString()
       }
     }
 
     // Create executor and execute
     const executor = new WorkflowExecutor(payload, logger)
-    const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq)
+    const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq, firedTrigger, {
+      onRunCreated: (id) => {
+        createdRunId = id
+      }
+    })
 
     return {
       runId: runId.toString(),
       status: 'triggered',
       workflowId: workflow.id.toString(),
-      workflowName: workflow.name as string
+      workflowName
     }
 
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
     logger.error({
-      error: error instanceof Error ? error.message : 'Unknown error',
+      error: errorMessage,
+      runId: createdRunId,
       triggerSlug,
       workflowId
     }, 'Failed to trigger workflow by ID')
 
-    throw error
+    if (createdRunId === undefined) {
+      throw error
+    }
+
+    return {
+      error: errorMessage,
+      runId: createdRunId.toString(),
+      status: 'failed',
+      workflowId: String(workflowId),
+      workflowName: workflowName ?? ''
+    }
   }
 }

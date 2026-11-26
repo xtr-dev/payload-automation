@@ -1,8 +1,16 @@
 {
   "name": "@xtr-dev/payload-automation",
-  "version": "0.0.53",
+  "version": "0.3.0",
   "description": "PayloadCMS Automation Plugin - Comprehensive workflow automation system with visual workflow building, execution tracking, and step types",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xtr-dev/payload-automation.git"
+  },
+  "homepage": "https://github.com/xtr-dev/payload-automation#readme",
+  "bugs": {
+    "url": "https://github.com/xtr-dev/payload-automation/issues"
+  },
   "type": "module",
   "exports": {
     ".": {
@@ -56,9 +64,10 @@
     "lint": "eslint",
     "lint:fix": "eslint ./src --fix",
     "prepublishOnly": "pnpm clean && pnpm build",
-    "test": "pnpm test:int && pnpm test:e2e",
+    "test": "pnpm test:types && pnpm test:int && pnpm test:e2e",
     "test:e2e": "playwright test",
-    "test:int": "vitest run"
+    "test:int": "vitest run",
+    "test:types": "tsc --noEmit -p tsconfig.type-test.json"
   },
   "devDependencies": {
     "@payloadcms/db-mongodb": "3.81.0",
@@ -116,6 +125,7 @@
   "packageManager": "pnpm@10.12.4+sha512.5ea8b0deed94ed68691c9bad4c955492705c5eeb8a87ef86bc62c74a26b037b08ff9570f108b2e4dbd1dd1a9186fea925e527f141c648e85af45631074680184",
   "dependencies": {
     "@xyflow/react": "^12.10.0",
+    "croner": "^9.1.0",
     "jsonata": "^2.1.0"
   }
 }
