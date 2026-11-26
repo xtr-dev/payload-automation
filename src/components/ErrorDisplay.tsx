@@ -230,7 +230,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
           {errorInfo.type === 'validation' && (
             <>
               <li>Check all required fields are filled in the workflow step</li>
-              <li>Verify JSONPath expressions in step inputs</li>
+              <li>Verify JSONata expressions in step inputs</li>
             </>
           )}
           {(errorInfo.type === 'client' || errorInfo.type === 'server') && (
