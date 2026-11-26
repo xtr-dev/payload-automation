@@ -79,10 +79,8 @@
     "@payloadcms/ui": "3.81.0",
     "@playwright/test": "^1.59.1",
     "@swc/cli": "0.6.0",
-    "@types/handlebars": "^4.1.0",
     "@types/nock": "^11.1.0",
     "@types/node": "^22.5.4",
-    "@types/node-cron": "^3.0.11",
     "@types/react": "19.1.8",
     "@types/react-dom": "19.1.6",
     "copyfiles": "2.4.1",
@@ -104,7 +102,8 @@
   },
   "peerDependencies": {
     "@payloadcms/ui": "^3.79.1",
-    "payload": "^3.79.1"
+    "payload": "^3.79.1",
+    "react": "^19.0.0"
   },
   "peerDependenciesMeta": {
     "@payloadcms/ui": {
@@ -127,9 +126,6 @@
   "dependencies": {
     "@xyflow/react": "^12.10.0",
     "croner": "^9.1.0",
-    "handlebars": "^4.7.9",
-    "jsonata": "^2.1.0",
-    "node-cron": "^4.2.1",
-    "pino": "^9.9.0"
+    "jsonata": "^2.1.0"
   }
 }
