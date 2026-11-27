@@ -138,4 +138,25 @@ describe('triggerCustomWorkflow', () => {
     expect(results.map((r) => r.workflowId)).toEqual([enabledId])
     expect(await allRuns(payload)).toHaveLength(1)
   })
+
+  it('starts only the workflows with a manual trigger when no slug is given', async () => {
+    const manualId = await createManualWorkflow(payload)
+
+    // A workflow whose only trigger is a collection hook must not be started.
+    const hookTrigger = await payload.create({
+      collection: 'automation-triggers',
+      data: { name: 'posts afterChange', type: 'collection-hook', collectionSlug: 'posts', hook: 'afterChange' },
+    })
+    await payload.create({
+      collection: 'workflows',
+      data: { name: 'Hook only', slug: `hook-only-${uniqueId()}`, triggers: [hookTrigger.id], steps: [] },
+    })
+
+    const results = await triggerCustomWorkflow(payload, { data: { source: 'test' } })
+
+    expect(results.map((r) => r.workflowId)).toEqual([manualId])
+    expect(results[0].status).toBe('triggered')
+    const runs = await allRuns(payload)
+    expect(runs).toHaveLength(1)
+  })
 })
