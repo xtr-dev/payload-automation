@@ -151,7 +151,8 @@ describe('retryWorkflowRun', () => {
   })
 
   it('with resumeFromFailedStep, re-runs a succeeded step whose dependency runs again', async () => {
-    // errorHandling 'continue': flaky (first) fails, count (depends on flaky) still succeeds.
+    // errorHandling 'continue': flaky (first) fails. count depends on flaky but has its
+    // own condition, so it is not skipped for the failed dependency and still succeeds.
     const trigger = await payload!.create({
       collection: 'automation-triggers',
       data: { name: 'posts afterChange', type: 'collection-hook', collectionSlug: 'posts', hook: 'afterChange' },
@@ -173,7 +174,13 @@ describe('retryWorkflowRun', () => {
         triggers: [trigger.id],
         steps: [
           { step: flaky.id, slug: 'flaky', stepName: 'flaky' },
-          { step: counting.id, slug: 'count', stepName: 'count', dependencies: [{ slug: 'flaky' }] },
+          {
+            step: counting.id,
+            slug: 'count',
+            stepName: 'count',
+            condition: "steps.flaky.state in ['succeeded', 'failed']",
+            dependencies: [{ slug: 'flaky' }],
+          },
         ],
       },
     })

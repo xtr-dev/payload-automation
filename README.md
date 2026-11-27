@@ -161,7 +161,7 @@ steps: [
 ]
 ```
 
-A dependency on a slug that doesn't exist, or a cycle, fails the run. When a step fails, the workflow's `errorHandling` decides what happens: `stop` (default) fails the run, `continue` runs the remaining steps, including steps that depend on the failed one (guard them with a condition such as `` steps.`fetch-user`.state = 'succeeded' ``).
+A dependency on a slug that doesn't exist, or a cycle, fails the run. When a step fails, the workflow's `errorHandling` decides what happens: `stop` (default) fails the run, `continue` runs the remaining independent steps and skips the steps that depend on the failed one, directly or through other skipped steps. A skipped step is recorded with status `skipped` and an `output.reason` such as `Dependency "fetch-user" failed`. A dependent step with its own `condition` is not skipped automatically; its condition decides, so a step with `dependencies: ['fetch-user']` and the condition `` steps.`fetch-user`.state = 'failed' `` runs only when `fetch-user` fails. The run ends as `completed`.
 
 Step outputs are captured as the task handler returns, so they work with Payload's default `jobs.deleteJobOnComplete: true`. The exception is a task whose `handler` is a module path string (or a task added to the config after this plugin runs): its output is read back from the job, so it is only available when completed jobs are kept (`deleteJobOnComplete: false`).
 

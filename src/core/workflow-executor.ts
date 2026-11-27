@@ -760,6 +760,48 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Build a `skipped` result for `step` when a step it depends on failed (or
+   * was itself skipped for that reason), so the step does not run with that
+   * dependency's output missing. Returns undefined when the step should run.
+   *
+   * A step with its own `condition` is not skipped here: its condition decides,
+   * which lets a step such as one with `steps.<slug>.state = 'failed'` handle
+   * the failure of the step it depends on.
+   */
+  private skipForFailedDependency(
+    step: ResolvedStep,
+    context: ExecutionContext,
+    unavailableSlugs: Map<string, 'failed' | 'skipped'>
+  ): StepResult | undefined {
+    if (step.condition) {
+      return undefined
+    }
+    const failedDependency = step.dependencies.find((dep) => unavailableSlugs.has(dep))
+    if (!failedDependency) {
+      return undefined
+    }
+
+    const reason = unavailableSlugs.get(failedDependency) === 'failed'
+      ? `Dependency "${failedDependency}" failed`
+      : `Dependency "${failedDependency}" was skipped because a step it depends on failed`
+    this.logger.info({ stepName: step.stepName, dependency: failedDependency }, 'Skipping step: a dependency failed')
+
+    const now = new Date().toISOString()
+    const output = { reason, skipped: true }
+    this.setStepContext(context, step, { state: 'skipped', output })
+    return {
+      step: step.stepId,
+      slug: step.slug,
+      stepName: step.stepName,
+      stepIndex: step.stepIndex,
+      status: 'skipped',
+      startedAt: now,
+      completedAt: now,
+      output
+    }
+  }
+
+  /**
    * Find the earlier succeeded result that can stand in for `step`, if any.
    *
    * A step is only reused when every step it depends on was reused too:
@@ -1104,6 +1146,10 @@ export class WorkflowExecutor {
       const executionBatches = this.resolveExecutionOrder(resolvedSteps)
       // Slugs of steps whose earlier result was reused (see findReusableResult).
       const reusedSlugs = new Set<string>()
+      // Slugs of steps that failed, or were skipped because a step they depend
+      // on failed. Only populated with errorHandling other than 'stop', since
+      // 'stop' ends the run at the first failure.
+      const unavailableSlugs = new Map<string, 'failed' | 'skipped'>()
 
       this.logger.info({
         batchCount: executionBatches.length,
@@ -1120,6 +1166,15 @@ export class WorkflowExecutor {
         }, 'Executing batch')
 
         const batchPromises = batch.map(async (step) => {
+          const skipped = this.skipForFailedDependency(step, context, unavailableSlugs)
+          if (skipped) {
+            unavailableSlugs.set(step.slug, 'skipped')
+            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+            if (idx !== -1) {
+              stepResults[idx] = skipped
+            }
+            return skipped
+          }
           try {
             const reusable = this.findReusableResult(step, reuseSucceededSteps, reusedSlugs)
             if (reusable) {
@@ -1159,6 +1214,7 @@ export class WorkflowExecutor {
             }
             return result
           } catch (error) {
+            unavailableSlugs.set(step.slug, 'failed')
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
             const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
             if (idx !== -1) {
