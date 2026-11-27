@@ -175,7 +175,7 @@ Steps are ordinary [Payload tasks](https://payloadcms.com/docs/jobs-queue/tasks)
 |------|-------|
 | `http-request-step` | `url`, `method` (GET, POST, PUT, DELETE, PATCH), `headers`, `body`, `timeout`, `authentication` (bearer, basic, API key header), `retries`, `retryDelay`. Output: `status`, `statusText`, `headers`, `body`, `data`, `duration` |
 | `create-document` | `collectionSlug`, `data`, `draft`, `locale` |
-| `read-document` | `collectionSlug`, `id` or `where`, `limit`, `sort`, `locale`, `depth` |
+| `read-document` | `collectionSlug`, `id` or `where`, `limit` (default 10), `sort`, `locale`, `depth`. Output: `docs` (always a list), `doc` (a single document: the one with that `id`, or the first match of `where`, `null` when nothing matched), `totalDocs` |
 | `update-document` | `collectionSlug`, `id`, `data`, `draft`, `locale` |
 | `delete-document` | `collectionSlug`, `id` or `where` |
 | `send-email` | `to`, `from`, `subject`, `text`, `html`, `cc`, `bcc` (uses Payload's email adapter) |
