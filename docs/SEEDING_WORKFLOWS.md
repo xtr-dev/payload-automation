@@ -109,7 +109,7 @@ Trigger `parameters` by type:
 |------|------------|
 | `collection-hook` | `collectionSlug`, `hook` |
 | `global-hook` | `globalSlug`, `hook` |
-| `scheduled` | `schedule` (cron expression; the timezone is the server's) |
+| `scheduled` | `schedule` (cron expression), optional `timezone` (IANA name such as `Europe/Amsterdam`; default: the server's timezone). An invalid schedule or timezone skips the workflow and logs `Failed to seed workflow` |
 | `webhook` | `webhookPath`, `webhookSecret` |
 | `manual` | none |
 

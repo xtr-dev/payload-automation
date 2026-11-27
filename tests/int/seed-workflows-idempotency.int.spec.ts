@@ -33,7 +33,7 @@ const allTriggerTypesWorkflow: SeedWorkflow = {
   triggers: [
     { type: 'collection-hook', parameters: { collectionSlug: 'posts', hook: 'afterChange' } },
     { type: 'global-hook', parameters: { globalSlug: 'settings', hook: 'afterChange' } },
-    { type: 'scheduled', parameters: { schedule: '0 9 * * *' } },
+    { type: 'scheduled', parameters: { schedule: '0 9 * * *', timezone: 'Europe/Amsterdam' } },
     { type: 'webhook', parameters: { webhookPath: 'my-webhook', webhookSecret: 'seed-test-secret' } },
   ],
   steps: [
@@ -160,10 +160,32 @@ describe('seedWorkflows', () => {
 
     expect(scheduled.type).toBe('scheduled')
     expect(scheduled.schedule).toBe('0 9 * * *')
+    expect(scheduled.timezone).toBe('Europe/Amsterdam')
 
     expect(webhook.type).toBe('webhook')
     expect(webhook.webhookPath).toBe('my-webhook')
     // The secret from parameters.webhookSecret is write-only: only its hash is stored.
     expect(webhook.webhookSecret ?? undefined).toBeUndefined()
+  })
+
+  it('does not seed a workflow whose scheduled trigger has an invalid timezone', async () => {
+    const invalidTimezoneWorkflow: SeedWorkflow = {
+      slug: 'test-invalid-timezone',
+      name: 'Test Invalid Timezone',
+      triggers: [
+        { type: 'collection-hook', parameters: { collectionSlug: 'posts', hook: 'afterChange' } },
+        { type: 'scheduled', parameters: { schedule: '0 9 * * *', timezone: 'Mars/Olympus_Mons' } },
+      ],
+      steps: [{ name: 'Step One', type: 'noop-step', input: {} }],
+    }
+    payload = await getTestPayload(
+      buildTestConfig({ dbFile, seedWorkflows: [invalidTimezoneWorkflow] })
+    )
+
+    const workflows = await payload.find({ collection: 'workflows', overrideAccess: true })
+    expect(workflows.docs).toHaveLength(0)
+    // The valid collection-hook trigger before it is not left behind either.
+    const triggers = await payload.find({ collection: 'automation-triggers', overrideAccess: true })
+    expect(triggers.docs).toHaveLength(0)
   })
 })
