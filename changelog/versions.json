@@ -3,6 +3,181 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.5.0",
+      "date": "2026-11-27",
+      "commit": "69621e0",
+      "breaking": true,
+      "groups": {
+        "breaking": [
+          {
+            "type": "fix",
+            "scope": "steps",
+            "description": "return read-document query results under output.docs (#66)",
+            "commit": "0e8f11b",
+            "hash": "0e8f11bfdfd7a70065ced1fac634d8f944ebc8f5",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": "executor",
+            "description": "implement step retries, errorHandling 'retry' and the workflow timeout (#67)",
+            "commit": "b54bfa9",
+            "hash": "b54bfa9b2a36fb3c626d04b5ea03a1e463bc9d9b",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_0122PV8TJ7ELGdAX7H2hdrRU"
+              }
+            ]
+          },
+          {
+            "type": "refactor",
+            "scope": "config",
+            "description": "drop the unused triggers option and make triggerCustomWorkflow manual-only (#65)",
+            "commit": "b9d3561",
+            "hash": "b9d3561e047fb3888a7b1da4459c6ddf8bed3b75",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "features": [
+          {
+            "type": "feat",
+            "scope": "executor",
+            "description": "implement step retries, errorHandling 'retry' and the workflow timeout (#67)",
+            "commit": "b54bfa9",
+            "hash": "b54bfa9b2a36fb3c626d04b5ea03a1e463bc9d9b",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-Authored-By",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Claude-Session",
+                "text": "https://claude.ai/code/session_0122PV8TJ7ELGdAX7H2hdrRU"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "steps",
+            "description": "return read-document query results under output.docs (#66)",
+            "commit": "0e8f11b",
+            "hash": "0e8f11bfdfd7a70065ced1fac634d8f944ebc8f5",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "triggers",
+            "description": "refuse collection-only hooks on global hook triggers (#64)",
+            "commit": "fc5a21b",
+            "hash": "fc5a21b01b471bf86661816c53c04018155093bf",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "seed",
+            "description": "update seeded workflows in place when their code definition changes (#28)",
+            "commit": "98bee68",
+            "hash": "98bee6897894c8811b090949c0a856368e4dbcfd",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "tucana.cb12 <tucana.cb12@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "lurkmode.951f <lurkmode.951f@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "hyperwizard.4bde <hyperwizard.4bde@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "frostyviking405.1380 <frostyviking405.1380@agents.wandel.local>"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "scheduled triggers in Next.js need cron: true; shorten the pre-release note (#68)",
+            "commit": "69621e0",
+            "hash": "69621e030b79a3ad11c4640f3842ac52c7cae6c4",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "refactor",
+            "scope": "config",
+            "description": "drop the unused triggers option and make triggerCustomWorkflow manual-only (#65)",
+            "commit": "b9d3561",
+            "hash": "b9d3561e047fb3888a7b1da4459c6ddf8bed3b75",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.4.0",
       "date": "2026-11-27",
       "commit": "0938dd8",

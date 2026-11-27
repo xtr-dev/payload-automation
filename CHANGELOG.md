@@ -2,6 +2,20 @@
 
 Release notes from before this changelog was generated (up to v0.0.39) are in [changelog/HISTORY.md](changelog/HISTORY.md).
 
+## [0.5.0](https://github.com/xtr-dev/payload-automation/compare/v0.4.0...v0.5.0) - 2026-11-27
+
+### Breaking
+- **steps:** return read-document query results under output.docs ([#66](https://github.com/xtr-dev/payload-automation/issues/66)) ([0e8f11b](https://github.com/xtr-dev/payload-automation/commit/0e8f11bfdfd7a70065ced1fac634d8f944ebc8f5))
+- **executor:** implement step retries, errorHandling 'retry' and the workflow timeout ([#67](https://github.com/xtr-dev/payload-automation/issues/67)) ([b54bfa9](https://github.com/xtr-dev/payload-automation/commit/b54bfa9b2a36fb3c626d04b5ea03a1e463bc9d9b))
+- **config:** drop the unused triggers option and make triggerCustomWorkflow manual-only ([#65](https://github.com/xtr-dev/payload-automation/issues/65)) ([b9d3561](https://github.com/xtr-dev/payload-automation/commit/b9d3561e047fb3888a7b1da4459c6ddf8bed3b75))
+
+### Fixes
+- **triggers:** refuse collection-only hooks on global hook triggers ([#64](https://github.com/xtr-dev/payload-automation/issues/64)) ([fc5a21b](https://github.com/xtr-dev/payload-automation/commit/fc5a21b01b471bf86661816c53c04018155093bf))
+- **seed:** update seeded workflows in place when their code definition changes ([#28](https://github.com/xtr-dev/payload-automation/issues/28)) ([98bee68](https://github.com/xtr-dev/payload-automation/commit/98bee6897894c8811b090949c0a856368e4dbcfd))
+
+### Other
+- scheduled triggers in Next.js need cron: true; shorten the pre-release note ([#68](https://github.com/xtr-dev/payload-automation/issues/68)) ([69621e0](https://github.com/xtr-dev/payload-automation/commit/69621e030b79a3ad11c4640f3842ac52c7cae6c4))
+
 ## [0.4.0](https://github.com/xtr-dev/payload-automation/compare/v0.3.0...v0.4.0) - 2026-11-27
 
 ### Breaking
