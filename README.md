@@ -4,7 +4,7 @@
 
 A workflow automation plugin for PayloadCMS 3.x. Workflows are configured in the admin panel and run when documents change, on a cron schedule, from a webhook, or from your own code.
 
-> **Pre-release Warning**: This package is currently in active development (v0.0.x). Breaking changes may occur before v1.0.0.
+> **v0.x** — minor versions may contain breaking changes until 1.0.
 
 ## Features
 
@@ -245,6 +245,18 @@ buildConfig({
   jobs: { autoRun: [{ cron: '* * * * *', queue: 'default' }] },
 })
 ```
+
+In a Next.js app, `jobs.autoRun` alone is not enough: Payload only starts the `autoRun` crons when it is loaded with `cron: true`. The admin panel loads it that way, a plain `getPayload({ config })` in your own server code does not, so after a restart nothing fires until someone opens `/admin`. Pass `cron: true` where your server code loads Payload:
+
+```typescript
+import config from '@payload-config'
+import { getPayload } from 'payload'
+
+// Starts the autoRun crons the first time it runs in a server process; later calls reuse them.
+const payload = await getPayload({ config, cron: true })
+```
+
+Other ways to run the queue:
 
 - Serverless: call `GET /api/payload-jobs/run?queue=default` from an external cron (e.g. Vercel Cron) at least as often as the tick. It requires a logged-in user by default, so set `jobs.access.run` to accept your cron's credentials (for example, compare the `Authorization` header with a `CRON_SECRET` environment variable).
 - Your own runner: `await payload.jobs.handleSchedules()` then `await payload.jobs.run()`. Or skip Payload's scheduler and call `runScheduledTriggers(payload)` from `@xtr-dev/payload-automation/server`.

@@ -136,8 +136,10 @@ export type WorkflowsPluginConfig<
      * `queue`. Each run fires the scheduled triggers that came due since they
      * last fired (at most once each, however many occurrences were missed).
      * Nothing fires unless the host runs Payload's job queue with scheduling:
-     * `jobs.autoRun` on a long-running server, or a cron calling
-     * `GET /api/payload-jobs/run` (see the README).
+     * `jobs.autoRun` on a long-running server (in Next.js, Payload must also
+     * be loaded with `getPayload({ config, cron: true })` for the autoRun
+     * crons to start), or a cron calling `GET /api/payload-jobs/run` (see the
+     * README).
      *
      * - `tick`: how often to look for due triggers, as a cron expression
      *   (an optional leading seconds field is supported). A trigger can fire
