@@ -58,6 +58,18 @@ const relationId = (value: unknown): string | number => {
   throw new Error(`expected a relationship id, got ${JSON.stringify(value)}`)
 }
 
+// Automation collections are admin-only (src/collections/access.ts), so every
+// access-controlled call below runs as a member of the admin user collection.
+// That isolates what these tests pin: the readOnly field and stored-lock rules
+// that apply even to admins.
+const createAdmin = async (payload: Payload) => {
+  const user = await payload.create({
+    collection: 'users',
+    data: { email: `admin-${uniqueId()}@example.com`, password: 'test-password' },
+  })
+  return { ...user, collection: 'users' as const }
+}
+
 const expectForbidden = (operation: Promise<unknown>) =>
   expect(operation).rejects.toMatchObject({ status: 403 })
 
@@ -77,8 +89,9 @@ describe('workflows.readOnly field and collection access', () => {
     removeDbFile(dbFile)
   })
 
-  it('strips readOnly:true on Local API create when overrideAccess is false, so an unauthenticated caller cannot freeze a trigger', async () => {
+  it('strips readOnly:true on Local API create when overrideAccess is false, so an admin cannot freeze a trigger through the API', async () => {
     payload = await getTestPayload(buildTestConfig({ dbFile }))
+    const admin = await createAdmin(payload)
 
     const trigger = await payload.create({
       collection: 'automation-triggers',
@@ -89,6 +102,7 @@ describe('workflows.readOnly field and collection access', () => {
         hook: 'afterChange',
       },
       overrideAccess: false,
+      user: admin,
     })
 
     const workflow = await payload.create({
@@ -100,6 +114,7 @@ describe('workflows.readOnly field and collection access', () => {
         triggers: [trigger.id],
       },
       overrideAccess: false,
+      user: admin,
     })
 
     expect((workflow as { readOnly?: boolean }).readOnly).toBe(false)
@@ -109,6 +124,7 @@ describe('workflows.readOnly field and collection access', () => {
       id: trigger.id,
       data: { name: 'victim-trigger-renamed' },
       overrideAccess: false,
+      user: admin,
     })
     expect((updatedTrigger as { name?: string }).name).toBe('victim-trigger-renamed')
   })
@@ -144,6 +160,7 @@ describe('workflows.readOnly field and collection access', () => {
 
   it('strips readOnly:true on Local API update when overrideAccess is false', async () => {
     payload = await getTestPayload(buildTestConfig({ dbFile }))
+    const admin = await createAdmin(payload)
 
     const workflow = await payload.create({
       collection: 'workflows',
@@ -153,6 +170,7 @@ describe('workflows.readOnly field and collection access', () => {
         readOnly: false,
       },
       overrideAccess: false,
+      user: admin,
     })
 
     const updated = await payload.update({
@@ -160,6 +178,7 @@ describe('workflows.readOnly field and collection access', () => {
       id: workflow.id,
       data: { readOnly: true, name: 'still mutable' },
       overrideAccess: false,
+      user: admin,
     })
 
     expect((updated as { readOnly?: boolean }).readOnly).toBe(false)
@@ -168,6 +187,7 @@ describe('workflows.readOnly field and collection access', () => {
 
   it('refuses update and delete of a stored readOnly workflow even when the request body omits readOnly', async () => {
     payload = await getTestPayload(buildTestConfig({ dbFile }))
+    const admin = await createAdmin(payload)
 
     const workflow = await payload.create({
       collection: 'workflows',
@@ -184,6 +204,7 @@ describe('workflows.readOnly field and collection access', () => {
         id: workflow.id,
         data: { name: 'renamed' },
         overrideAccess: false,
+      user: admin,
       }),
     ).rejects.toMatchObject({ status: 403 })
 
@@ -192,6 +213,7 @@ describe('workflows.readOnly field and collection access', () => {
         collection: 'workflows',
         id: workflow.id,
         overrideAccess: false,
+      user: admin,
       }),
     ).rejects.toMatchObject({ status: 403 })
 
@@ -208,6 +230,7 @@ describe('workflows.readOnly field and collection access', () => {
     payload = await getTestPayload(
       buildTestConfig({ dbFile, seedWorkflows: [seededWorkflow] }),
     )
+    const admin = await createAdmin(payload)
 
     const seeded = await payload.find({
       collection: 'workflows',
@@ -246,6 +269,7 @@ describe('workflows.readOnly field and collection access', () => {
         hook: 'afterChange',
       },
       overrideAccess: false,
+      user: admin,
     })
     const siblingStep = await payload.create({
       collection: 'automation-steps',
@@ -255,6 +279,7 @@ describe('workflows.readOnly field and collection access', () => {
         config: {},
       },
       overrideAccess: false,
+      user: admin,
     })
 
     await expectForbidden(
@@ -263,6 +288,7 @@ describe('workflows.readOnly field and collection access', () => {
         id: frozenTriggerId,
         data: { name: 'frozen-trigger-renamed' },
         overrideAccess: false,
+      user: admin,
       }),
     )
     await expectForbidden(
@@ -270,6 +296,7 @@ describe('workflows.readOnly field and collection access', () => {
         collection: 'automation-triggers',
         id: frozenTriggerId,
         overrideAccess: false,
+      user: admin,
       }),
     )
     await expectForbidden(
@@ -278,6 +305,7 @@ describe('workflows.readOnly field and collection access', () => {
         id: frozenStepId,
         data: { name: 'frozen-step-renamed' },
         overrideAccess: false,
+      user: admin,
       }),
     )
     await expectForbidden(
@@ -285,6 +313,7 @@ describe('workflows.readOnly field and collection access', () => {
         collection: 'automation-steps',
         id: frozenStepId,
         overrideAccess: false,
+      user: admin,
       }),
     )
 
@@ -293,6 +322,7 @@ describe('workflows.readOnly field and collection access', () => {
       id: siblingTrigger.id,
       data: { name: 'unreferenced-trigger-renamed' },
       overrideAccess: false,
+      user: admin,
     })
     expect((updatedSiblingTrigger as { name?: string }).name).toBe(
       'unreferenced-trigger-renamed',
@@ -303,6 +333,7 @@ describe('workflows.readOnly field and collection access', () => {
       id: siblingStep.id,
       data: { name: 'unreferenced-step-renamed' },
       overrideAccess: false,
+      user: admin,
     })
     expect((updatedSiblingStep as { name?: string }).name).toBe(
       'unreferenced-step-renamed',
@@ -312,6 +343,7 @@ describe('workflows.readOnly field and collection access', () => {
       collection: 'automation-triggers',
       where: { id: { in: [frozenTriggerId, siblingTrigger.id] } },
       overrideAccess: false,
+      user: admin,
     })
     const deletedTriggerIds = new Set(
       triggerBulk.docs.map((doc) => String(doc.id)),
@@ -323,6 +355,7 @@ describe('workflows.readOnly field and collection access', () => {
       collection: 'automation-steps',
       where: { id: { in: [frozenStepId, siblingStep.id] } },
       overrideAccess: false,
+      user: admin,
     })
     const deletedStepIds = new Set(stepBulk.docs.map((doc) => String(doc.id)))
     expect(deletedStepIds.has(String(siblingStep.id))).toBe(true)

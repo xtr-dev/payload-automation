@@ -1,0 +1,784 @@
+{
+  "$schema": "https://unpkg.com/@xtr-dev/changelog/schema/versions.schema.json",
+  "schemaVersion": 2,
+  "versions": [
+    {
+      "version": "0.4.0",
+      "date": "2026-11-27",
+      "commit": "0938dd8",
+      "breaking": true,
+      "groups": {
+        "breaking": [
+          {
+            "type": "fix",
+            "scope": "executor",
+            "description": "skip steps whose dependency failed with errorHandling continue (#61)",
+            "commit": "41f0a59",
+            "hash": "41f0a59cd7069da706915c207b38c9c38a97e505",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "refactor",
+            "scope": "types",
+            "description": "remove the unused WorkflowLoggingConfig type (#41)",
+            "commit": "d91eab0",
+            "hash": "d91eab09925b3a6d324b759a380f05c276fe2099",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "alkaid.afde <alkaid.afde@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "runs",
+            "description": "store each step result's slug (#63)",
+            "commit": "0938dd8",
+            "hash": "0938dd87423a763c61207a1256fccb8e14572d71",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "seed",
+            "description": "pass the timezone of seeded scheduled triggers through (#62)",
+            "commit": "8c8312c",
+            "hash": "8c8312c889f5be10a642ab3faa213676379000f5",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "executor",
+            "description": "skip steps whose dependency failed with errorHandling continue (#61)",
+            "commit": "41f0a59",
+            "hash": "41f0a59cd7069da706915c207b38c9c38a97e505",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "security",
+            "scope": "triggers",
+            "description": "keep the live PayloadRequest out of hook trigger expressions (#56)",
+            "commit": "14c08fe",
+            "hash": "14c08fedf030ff65c9d6b37a85a2e0e82ba2ff47",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "executor",
+            "description": "key step context by slug and keep the display name as an alias (#33)",
+            "commit": "311bb7f",
+            "hash": "311bb7f5d8db505b1ab13d09dee6d20712697050",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "spica.92da <spica.92da@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "vela.9477 <vela.9477@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "capella.6cf4 <capella.6cf4@agents.wandel.local>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "triggers",
+            "description": "warn on unknown trigger hook names and complete the curated hook lists (#26)",
+            "commit": "fd067f7",
+            "hash": "fd067f7527c3793ea127a27d2e89e5a85e8d94db",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "volans.8083 <volans.8083@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "alphard.4ff5 <alphard.4ff5@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "pluto.92bd <pluto.92bd@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "mimas.cea3 <mimas.cea3@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "lupus.9ada <lupus.9ada@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "expressions",
+            "description": "clear the evaluate() timeout timer and interrupt runaway evaluation (#19)",
+            "commit": "1680994",
+            "hash": "1680994157fc1f64f37feabc9ae4e4e98fcc3366",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "castor.463f <castor.463f@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "titan.05c0 <titan.05c0@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "triton.f5ae <triton.f5ae@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "hadar.ec8b <hadar.ec8b@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "soggyrobot.f000 <soggyrobot.f000@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "soggynoodle.3c83 <soggynoodle.3c83@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "audit README and docs for accuracy and brevity (#59)",
+            "commit": "94a701a",
+            "hash": "94a701a007d83835d5c69efddceb8d39ca6bb839",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "test",
+            "scope": null,
+            "description": "stop Payload generating types on every test init (#60)",
+            "commit": "5c8e80b",
+            "hash": "5c8e80b6430fb17c57ce882484a2443cacbdff9e",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "ci",
+            "scope": null,
+            "description": "run checks on pull requests (#58)",
+            "commit": "39e66d0",
+            "hash": "39e66d07bed192c554cd37deef778e4d151a00c0",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "style",
+            "scope": null,
+            "description": "fix lint errors (#57)",
+            "commit": "23e5dcf",
+            "hash": "23e5dcf34790b2b98f39f07fba48ae017bc670f5",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "match the README requirements to the declared payload and react peer ranges (#42)",
+            "commit": "63f320e",
+            "hash": "63f320e231dc4701c2a4951037515e2375e2f7e7",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "aldebar.6d47 <aldebar.6d47@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "refactor",
+            "scope": "types",
+            "description": "remove the unused WorkflowLoggingConfig type (#41)",
+            "commit": "d91eab0",
+            "hash": "d91eab09925b3a6d324b759a380f05c276fe2099",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "alkaid.afde <alkaid.afde@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "test",
+            "scope": null,
+            "description": "cover workflow seeding and idempotent restarts (#40)",
+            "commit": "9ce53d0",
+            "hash": "9ce53d003ea12fc6d2b96c9903cfda11d0be4527",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "chunkywaffle42.0e37 <chunkywaffle42.0e37@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "write trigger conditions as bare JSONata and make the dev \"Post Published\" trigger match (#39)",
+            "commit": "abcb4fc",
+            "hash": "abcb4fc545af7df1ca5e64fd309090643e9eb0db",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "ninjapotato.4db4 <ninjapotato.4db4@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "dizzypanda.1c73 <dizzypanda.1c73@agents.wandel.local>"
+              }
+            ]
+          },
+          {
+            "type": "chore",
+            "scope": null,
+            "description": "remove the stale package-lock.json (#38)",
+            "commit": "902d290",
+            "hash": "902d2906282347a27e9af170b6841a8838b6f866",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "pluto.24f4 <pluto.24f4@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "fix the dead Next Steps links in the seeding workflows guide (#34)",
+            "commit": "842bcf3",
+            "hash": "842bcf3dcc89390b9a47cdeb46be282f4f2dc7fc",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "chunkymango.ff85 <chunkymango.ff85@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "chore",
+            "scope": null,
+            "description": "stop tracking tsconfig.build.tsbuildinfo (#55)",
+            "commit": "4a73752",
+            "hash": "4a7375281997e1f2262d2a6cf94a2fd97c14f0ff",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "docs",
+            "scope": null,
+            "description": "replace dead JSONPath syntax in step docs and UI copy with JSONata (#31)",
+            "commit": "1f304cc",
+            "hash": "1f304cc11fc30eec69ce8f3ff4f8d3ed80f949f2",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "sleepypickle99.a448 <sleepypickle99.a448@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "spicygecko58.7e36 <spicygecko58.7e36@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "sudouser453.6869 <sudouser453.6869@agents.wandel.local>"
+              }
+            ]
+          },
+          {
+            "type": "build",
+            "scope": null,
+            "description": "keep *.test.ts and *.test-d.ts files out of the published dist (#30)",
+            "commit": "ce1e6fc",
+            "hash": "ce1e6fc45d73fdecbff10071ab1416126de327e4",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "deneb.55af <deneb.55af@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "error418.f592 <error418.f592@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "pixelbacon.17b4 <pixelbacon.17b4@agents.wandel.local>"
+              }
+            ]
+          },
+          {
+            "type": "refactor",
+            "scope": null,
+            "description": "remove the orphaned WorkflowBuilder components and @xyflow/react (#25)",
+            "commit": "8cfac99",
+            "hash": "8cfac99111d712a8cf86b8272202fb6ca7e09ce2",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "sleepynugget354.c337 <sleepynugget354.c337@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "sneakybadger.3f8d <sneakybadger.3f8d@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "deps",
+            "scope": null,
+            "description": "drop unused handlebars, node-cron and pino and declare react as a peer (#13)",
+            "commit": "2798edb",
+            "hash": "2798edbb53f42bb97042afafea152d60555ef195",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "asterope.e0cd <asterope.e0cd@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "kaus.cfda <kaus.cfda@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "version": "0.3.0",
+      "date": "2026-11-26",
+      "commit": "8486c0d",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "triggers",
+            "description": "fire scheduled (cron) triggers through Payload's job scheduler (#54)",
+            "commit": "8486c0d",
+            "hash": "8486c0de92f5db5cb87deb7183f5811ef7899278",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "version": "0.2.0",
+      "date": "2026-11-26",
+      "commit": "7eae958",
+      "breaking": true,
+      "groups": {
+        "breaking": [
+          {
+            "type": "fix",
+            "scope": "triggers",
+            "description": "report failed run ids from triggerWorkflowById and honour enabled (#53)",
+            "commit": "7eae958",
+            "hash": "7eae9581301562924b399a2bb2bcd9ff0a3d3fc3",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "triggers",
+            "description": "report failed run ids from triggerWorkflowById and honour enabled (#53)",
+            "commit": "7eae958",
+            "hash": "7eae9581301562924b399a2bb2bcd9ff0a3d3fc3",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "executor",
+            "description": "capture step outputs when Payload deletes completed jobs (#52)",
+            "commit": "454ba26",
+            "hash": "454ba2603c39d85db799b13ab7b40353daa6fedb",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "version": "0.1.0",
+      "date": "2026-11-25",
+      "commit": "08c6f3f",
+      "breaking": true,
+      "groups": {
+        "breaking": [
+          {
+            "type": "fix",
+            "scope": "types",
+            "description": "re-export the runtime trigger and execution types from the main entry (#35)",
+            "commit": "5f79d29",
+            "hash": "5f79d29624aae3b5381ec986dbbf0a664186b3fa",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "alioth.1a05 <alioth.1a05@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "features": [
+          {
+            "type": "feat",
+            "scope": "triggers",
+            "description": "serve webhook triggers through an authenticated endpoint (#15)",
+            "commit": "08c6f3f",
+            "hash": "08c6f3f1255391adf2d604921101b7a290e4bcba",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "lyra.6c42 <lyra.6c42@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "carina.da2b <carina.da2b@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "asterope.4095 <asterope.4095@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "proteus.716e <proteus.716e@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "eltanin.c7fb <eltanin.c7fb@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "pixelfalcon.8c00 <pixelfalcon.8c00@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "snazzyllama.6ab4 <snazzyllama.6ab4@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "turbobacon.d3c1 <turbobacon.d3c1@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "segfault171.08ae <segfault171.08ae@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "ninjapotato714.1ee4 <ninjapotato714.1ee4@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "bvdaakster <bvdaakster@users.noreply.github.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "security",
+            "scope": "access",
+            "description": "restrict automation collections to users who can access /admin (#24)",
+            "commit": "53cf369",
+            "hash": "53cf36920473cbe9da4e4205031fc3d8b732f675",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "turbobacon.d3c1 <turbobacon.d3c1@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Haiku 4.5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "segfault171.08ae <segfault171.08ae@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "ninjapotato714.1ee4 <ninjapotato714.1ee4@agents.wandel.local>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "types",
+            "description": "re-export the runtime trigger and execution types from the main entry (#35)",
+            "commit": "5f79d29",
+            "hash": "5f79d29624aae3b5381ec986dbbf0a664186b3fa",
+            "author": "Bas",
+            "breaking": true,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "alioth.1a05 <alioth.1a05@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "security",
+            "scope": "triggers",
+            "description": "keep the live PayloadRequest out of the JSONata trigger context (#14)",
+            "commit": "2fe4e90",
+            "hash": "2fe4e905e27f0c60b3f229ebb2642a8bd70ff232",
+            "author": "XTR Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "angrytomato804.3baf <angrytomato804.3baf@agents.wandel.local>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Sonnet 5 <noreply@anthropic.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas <30904649+bvdaakster@users.noreply.github.com>"
+              },
+              {
+                "title": "Co-authored-by",
+                "text": "Bas van den Aakster <bvdaakster@gmail.com>"
+              }
+            ]
+          }
+        ],
+        "other": [
+          {
+            "type": "ci",
+            "scope": null,
+            "description": "release through the shared workflow with xtr-dev/changelog (#51)",
+            "commit": "3555cf1",
+            "hash": "3555cf146c09c9a3654bcade5e087998a70c8ded",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Opus 5.5 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

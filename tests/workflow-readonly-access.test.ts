@@ -20,30 +20,51 @@ const checkboxNamed = (fields: Field[], name: string) => {
   return field
 }
 
-describe('workflows collection access control', () => {
-  const collection = createWorkflowCollection()
+// A request from a member of the admin user collection (`users`) in a config
+// whose users collection has no `access.admin`, which is what isAdminUser in
+// src/collections/access.ts accepts.
+const adminReq = {
+  payload: { config: { admin: { user: 'users' }, collections: [{ slug: 'users' }] } },
+  user: { id: 1, collection: 'users' },
+}
 
-  it('delete ignores request data and always returns the readOnly where clause', () => {
-    expect(invokeAccess(collection.access?.delete, {})).toEqual({
+describe('workflows collection access control', () => {
+  const collection = createWorkflowCollection({})
+
+  it('delete ignores request data and always returns the readOnly where clause for admins', async () => {
+    expect(
+      await invokeAccess(collection.access?.delete, { req: adminReq }),
+    ).toEqual({
       readOnly: { not_equals: true },
     })
-    expect(invokeAccess(collection.access?.delete, { data: { readOnly: false } })).toEqual({
+    expect(
+      await invokeAccess(collection.access?.delete, { data: { readOnly: false }, req: adminReq }),
+    ).toEqual({
       readOnly: { not_equals: true },
     })
   })
 
-  it('update ignores request data and always returns the readOnly where clause', () => {
-    expect(invokeAccess(collection.access?.update, {})).toEqual({
-      readOnly: { not_equals: true },
-    })
-    expect(invokeAccess(collection.access?.update, { data: {} })).toEqual({
-      readOnly: { not_equals: true },
-    })
+  it('update ignores request data and always returns the readOnly where clause for admins', async () => {
     expect(
-      invokeAccess(collection.access?.update, { data: { readOnly: true } }),
+      await invokeAccess(collection.access?.update, { req: adminReq }),
     ).toEqual({
       readOnly: { not_equals: true },
     })
+    expect(
+      await invokeAccess(collection.access?.update, { data: {}, req: adminReq }),
+    ).toEqual({
+      readOnly: { not_equals: true },
+    })
+    expect(
+      await invokeAccess(collection.access?.update, { data: { readOnly: true }, req: adminReq }),
+    ).toEqual({
+      readOnly: { not_equals: true },
+    })
+  })
+
+  it('update and delete refuse requests without an admin user', async () => {
+    expect(await invokeAccess(collection.access?.update, { req: { ...adminReq, user: null } })).toBe(false)
+    expect(await invokeAccess(collection.access?.delete, { req: { ...adminReq, user: null } })).toBe(false)
   })
 
   it('readOnly field create and update access always refuse, so REST and access-controlled Local API cannot set the flag', () => {

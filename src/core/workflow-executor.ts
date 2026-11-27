@@ -5,6 +5,7 @@ import {
   resolveStepInput as resolveInput,
   type ExpressionContext
 } from './expression-engine.js'
+import { expectStepOutput, releaseStepOutput } from './step-output-capture.js'
 import {getPluginConfig} from "../plugin/get-plugin-config.js";
 import {WorkflowsPluginConfig} from "../plugin/config-types.js";
 
@@ -125,9 +126,12 @@ export const WORKFLOW_RUN_TASK_SLUG = 'automation-workflow-run'
 export interface PreviousStepResult {
   input?: null | Record<string, unknown>
   output?: null | Record<string, unknown>
+  /** Missing on results stored before `stepResults.slug` existed. */
+  slug?: null | string
   status?: null | string
   step?: null | number | string | { id: number | string }
   stepIndex?: null | number
+  stepName?: null | string
 }
 
 export interface ExecuteOptions {
@@ -140,9 +144,10 @@ export interface ExecuteOptions {
 
   /**
    * Step results of an earlier run of the same workflow. A step whose earlier
-   * result succeeded, at the same position and referencing the same
-   * `automation-steps` document, is not run again: its stored input and output
-   * are copied into this run and into `steps.<name>` for later expressions.
+   * result succeeded, at the same position, referencing the same
+   * `automation-steps` document and (when the result has one) under the same
+   * slug, is not run again: its stored input and output
+   * are copied into this run and into `steps.<slug>` (and the step name alias) for later expressions.
    */
   reuseSucceededSteps?: PreviousStepResult[]
 
@@ -166,12 +171,74 @@ const relationId = (value: PreviousStepResult['step']): number | string | undefi
 
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
+  private stepContextOwners = new WeakMap<ExecutionContext, Map<string, string>>()
 
   constructor(
     private payload: Payload,
     private logger: Payload['logger']
   ) {
     this.config = getPluginConfig(payload)
+  }
+
+  /**
+   * Record a step's state in the expression context under both its slug and its
+   * display name. Slug is the stable identifier everywhere else in the plugin —
+   * dependencies resolve by slug in resolveExecutionOrder — but output references
+   * used to be keyed by name only, so `{{steps.<slug>.output}}` silently resolved
+   * to nothing (the engine returns the unevaluated `{{...}}` string as a literal
+   * on failure) while `dependencies: ['<slug>']` worked. The name stays as a key
+   * so workflows written against it keep resolving.
+   */
+  private setStepContext(
+    context: ExecutionContext,
+    step: ResolvedStep,
+    entry: Record<string, unknown>
+  ): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    context.steps[step.slug] = entry
+    owners.set(step.slug, step.slug)
+
+    if (step.stepName && step.stepName !== step.slug) {
+      const existingSlug = owners.get(step.stepName)
+      if (existingSlug && existingSlug !== step.slug) {
+        this.logger.warn({
+          contextKey: step.stepName,
+          existingSlug,
+          stepSlug: step.slug
+        }, 'Skipping step name context alias because it collides with another step slug')
+        return
+      }
+
+      context.steps[step.stepName] = entry
+      owners.set(step.stepName, step.slug)
+    }
+  }
+
+  /**
+   * Claim every step's own slug as its context-key owner before any batch runs.
+   * Batches execute concurrently (see `execute`), and a step only calls
+   * setStepContext for the first time partway through its own execution — so
+   * without this, a step whose display name equals another step's not-yet-run
+   * slug could transiently win that key and have a third step's expression
+   * silently resolve against the wrong step's data. All slugs are known from
+   * `resolvedSteps` before batch execution begins, so they can all be claimed
+   * upfront instead of racing to claim themselves at execution time.
+   */
+  private seedStepContextOwners(context: ExecutionContext, steps: ResolvedStep[]): void {
+    let owners = this.stepContextOwners.get(context)
+    if (!owners) {
+      owners = new Map<string, string>()
+      this.stepContextOwners.set(context, owners)
+    }
+
+    for (const step of steps) {
+      owners.set(step.slug, step.slug)
+    }
   }
 
   /**
@@ -334,10 +401,10 @@ export class WorkflowExecutor {
         result.completedAt = new Date().toISOString()
         result.output = { reason: 'Condition not met', skipped: true }
 
-        context.steps[step.stepName] = {
+        this.setStepContext(context, step, {
           state: 'skipped',
           output: result.output
-        }
+        })
 
         return result
       }
@@ -349,10 +416,10 @@ export class WorkflowExecutor {
     )
     result.input = resolvedInput
 
-    context.steps[step.stepName] = {
+    this.setStepContext(context, step, {
       state: 'running',
       input: resolvedInput
-    }
+    })
 
     try {
       const job = await this.payload.jobs.queue({
@@ -379,12 +446,20 @@ export class WorkflowExecutor {
         req,
       })
 
-      // Run the job and capture the result directly from runByID
-      // This is important because PayloadCMS may delete jobs on completion (deleteJobOnComplete: true by default)
-      const runResult = await this.payload.jobs.runByID({
-        id: job.id,
-        req
-      })
+      // Payload's job runner only reports a status, and with its default
+      // jobs.deleteJobOnComplete it deletes the job (and the output logged in
+      // it) before runByID returns. The wrapped task handler hands the output
+      // over through this slot instead.
+      const outputSlot = expectStepOutput(this.payload, job.id)
+      let runResult: unknown
+      try {
+        runResult = await this.payload.jobs.runByID({
+          id: job.id,
+          req
+        })
+      } finally {
+        releaseStepOutput(this.payload, job.id, outputSlot)
+      }
 
       if (this.config.debug) {
         this.logger.info(runResult, `Run result for step '${step.stepName}'`)
@@ -396,21 +471,25 @@ export class WorkflowExecutor {
       const jobSucceeded = jobStatus?.status === 'success'
 
       if (jobSucceeded) {
-        // Job completed successfully - try to get output from the job if it still exists
-        // Note: Job may have been deleted if deleteJobOnComplete is true
-        let output: Record<string, unknown> = {}
-        try {
-          const completedJob = await this.payload.findByID({
-            id: job.id,
-            collection: 'payload-jobs',
-            req
-          })
-          const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
-          output = taskStatus?.output || {}
-        } catch {
-          // Job was deleted after completion - this is expected behavior with deleteJobOnComplete: true
-          // The job succeeded, so we proceed without the output
-          this.logger.debug({ stepName: step.stepName }, 'Job was deleted after successful completion (deleteJobOnComplete)')
+        let output: Record<string, unknown> = outputSlot.output ?? {}
+        if (!outputSlot.captured) {
+          // The handler was not wrapped (a task with a module-path handler, or
+          // one added to the config after this plugin ran). Read the output
+          // from the job, which only works if the job has not been deleted.
+          try {
+            const completedJob = await this.payload.findByID({
+              id: job.id,
+              collection: 'payload-jobs',
+              req
+            })
+            const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
+            output = taskStatus?.output || {}
+          } catch {
+            this.logger.warn(
+              { stepName: step.stepName, stepType: step.stepType },
+              'Step output unavailable: the job was deleted on completion and the task handler is not a function the plugin could wrap'
+            )
+          }
         }
 
         result.status = 'succeeded'
@@ -441,11 +520,11 @@ export class WorkflowExecutor {
         throw new Error(errorMessage)
       }
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'succeeded',
         input: resolvedInput,
         output: result.output
-      }
+      })
 
       this.logger.info({
         stepName: step.stepName,
@@ -459,11 +538,11 @@ export class WorkflowExecutor {
       result.completedAt = new Date().toISOString()
       result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
 
-      context.steps[step.stepName] = {
+      this.setStepContext(context, step, {
         state: 'failed',
         input: resolvedInput,
         error: errorMessage
-      }
+      })
 
       this.logger.error({
         stepName: step.stepName,
@@ -547,7 +626,7 @@ export class WorkflowExecutor {
   /**
    * Clean a step's resolved input or its output before it is passed to the
    * step's job, stored on the run, or exposed to later steps as
-   * `steps.<name>`. Unlike `safeSerialize`, this keeps every other key and
+   * `steps.<slug>`. Unlike `safeSerialize`, this keeps every other key and
    * value as it is, because the step receives the result at runtime:
    * - AUTH_SECRET_KEYS are dropped at any depth (an input like
    *   `{{trigger.previousDoc}}` on an auth collection would otherwise carry
@@ -685,6 +764,48 @@ export class WorkflowExecutor {
   }
 
   /**
+   * Build a `skipped` result for `step` when a step it depends on failed (or
+   * was itself skipped for that reason), so the step does not run with that
+   * dependency's output missing. Returns undefined when the step should run.
+   *
+   * A step with its own `condition` is not skipped here: its condition decides,
+   * which lets a step such as one with `steps.<slug>.state = 'failed'` handle
+   * the failure of the step it depends on.
+   */
+  private skipForFailedDependency(
+    step: ResolvedStep,
+    context: ExecutionContext,
+    unavailableSlugs: Map<string, 'failed' | 'skipped'>
+  ): StepResult | undefined {
+    if (step.condition) {
+      return undefined
+    }
+    const failedDependency = step.dependencies.find((dep) => unavailableSlugs.has(dep))
+    if (!failedDependency) {
+      return undefined
+    }
+
+    const reason = unavailableSlugs.get(failedDependency) === 'failed'
+      ? `Dependency "${failedDependency}" failed`
+      : `Dependency "${failedDependency}" was skipped because a step it depends on failed`
+    this.logger.info({ stepName: step.stepName, dependency: failedDependency }, 'Skipping step: a dependency failed')
+
+    const now = new Date().toISOString()
+    const output = { reason, skipped: true }
+    this.setStepContext(context, step, { state: 'skipped', output })
+    return {
+      step: step.stepId,
+      slug: step.slug,
+      stepName: step.stepName,
+      stepIndex: step.stepIndex,
+      status: 'skipped',
+      startedAt: now,
+      completedAt: now,
+      output
+    }
+  }
+
+  /**
    * Find the earlier succeeded result that can stand in for `step`, if any.
    *
    * A step is only reused when every step it depends on was reused too:
@@ -704,7 +825,11 @@ export class WorkflowExecutor {
     return previous?.find((candidate) =>
       candidate.status === 'succeeded' &&
       candidate.stepIndex === step.stepIndex &&
-      String(relationId(candidate.step)) === String(step.stepId)
+      String(relationId(candidate.step)) === String(step.stepId) &&
+      // Expressions and dependencies refer to a step by slug, so a result
+      // stored under another slug belongs to a different step. Results
+      // stored before the slug was recorded only match on position and step.
+      (!candidate.slug || candidate.slug === step.slug)
     )
   }
 
@@ -1013,6 +1138,10 @@ export class WorkflowExecutor {
     reuseSucceededSteps?: PreviousStepResult[]
   ): Promise<void> {
     const stepResults = this.pendingStepResults(resolvedSteps)
+    // Claim every step's slug before any batch runs, so a display-name alias
+    // can never take another step's slug key (see setStepContext). Done here
+    // so inline, queued and retried runs all get it.
+    this.seedStepContextOwners(context, resolvedSteps)
 
     // Create job metadata for tracking workflow context in payload-jobs
     const jobMeta: WorkflowJobMeta = {
@@ -1025,6 +1154,10 @@ export class WorkflowExecutor {
       const executionBatches = this.resolveExecutionOrder(resolvedSteps)
       // Slugs of steps whose earlier result was reused (see findReusableResult).
       const reusedSlugs = new Set<string>()
+      // Slugs of steps that failed, or were skipped because a step they depend
+      // on failed. Only populated with errorHandling other than 'stop', since
+      // 'stop' ends the run at the first failure.
+      const unavailableSlugs = new Map<string, 'failed' | 'skipped'>()
 
       this.logger.info({
         batchCount: executionBatches.length,
@@ -1041,6 +1174,15 @@ export class WorkflowExecutor {
         }, 'Executing batch')
 
         const batchPromises = batch.map(async (step) => {
+          const skipped = this.skipForFailedDependency(step, context, unavailableSlugs)
+          if (skipped) {
+            unavailableSlugs.set(step.slug, 'skipped')
+            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+            if (idx !== -1) {
+              stepResults[idx] = skipped
+            }
+            return skipped
+          }
           try {
             const reusable = this.findReusableResult(step, reuseSucceededSteps, reusedSlugs)
             if (reusable) {
@@ -1059,11 +1201,11 @@ export class WorkflowExecutor {
                 input: this.sanitizeStepData(reusable.input ?? undefined),
                 output: this.sanitizeStepData(reusable.output ?? {})
               }
-              context.steps[step.stepName] = {
+              this.setStepContext(context, step, {
                 state: 'succeeded',
                 input: reused.input,
                 output: reused.output
-              }
+              })
               const reusedIdx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
               if (reusedIdx !== -1) {
                 stepResults[reusedIdx] = reused
@@ -1080,6 +1222,7 @@ export class WorkflowExecutor {
             }
             return result
           } catch (error) {
+            unavailableSlugs.set(step.slug, 'failed')
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
             const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
             if (idx !== -1) {

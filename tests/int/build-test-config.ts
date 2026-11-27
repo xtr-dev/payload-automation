@@ -1,6 +1,6 @@
 import { sqliteAdapter } from '@payloadcms/db-sqlite'
 import { buildConfig } from 'payload'
-import type { DatabaseAdapterObj, SanitizedConfig, TaskConfig } from 'payload'
+import type { Config, DatabaseAdapterObj, SanitizedConfig, TaskConfig } from 'payload'
 
 import { workflowsPlugin } from '../../src/plugin/index.js'
 import type { SeedWorkflow, WorkflowsPluginConfig } from '../../src/plugin/config-types.js'
@@ -15,11 +15,16 @@ export const buildTestConfig = (options: {
   /** Database adapter to use instead of SQLite on `dbFile`. */
   db?: DatabaseAdapterObj
   dbFile: string
+  /** Payload `jobs` config; Payload's defaults apply when omitted. */
+  jobs?: Config['jobs']
   /** Extra plugin options, merged over the defaults below. */
   pluginOptions?: Partial<WorkflowsPluginConfig>
   seedWorkflows?: SeedWorkflow[]
 }): Promise<SanitizedConfig> =>
   buildConfig({
+    // Payload otherwise spawns a detached `payload generate:types` process on
+    // every init; with one init per test those pile up and outlive the run.
+    typescript: { autoGenerate: false },
     collections: [
       {
         slug: 'posts',
@@ -53,5 +58,6 @@ export const buildTestConfig = (options: {
         ...options.pluginOptions,
       }),
     ],
+    ...(options.jobs ? { jobs: options.jobs } : {}),
     secret: 'test-secret-key',
   })

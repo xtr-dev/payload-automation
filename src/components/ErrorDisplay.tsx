@@ -201,7 +201,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
         borderRadius: '6px',
         fontSize: '13px'
       }}>
-        <strong>💡 Quick fixes:</strong>
+        <strong><span aria-label="Tip" role="img">💡</span> Quick fixes:</strong>
         <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
           {errorInfo.type === 'timeout' && (
             <>
@@ -230,7 +230,7 @@ export const ErrorDisplay: React.FC<ErrorDisplayProps> = ({
           {errorInfo.type === 'validation' && (
             <>
               <li>Check all required fields are filled in the workflow step</li>
-              <li>Verify JSONPath expressions in step inputs</li>
+              <li>Verify JSONata expressions in step inputs</li>
             </>
           )}
           {(errorInfo.type === 'client' || errorInfo.type === 'server') && (

@@ -2,7 +2,17 @@
 // These contain Node.js dependencies and should only be used server-side
 
 export { retryWorkflowRun } from '../core/retry-workflow-run.js'
+export { findStepResult } from '../core/step-results.js'
+export type { StepResultIdentity } from '../core/step-results.js'
 export type { RetryWorkflowRunOptions } from '../core/retry-workflow-run.js'
+export {
+  runScheduledTriggers,
+  SCHEDULED_TRIGGERS_TASK_SLUG
+} from '../core/scheduled-triggers.js'
+export type {
+  RunScheduledTriggersOptions,
+  ScheduledTriggerResult
+} from '../core/scheduled-triggers.js'
 export { triggerCustomWorkflow, triggerWorkflowById } from '../core/trigger-custom-workflow.js'
 export { WORKFLOW_RUN_TASK_SLUG, WorkflowExecutor } from '../core/workflow-executor.js'
 export { workflowsPlugin } from '../plugin/index.js'

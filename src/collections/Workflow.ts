@@ -1,28 +1,41 @@
 import type { CollectionConfig } from 'payload'
 
+import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
+
+import { adminUserAccess, readOnlyWorkflowLock, resolveCollectionAccess } from './access.js'
+
 /**
  * Creates the workflows collection.
  * Workflows reference triggers and steps via relationships for reusability.
  */
-export const createWorkflowCollection = (): CollectionConfig => {
+export const createWorkflowCollection = (
+  options: WorkflowsPluginConfig
+): CollectionConfig => {
   return {
     slug: 'workflows',
-    access: {
-      create: () => true,
-      // A Where clause is combined with the id lookup in deleteByID/updateByID
-      // (and used as the filter on bulk delete/update), so the *stored*
-      // document's readOnly is what gets checked. Reading `data` would not
-      // work: that argument is the incoming request body, which a REST DELETE
-      // does not send at all, and which a PATCH can simply omit `readOnly`
-      // from.
-      delete: () => ({
-        readOnly: { not_equals: true },
-      }),
-      read: () => true,
-      update: () => ({
-        readOnly: { not_equals: true },
-      }),
-    },
+    access: resolveCollectionAccess(
+      options,
+      'workflows',
+      {
+        create: adminUserAccess,
+        delete: adminUserAccess,
+        read: adminUserAccess,
+        // Versions are enabled below, and version snapshots carry the same
+        // data as the workflow itself (step inputOverrides can hold
+        // credentials), so reading them needs the same bar as reading the
+        // workflow. Payload's fallback for an unset readVersions/unlock is
+        // "any logged-in user from any auth collection".
+        readVersions: adminUserAccess,
+        unlock: adminUserAccess,
+        update: adminUserAccess,
+      },
+      {
+        // Applied on top of the defaults and any `access` override, so seeded
+        // read-only workflows stay locked whoever is allowed to edit workflows.
+        delete: readOnlyWorkflowLock,
+        update: readOnlyWorkflowLock,
+      },
+    ),
     admin: {
       defaultColumns: ['name', 'slug', 'readOnly', 'enabled', 'updatedAt'],
       description: 'Create and manage automated workflows.',
@@ -56,7 +69,7 @@ export const createWorkflowCollection = (): CollectionConfig => {
         // this flag isn't just self-protection anymore - anyone who could set it
         // could freeze someone else's trigger/step. `create`/`update` access:()=>false
         // means only Local API calls that don't pass overrideAccess:false can set
-        // it (that's how the plugin's own seeder in plugin/index.ts writes it);
+        // it (that's how the plugin's own seeder in plugin/seed-workflows.ts writes it);
         // REST, GraphQL, and any access-controlled Local API call cannot.
         access: {
           create: () => false,

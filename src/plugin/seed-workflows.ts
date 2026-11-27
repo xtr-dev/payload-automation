@@ -2,6 +2,8 @@ import type { Payload } from 'payload'
 
 import type { SeedWorkflow } from './config-types.js'
 
+import { hashWebhookSecret, normalizeWebhookPath } from '../utils/webhook.js'
+
 type Logger = Payload['logger']
 
 type WorkflowStepEntry = {
@@ -38,18 +40,85 @@ const mapTriggerFields = (triggerDef: SeedWorkflow['triggers'][number]): Record<
       fields.hook = triggerDef.parameters.hook
     } else if (triggerDef.type === 'scheduled') {
       fields.schedule = triggerDef.parameters.schedule
+      fields.timezone = triggerDef.parameters.timezone
     } else if (triggerDef.type === 'webhook') {
       fields.webhookPath = triggerDef.parameters.webhookPath
+      fields.webhookSecret = triggerDef.parameters.webhookSecret
     }
   }
 
   return fields
 }
 
-const triggerMatches = (existingTrigger: AnyRecord, desired: Record<string, unknown>): boolean =>
-  (['type', 'condition', 'collectionSlug', 'hook', 'globalSlug', 'schedule', 'webhookPath'] as const).every(
-    (key) => (existingTrigger?.[key] ?? undefined) === (desired[key] ?? undefined)
+// The automation-triggers collection normalizes some values when it saves them
+// (Triggers.ts beforeChange): the timezone is trimmed and stored as null when
+// empty, the webhook path loses its surrounding slashes, and the webhook secret
+// is stored only as a SHA-256 hash. The desired fields are put through the same
+// normalization here, so a stored trigger is compared with what saving its
+// definition would produce and an unchanged definition is not seen as a change
+// on every startup.
+const storedTriggerFields = (desired: Record<string, unknown>): Record<string, unknown> => {
+  const { webhookSecret, ...stored } = desired
+
+  if (typeof stored.timezone === 'string') {
+    stored.timezone = stored.timezone.trim() || undefined
+  }
+  if (typeof stored.webhookPath === 'string') {
+    stored.webhookPath = normalizeWebhookPath(stored.webhookPath)
+  }
+  if (typeof webhookSecret === 'string' && webhookSecret.length > 0) {
+    stored.webhookSecretHash = hashWebhookSecret(webhookSecret)
+  }
+
+  return stored
+}
+
+const comparedTriggerFields = [
+  'type',
+  'condition',
+  'collectionSlug',
+  'hook',
+  'globalSlug',
+  'schedule',
+  'timezone',
+  'webhookPath',
+  'webhookSecretHash',
+] as const
+
+// `existingTrigger` must have been read with showHiddenFields, or its
+// webhookSecretHash is missing and every webhook trigger looks changed.
+const triggerMatches = (existingTrigger: AnyRecord, desired: Record<string, unknown>): boolean => {
+  const stored = storedTriggerFields(desired)
+  return comparedTriggerFields.every(
+    (key) => (existingTrigger?.[key] ?? undefined) === (stored[key] ?? undefined)
   )
+}
+
+// Structural comparison of JSON values that ignores object key order. Step
+// inputs are stored in JSON columns, and some databases (Postgres jsonb) return
+// object keys in a different order than they were written, so comparing
+// JSON.stringify output would report a change on every startup there.
+const jsonEquals = (a: unknown, b: unknown): boolean => {
+  if (a === b) {
+    return true
+  }
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
+    return false
+  }
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((item, index) => jsonEquals(item, b[index]))
+    )
+  }
+  const aRecord = a as Record<string, unknown>
+  const bRecord = b as Record<string, unknown>
+  const aKeys = Object.keys(aRecord).filter((key) => aRecord[key] !== undefined)
+  const bKeys = Object.keys(bRecord).filter((key) => bRecord[key] !== undefined)
+  return aKeys.length === bKeys.length && aKeys.every((key) => jsonEquals(aRecord[key], bRecord[key]))
+}
 
 const stepEntryMatches = (
   existingEntry: AnyRecord,
@@ -63,11 +132,11 @@ const stepEntryMatches = (
   return (
     existingEntry?.slug === desiredSlug &&
     (existingEntry?.stepName ?? undefined) === stepDef.name &&
-    JSON.stringify(existingEntry?.inputOverrides || {}) === JSON.stringify(desiredInput) &&
+    jsonEquals(existingEntry?.inputOverrides || {}, desiredInput) &&
     (existingEntry?.condition ?? undefined) === (stepDef.condition ?? undefined) &&
-    JSON.stringify(existingDependencySlugs) === JSON.stringify(stepDef.dependencies || []) &&
+    jsonEquals(existingDependencySlugs, stepDef.dependencies || []) &&
     existingStepDoc?.type === stepDef.type &&
-    JSON.stringify(existingStepDoc?.config || {}) === JSON.stringify(desiredInput)
+    jsonEquals(existingStepDoc?.config || {}, desiredInput)
   )
 }
 
@@ -143,6 +212,36 @@ const deleteResources = async (
   }
 }
 
+// Deletes trigger/step docs that a successful workflow update no longer
+// references. automation-triggers and automation-steps are shared libraries:
+// a workflow made in the admin panel can point at a doc the seeder created, so
+// a doc another workflow still references is kept.
+const deleteUnreferenced = async (
+  payload: Payload,
+  collection: 'automation-triggers' | 'automation-steps',
+  ids: (number | string)[],
+  logger: Logger
+): Promise<void> => {
+  const unreferenced: (number | string)[] = []
+  for (const id of ids) {
+    try {
+      const { totalDocs } = await payload.count({
+        collection: 'workflows',
+        where: collection === 'automation-triggers' ? { triggers: { contains: id } } : { 'steps.step': { equals: id } },
+      })
+      if (totalDocs === 0) {
+        unreferenced.push(id)
+      }
+    } catch (error) {
+      logger.warn(
+        { collection, error: error instanceof Error ? error.message : 'Unknown error', id },
+        `Failed to check whether a ${collection} document is still in use while seeding workflows`
+      )
+    }
+  }
+  await deleteResources(payload, collection, unreferenced, logger)
+}
+
 type ReconcileResult<TItems> = {
   items: TItems
   createdIds: (number | string)[]
@@ -212,9 +311,9 @@ const reconcileTriggers = async (
 
 // Reconciles steps the same way reconcileTriggers does, but matched by the
 // stable per-step `slug` rather than array position: steps carry a slug for
-// exactly this reason (f3d78a4, "step order can change without affecting
-// references"), and matching by index instead means inserting, removing or
-// reordering a step shifts every later step's stored entry off by one,
+// exactly this reason (step order can change without affecting references),
+// and matching by index instead means inserting, removing or reordering a
+// step shifts every later step's stored entry off by one,
 // recreating all of them even though their definitions never changed.
 const reconcileSteps = async (
   payload: Payload,
@@ -322,6 +421,8 @@ export const seedWorkflows = async (
         },
         depth: 2,
         limit: 1,
+        // Needed to compare a webhook trigger's stored secret hash, a hidden field.
+        showHiddenFields: true,
       })
 
       if (existingWorkflow.docs.length > 0) {
@@ -365,8 +466,8 @@ export const seedWorkflows = async (
 
         // Only safe to remove the superseded docs now that the workflow has been
         // repointed at their replacements.
-        await deleteResources(payload, 'automation-triggers', triggerResult.staleIds, logger)
-        await deleteResources(payload, 'automation-steps', stepResult.staleIds, logger)
+        await deleteUnreferenced(payload, 'automation-triggers', triggerResult.staleIds, logger)
+        await deleteUnreferenced(payload, 'automation-steps', stepResult.staleIds, logger)
 
         logger.info(`Updated seeded workflow: ${seedWorkflow.name}`)
         continue
@@ -376,10 +477,10 @@ export const seedWorkflows = async (
       let workflowSteps: WorkflowStepEntry[] = []
 
       try {
-        const triggerResult = await reconcileTriggers(payload, [], seedWorkflow, logger)
-        const stepResult = await reconcileSteps(payload, [], seedWorkflow, logger)
-        triggerIds = triggerResult.items
-        workflowSteps = stepResult.items
+        // Assigned one at a time, so the catch below still knows about the
+        // triggers when creating the steps is what fails.
+        triggerIds = (await reconcileTriggers(payload, [], seedWorkflow, logger)).items
+        workflowSteps = (await reconcileSteps(payload, [], seedWorkflow, logger)).items
 
         await payload.create({
           collection: 'workflows',

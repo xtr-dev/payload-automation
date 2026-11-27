@@ -70,8 +70,11 @@ export interface Config {
     posts: Post;
     media: Media;
     auditLog: AuditLog;
+    'automation-triggers': AutomationTrigger;
+    'automation-steps': AutomationStep;
     workflows: Workflow;
     'workflow-runs': WorkflowRun;
+    'payload-kv': PayloadKv;
     users: User;
     'payload-jobs': PayloadJob;
     'payload-locked-documents': PayloadLockedDocument;
@@ -83,8 +86,11 @@ export interface Config {
     posts: PostsSelect<false> | PostsSelect<true>;
     media: MediaSelect<false> | MediaSelect<true>;
     auditLog: AuditLogSelect<false> | AuditLogSelect<true>;
+    'automation-triggers': AutomationTriggersSelect<false> | AutomationTriggersSelect<true>;
+    'automation-steps': AutomationStepsSelect<false> | AutomationStepsSelect<true>;
     workflows: WorkflowsSelect<false> | WorkflowsSelect<true>;
     'workflow-runs': WorkflowRunsSelect<false> | WorkflowRunsSelect<true>;
+    'payload-kv': PayloadKvSelect<false> | PayloadKvSelect<true>;
     users: UsersSelect<false> | UsersSelect<true>;
     'payload-jobs': PayloadJobsSelect<false> | PayloadJobsSelect<true>;
     'payload-locked-documents': PayloadLockedDocumentsSelect<false> | PayloadLockedDocumentsSelect<true>;
@@ -92,19 +98,27 @@ export interface Config {
     'payload-migrations': PayloadMigrationsSelect<false> | PayloadMigrationsSelect<true>;
   };
   db: {
-    defaultIDType: string;
+    defaultIDType: number;
   };
-  globals: {};
-  globalsSelect: {};
+  fallbackLocale: null;
+  globals: {
+    settings: Setting;
+    'payload-jobs-stats': PayloadJobsStat;
+  };
+  globalsSelect: {
+    settings: SettingsSelect<false> | SettingsSelect<true>;
+    'payload-jobs-stats': PayloadJobsStatsSelect<false> | PayloadJobsStatsSelect<true>;
+  };
   locale: null;
-  user: User & {
-    collection: 'users';
+  widgets: {
+    collections: CollectionsWidget;
   };
+  user: User;
   jobs: {
     tasks: {
-      'workflow-cron-executor': TaskWorkflowCronExecutor;
       'http-request-step': TaskHttpRequestStep;
       'create-document': TaskCreateDocument;
+      'automation-scheduled-triggers': TaskAutomationScheduledTriggers;
       inline: {
         input: unknown;
         output: unknown;
@@ -136,17 +150,18 @@ export interface UserAuthOperations {
  * via the `definition` "posts".
  */
 export interface Post {
-  id: string;
+  id: number;
   content?: string | null;
   updatedAt: string;
   createdAt: string;
+  _status?: ('draft' | 'published') | null;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "media".
  */
 export interface Media {
-  id: string;
+  id: number;
   updatedAt: string;
   createdAt: string;
   url?: string | null;
@@ -164,9 +179,9 @@ export interface Media {
  * via the `definition` "auditLog".
  */
 export interface AuditLog {
-  id: string;
-  post?: (string | null) | Post;
-  user?: (string | null) | User;
+  id: number;
+  post?: (number | null) | Post;
+  user?: (number | null) | User;
   message?: string | null;
   updatedAt: string;
   createdAt: string;
@@ -176,7 +191,7 @@ export interface AuditLog {
  * via the `definition` "users".
  */
 export interface User {
-  id: string;
+  id: number;
   updatedAt: string;
   createdAt: string;
   email: string;
@@ -194,6 +209,171 @@ export interface User {
       }[]
     | null;
   password?: string | null;
+  collection: 'users';
+}
+/**
+ * Reusable trigger definitions that can be shared across workflows.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "automation-triggers".
+ */
+export interface AutomationTrigger {
+  id: number;
+  /**
+   * Human-readable name for this trigger
+   */
+  name: string;
+  /**
+   * Optional description of when this trigger fires
+   */
+  description?: string | null;
+  /**
+   * The type of event that will fire this trigger
+   */
+  type: 'collection-hook' | 'global-hook' | 'scheduled' | 'webhook' | 'manual';
+  /**
+   * The target of this trigger
+   */
+  target?: string | null;
+  /**
+   * The collection to watch for events
+   */
+  collectionSlug?: ('posts' | 'media') | null;
+  /**
+   * The specific hook event to listen for
+   */
+  hook?:
+    | (
+        | 'afterChange'
+        | 'afterDelete'
+        | 'afterRead'
+        | 'beforeValidate'
+        | 'beforeChange'
+        | 'beforeDelete'
+        | 'beforeRead'
+        | 'afterLogin'
+        | 'afterLogout'
+        | 'beforeLogin'
+        | 'afterForgotPassword'
+        | 'afterRefresh'
+        | 'afterMe'
+        | 'refresh'
+        | 'me'
+        | 'beforeOperation'
+        | 'afterOperation'
+        | 'afterError'
+      )
+    | null;
+  /**
+   * The global to watch for events
+   */
+  globalSlug?: 'settings' | null;
+  /**
+   * Cron expression (e.g., "0 9 * * *" for 9 AM daily; an optional leading seconds field is supported). Fired by the plugin's scheduled job task, which needs a running Payload job runner.
+   */
+  schedule?: string | null;
+  /**
+   * IANA timezone the schedule is evaluated in (e.g., "Europe/Amsterdam"). Leave empty to use the server's timezone.
+   */
+  timezone?: string | null;
+  /**
+   * When the scheduler last fired this trigger. Set to the save time when the schedule is created or changed, so only occurrences after that fire.
+   */
+  lastFiredAt?: string | null;
+  /**
+   * Single path segment for this webhook. The endpoint is served at POST /api/automation/webhooks/<path>
+   */
+  webhookPath?: string | null;
+  /**
+   * Shared secret the caller must send in the X-Webhook-Secret header (or as an Authorization bearer token). Only a hash is stored: the secret is never shown again after saving. Leave empty to keep the current secret; enter a new one to rotate it.
+   */
+  webhookSecret?: string | null;
+  webhookSecretHash?: string | null;
+  /**
+   * JSONata expression that must evaluate to true for this trigger to fire. Leave empty to always fire. Example: trigger.doc._status = "published"
+   */
+  condition?: string | null;
+  /**
+   * Human-readable explanation of the condition (for documentation)
+   */
+  conditionDescription?: string | null;
+  /**
+   * Number of workflows using this trigger
+   */
+  usageCount?: number | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * Reusable step templates that can be used across workflows.
+ *
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "automation-steps".
+ */
+export interface AutomationStep {
+  id: number;
+  /**
+   * Human-readable name for this step
+   */
+  name: string;
+  /**
+   * Optional description of what this step does
+   */
+  description?: string | null;
+  /**
+   * The type of action this step performs
+   */
+  type: 'http-request-step' | 'create-document';
+  /**
+   * Step configuration in JSON format. String values can use JSONata expressions for dynamic data (e.g., "trigger.doc.id")
+   */
+  config?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Color for the step node in the visual builder (hex code)
+   */
+  color?: string | null;
+  /**
+   * Icon name for the step (optional)
+   */
+  icon?: string | null;
+  /**
+   * Optional JSON schema for validating step inputs
+   */
+  inputValidation?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Retry this step if it fails
+   */
+  retryOnFailure?: boolean | null;
+  /**
+   * Maximum number of retry attempts
+   */
+  maxRetries?: number | null;
+  /**
+   * Delay between retries in milliseconds
+   */
+  retryDelay?: number | null;
+  /**
+   * Number of workflows using this step
+   */
+  usageCount?: number | null;
+  updatedAt: string;
+  createdAt: string;
 }
 /**
  * Create and manage automated workflows.
@@ -202,78 +382,52 @@ export interface User {
  * via the `definition` "workflows".
  */
 export interface Workflow {
-  id: string;
+  id: number;
   /**
    * Human-readable name for the workflow
    */
   name: string;
   /**
+   * URL-safe unique identifier for this workflow
+   */
+  slug?: string | null;
+  /**
+   * Read-only workflows cannot be edited or deleted. This is typically used for seeded template workflows.
+   */
+  readOnly?: boolean | null;
+  /**
    * Optional description of what this workflow does
    */
   description?: string | null;
-  triggers?:
-    | {
-        type?: ('collection-trigger' | 'webhook-trigger' | 'global-trigger' | 'cron-trigger') | null;
-        parameters?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        /**
-         * Collection that triggers the workflow
-         */
-        __builtin_collectionSlug?: ('posts' | 'media') | null;
-        /**
-         * Collection operation that triggers the workflow
-         */
-        __builtin_operation?: ('create' | 'delete' | 'read' | 'update') | null;
-        /**
-         * URL path for the webhook (e.g., "my-webhook"). Full URL will be /api/workflows-webhook/my-webhook
-         */
-        __builtin_webhookPath?: string | null;
-        /**
-         * Global that triggers the workflow
-         */
-        __builtin_global?: string | null;
-        /**
-         * Global operation that triggers the workflow
-         */
-        __builtin_globalOperation?: 'update' | null;
-        /**
-         * Cron expression for scheduled execution (e.g., "0 0 * * *" for daily at midnight)
-         */
-        __builtin_cronExpression?: string | null;
-        /**
-         * Timezone for cron execution (e.g., "America/New_York", "Europe/London"). Defaults to UTC.
-         */
-        __builtin_timezone?: string | null;
-        /**
-         * JSONPath expression that must evaluate to true for this trigger to execute the workflow (e.g., "$.trigger.doc.status == 'published'")
-         */
-        condition?: string | null;
-        id?: string | null;
-      }[]
-    | null;
+  /**
+   * Enable or disable this workflow
+   */
+  enabled?: boolean | null;
+  /**
+   * Triggers that can start this workflow. Uses OR logic - workflow runs if ANY trigger fires.
+   */
+  triggers?: (number | AutomationTrigger)[] | null;
+  /**
+   * Steps to execute when this workflow runs. Steps execute in order based on dependencies.
+   */
   steps?:
     | {
-        step?: ('http-request-step' | 'create-document') | null;
-        name?: string | null;
         /**
-         * The URL to make the HTTP request to
+         * Select a step from the step library
          */
-        url?: string | null;
+        step: number | AutomationStep;
         /**
-         * HTTP method to use
+         * Unique identifier for this step within the workflow. Used for dependencies.
          */
-        method?: ('GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH') | null;
+        slug: string;
         /**
-         * HTTP headers as JSON object (e.g., {"Content-Type": "application/json"})
+         * Override the step name for this workflow instance (optional)
          */
-        headers?:
+        stepName?: string | null;
+        /**
+         * Override step configuration values for this workflow. Merged with step defaults.
+         */
+        inputOverrides?:
           | {
               [k: string]: unknown;
             }
@@ -283,90 +437,47 @@ export interface Workflow {
           | boolean
           | null;
         /**
-         * Request body data. Use JSONPath to reference values (e.g., {"postId": "$.trigger.doc.id", "title": "$.trigger.doc.title"})
-         */
-        body?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        /**
-         * Request timeout in milliseconds (default: 30000)
-         */
-        timeout?: number | null;
-        authentication?: {
-          /**
-           * Authentication method
-           */
-          type?: ('none' | 'bearer' | 'basic' | 'apikey') | null;
-          /**
-           * Bearer token value
-           */
-          token?: string | null;
-          /**
-           * Basic auth username
-           */
-          username?: string | null;
-          /**
-           * Basic auth password
-           */
-          password?: string | null;
-          /**
-           * API key header name (e.g., "X-API-Key")
-           */
-          headerName?: string | null;
-          /**
-           * API key value
-           */
-          headerValue?: string | null;
-        };
-        /**
-         * Number of retry attempts on failure (max: 5)
-         */
-        retries?: number | null;
-        /**
-         * Delay between retries in milliseconds
-         */
-        retryDelay?: number | null;
-        /**
-         * The collection slug to create a document in
-         */
-        collectionSlug?: string | null;
-        /**
-         * The document data to create. Use JSONPath to reference trigger data (e.g., {"title": "$.trigger.doc.title", "author": "$.trigger.doc.author"})
-         */
-        data?:
-          | {
-              [k: string]: unknown;
-            }
-          | unknown[]
-          | string
-          | number
-          | boolean
-          | null;
-        /**
-         * Create as draft (if collection has drafts enabled)
-         */
-        draft?: boolean | null;
-        /**
-         * Locale for the document (if localization is enabled)
-         */
-        locale?: string | null;
-        /**
-         * Step names that must complete before this step can run
-         */
-        dependencies?: string[] | null;
-        /**
-         * JSONPath expression that must evaluate to true for this step to execute (e.g., "$.trigger.doc.status == 'published'")
+         * JSONata expression that must evaluate to true for this step to execute. Leave empty to always run. Example: trigger.operation = "create"
          */
         condition?: string | null;
+        /**
+         * Steps that must complete before this step can run. Reference steps by their slug.
+         */
+        dependencies?:
+          | {
+              /**
+               * Slug of the dependent step
+               */
+              slug: string;
+              id?: string | null;
+            }[]
+          | null;
+        /**
+         * Position in the visual workflow builder
+         *
+         * @minItems 2
+         * @maxItems 2
+         */
+        position?: [number, number] | null;
         id?: string | null;
       }[]
     | null;
+  /**
+   * How to handle step failures
+   */
+  errorHandling?: ('stop' | 'continue' | 'retry') | null;
+  /**
+   * Maximum number of retry attempts
+   */
+  maxRetries?: number | null;
+  /**
+   * Delay between retries in milliseconds
+   */
+  retryDelay?: number | null;
+  /**
+   * Maximum execution time in milliseconds (0 for no timeout)
+   */
+  timeout?: number | null;
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -376,15 +487,31 @@ export interface Workflow {
  * via the `definition` "workflow-runs".
  */
 export interface WorkflowRun {
-  id: string;
+  id: number;
   /**
    * Reference to the workflow that was executed
    */
-  workflow: string | Workflow;
+  workflow: number | Workflow;
   /**
    * Version of the workflow that was executed
    */
-  workflowVersion: number;
+  workflowVersion?: number | null;
+  /**
+   * The trigger that initiated this workflow run
+   */
+  firedTrigger?: (number | null) | AutomationTrigger;
+  /**
+   * Snapshot of the trigger context when the workflow was fired
+   */
+  triggerData?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
   /**
    * Current execution status
    */
@@ -401,6 +528,81 @@ export interface WorkflowRun {
    * Total execution time in milliseconds
    */
   duration?: number | null;
+  /**
+   * Detailed results for each step execution
+   */
+  stepResults?:
+    | {
+        /**
+         * Reference to the step that was executed
+         */
+        step?: (number | null) | AutomationStep;
+        /**
+         * Slug of the step at execution time, as used in `steps.<slug>` expressions and dependencies. Empty on runs stored before this field existed; those are identified by step name.
+         */
+        slug?: string | null;
+        /**
+         * Name of the step at execution time
+         */
+        stepName?: string | null;
+        /**
+         * Position of the step in the workflow
+         */
+        stepIndex?: number | null;
+        /**
+         * Step execution status
+         */
+        status?: ('pending' | 'running' | 'succeeded' | 'failed' | 'skipped') | null;
+        /**
+         * When this step started
+         */
+        startedAt?: string | null;
+        /**
+         * When this step completed
+         */
+        completedAt?: string | null;
+        /**
+         * Step execution time in milliseconds
+         */
+        duration?: number | null;
+        /**
+         * Input data passed to this step (after template resolution)
+         */
+        input?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        /**
+         * Output data returned by this step
+         */
+        output?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        /**
+         * Error message if this step failed
+         */
+        error?: string | null;
+        /**
+         * Number of retry attempts for this step
+         */
+        retryCount?: number | null;
+        id?: string | null;
+      }[]
+    | null;
+  /**
+   * Full execution context including trigger data and step outputs
+   */
   context?:
     | {
         [k: string]: unknown;
@@ -413,7 +615,7 @@ export interface WorkflowRun {
   /**
    * Input data provided when the workflow was triggered
    */
-  inputs:
+  inputs?:
     | {
         [k: string]: unknown;
       }
@@ -439,25 +641,47 @@ export interface WorkflowRun {
    */
   triggeredBy: string;
   /**
-   * Array of step execution results
-   */
-  steps:
-    | {
-        [k: string]: unknown;
-      }
-    | unknown[]
-    | string
-    | number
-    | boolean
-    | null;
-  /**
    * Error message if workflow execution failed
    */
   error?: string | null;
   /**
    * Detailed execution logs
    */
-  logs:
+  logs?:
+    | {
+        timestamp?: string | null;
+        level?: ('debug' | 'info' | 'warn' | 'error') | null;
+        message?: string | null;
+        /**
+         * Index of the step that generated this log (optional)
+         */
+        stepIndex?: number | null;
+        /**
+         * Additional data for this log entry
+         */
+        data?:
+          | {
+              [k: string]: unknown;
+            }
+          | unknown[]
+          | string
+          | number
+          | boolean
+          | null;
+        id?: string | null;
+      }[]
+    | null;
+  updatedAt: string;
+  createdAt: string;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-kv".
+ */
+export interface PayloadKv {
+  id: number;
+  key: string;
+  data:
     | {
         [k: string]: unknown;
       }
@@ -466,15 +690,13 @@ export interface WorkflowRun {
     | number
     | boolean
     | null;
-  updatedAt: string;
-  createdAt: string;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "payload-jobs".
  */
 export interface PayloadJob {
-  id: string;
+  id: number;
   /**
    * Input data provided to the job
    */
@@ -521,7 +743,7 @@ export interface PayloadJob {
     | {
         executedAt: string;
         completedAt: string;
-        taskSlug: 'inline' | 'workflow-cron-executor' | 'http-request-step' | 'create-document';
+        taskSlug: 'inline' | 'http-request-step' | 'create-document' | 'automation-scheduled-triggers';
         taskID: string;
         input?:
           | {
@@ -554,10 +776,35 @@ export interface PayloadJob {
         id?: string | null;
       }[]
     | null;
-  taskSlug?: ('inline' | 'workflow-cron-executor' | 'http-request-step' | 'create-document') | null;
+  taskSlug?: ('inline' | 'http-request-step' | 'create-document' | 'automation-scheduled-triggers') | null;
   queue?: string | null;
   waitUntil?: string | null;
   processing?: boolean | null;
+  meta?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  /**
+   * Workflow that created this job
+   */
+  automationWorkflow?: (number | null) | Workflow;
+  /**
+   * Workflow run that created this job
+   */
+  automationWorkflowRun?: (number | null) | WorkflowRun;
+  /**
+   * Trigger that initiated the workflow
+   */
+  automationTrigger?: (number | null) | AutomationTrigger;
+  /**
+   * Name of the workflow step that created this job
+   */
+  automationStepName?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -566,40 +813,44 @@ export interface PayloadJob {
  * via the `definition` "payload-locked-documents".
  */
 export interface PayloadLockedDocument {
-  id: string;
+  id: number;
   document?:
     | ({
         relationTo: 'posts';
-        value: string | Post;
+        value: number | Post;
       } | null)
     | ({
         relationTo: 'media';
-        value: string | Media;
+        value: number | Media;
       } | null)
     | ({
         relationTo: 'auditLog';
-        value: string | AuditLog;
+        value: number | AuditLog;
+      } | null)
+    | ({
+        relationTo: 'automation-triggers';
+        value: number | AutomationTrigger;
+      } | null)
+    | ({
+        relationTo: 'automation-steps';
+        value: number | AutomationStep;
       } | null)
     | ({
         relationTo: 'workflows';
-        value: string | Workflow;
+        value: number | Workflow;
       } | null)
     | ({
         relationTo: 'workflow-runs';
-        value: string | WorkflowRun;
+        value: number | WorkflowRun;
       } | null)
     | ({
         relationTo: 'users';
-        value: string | User;
-      } | null)
-    | ({
-        relationTo: 'payload-jobs';
-        value: string | PayloadJob;
+        value: number | User;
       } | null);
   globalSlug?: string | null;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   updatedAt: string;
   createdAt: string;
@@ -609,10 +860,10 @@ export interface PayloadLockedDocument {
  * via the `definition` "payload-preferences".
  */
 export interface PayloadPreference {
-  id: string;
+  id: number;
   user: {
     relationTo: 'users';
-    value: string | User;
+    value: number | User;
   };
   key?: string | null;
   value?:
@@ -632,7 +883,7 @@ export interface PayloadPreference {
  * via the `definition` "payload-migrations".
  */
 export interface PayloadMigration {
-  id: string;
+  id: number;
   name?: string | null;
   batch?: number | null;
   updatedAt: string;
@@ -646,6 +897,7 @@ export interface PostsSelect<T extends boolean = true> {
   content?: T;
   updatedAt?: T;
   createdAt?: T;
+  _status?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -677,56 +929,79 @@ export interface AuditLogSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "automation-triggers_select".
+ */
+export interface AutomationTriggersSelect<T extends boolean = true> {
+  name?: T;
+  description?: T;
+  type?: T;
+  target?: T;
+  collectionSlug?: T;
+  hook?: T;
+  globalSlug?: T;
+  schedule?: T;
+  timezone?: T;
+  lastFiredAt?: T;
+  webhookPath?: T;
+  webhookSecret?: T;
+  webhookSecretHash?: T;
+  condition?: T;
+  conditionDescription?: T;
+  usageCount?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "automation-steps_select".
+ */
+export interface AutomationStepsSelect<T extends boolean = true> {
+  name?: T;
+  description?: T;
+  type?: T;
+  config?: T;
+  color?: T;
+  icon?: T;
+  inputValidation?: T;
+  retryOnFailure?: T;
+  maxRetries?: T;
+  retryDelay?: T;
+  usageCount?: T;
+  updatedAt?: T;
+  createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
  * via the `definition` "workflows_select".
  */
 export interface WorkflowsSelect<T extends boolean = true> {
   name?: T;
+  slug?: T;
+  readOnly?: T;
   description?: T;
-  triggers?:
-    | T
-    | {
-        type?: T;
-        parameters?: T;
-        __builtin_collectionSlug?: T;
-        __builtin_operation?: T;
-        __builtin_webhookPath?: T;
-        __builtin_global?: T;
-        __builtin_globalOperation?: T;
-        __builtin_cronExpression?: T;
-        __builtin_timezone?: T;
-        condition?: T;
-        id?: T;
-      };
+  enabled?: T;
+  triggers?: T;
   steps?:
     | T
     | {
         step?: T;
-        name?: T;
-        url?: T;
-        method?: T;
-        headers?: T;
-        body?: T;
-        timeout?: T;
-        authentication?:
+        slug?: T;
+        stepName?: T;
+        inputOverrides?: T;
+        condition?: T;
+        dependencies?:
           | T
           | {
-              type?: T;
-              token?: T;
-              username?: T;
-              password?: T;
-              headerName?: T;
-              headerValue?: T;
+              slug?: T;
+              id?: T;
             };
-        retries?: T;
-        retryDelay?: T;
-        collectionSlug?: T;
-        data?: T;
-        draft?: T;
-        locale?: T;
-        dependencies?: T;
-        condition?: T;
+        position?: T;
         id?: T;
       };
+  errorHandling?: T;
+  maxRetries?: T;
+  retryDelay?: T;
+  timeout?: T;
   updatedAt?: T;
   createdAt?: T;
   _status?: T;
@@ -738,19 +1013,54 @@ export interface WorkflowsSelect<T extends boolean = true> {
 export interface WorkflowRunsSelect<T extends boolean = true> {
   workflow?: T;
   workflowVersion?: T;
+  firedTrigger?: T;
+  triggerData?: T;
   status?: T;
   startedAt?: T;
   completedAt?: T;
   duration?: T;
+  stepResults?:
+    | T
+    | {
+        step?: T;
+        slug?: T;
+        stepName?: T;
+        stepIndex?: T;
+        status?: T;
+        startedAt?: T;
+        completedAt?: T;
+        duration?: T;
+        input?: T;
+        output?: T;
+        error?: T;
+        retryCount?: T;
+        id?: T;
+      };
   context?: T;
   inputs?: T;
   outputs?: T;
   triggeredBy?: T;
-  steps?: T;
   error?: T;
-  logs?: T;
+  logs?:
+    | T
+    | {
+        timestamp?: T;
+        level?: T;
+        message?: T;
+        stepIndex?: T;
+        data?: T;
+        id?: T;
+      };
   updatedAt?: T;
   createdAt?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-kv_select".
+ */
+export interface PayloadKvSelect<T extends boolean = true> {
+  key?: T;
+  data?: T;
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -802,6 +1112,11 @@ export interface PayloadJobsSelect<T extends boolean = true> {
   queue?: T;
   waitUntil?: T;
   processing?: T;
+  meta?: T;
+  automationWorkflow?: T;
+  automationWorkflowRun?: T;
+  automationTrigger?: T;
+  automationStepName?: T;
   updatedAt?: T;
   createdAt?: T;
 }
@@ -839,11 +1154,61 @@ export interface PayloadMigrationsSelect<T extends boolean = true> {
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
- * via the `definition` "TaskWorkflow-cron-executor".
+ * via the `definition` "settings".
  */
-export interface TaskWorkflowCronExecutor {
-  input?: unknown;
-  output?: unknown;
+export interface Setting {
+  id: number;
+  siteName?: string | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-jobs-stats".
+ */
+export interface PayloadJobsStat {
+  id: number;
+  stats?:
+    | {
+        [k: string]: unknown;
+      }
+    | unknown[]
+    | string
+    | number
+    | boolean
+    | null;
+  updatedAt?: string | null;
+  createdAt?: string | null;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "settings_select".
+ */
+export interface SettingsSelect<T extends boolean = true> {
+  siteName?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "payload-jobs-stats_select".
+ */
+export interface PayloadJobsStatsSelect<T extends boolean = true> {
+  stats?: T;
+  updatedAt?: T;
+  createdAt?: T;
+  globalType?: T;
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "collections_widget".
+ */
+export interface CollectionsWidget {
+  data?: {
+    [k: string]: unknown;
+  };
+  width: 'full';
 }
 /**
  * This interface was referenced by `Config`'s JSON-Schema
@@ -872,7 +1237,7 @@ export interface TaskHttpRequestStep {
       | boolean
       | null;
     /**
-     * Request body data. Use JSONPath to reference values (e.g., {"postId": "$.trigger.doc.id", "title": "$.trigger.doc.title"})
+     * Request body data. Use whole-string JSONata templates to reference values (e.g., {"postId": "{{trigger.doc.id}}", "title": "{{trigger.doc.title}}"})
      */
     body?:
       | {
@@ -976,7 +1341,7 @@ export interface TaskCreateDocument {
      */
     collectionSlug: string;
     /**
-     * The document data to create. Use JSONPath to reference trigger data (e.g., {"title": "$.trigger.doc.title", "author": "$.trigger.doc.author"})
+     * The document data to create. Use whole-string JSONata templates for dynamic values (e.g., {"title": "{{trigger.doc.title}}", "author": "{{trigger.doc.author}}"})
      */
     data:
       | {
@@ -1013,6 +1378,16 @@ export interface TaskCreateDocument {
      * The ID of the created document
      */
     id?: string | null;
+  };
+}
+/**
+ * This interface was referenced by `Config`'s JSON-Schema
+ * via the `definition` "TaskAutomation-scheduled-triggers".
+ */
+export interface TaskAutomationScheduledTriggers {
+  input?: unknown;
+  output: {
+    workflowRuns?: number | null;
   };
 }
 /**
