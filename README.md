@@ -343,7 +343,7 @@ const seedWorkflows: SeedWorkflow[] = [
 workflowsPlugin({ seedWorkflows, steps: [SendEmailStepTask] })
 ```
 
-A workflow whose `slug` already exists is left as it is, so later changes in code are not applied to it. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
+On every startup a seeded workflow is matched by `slug` and, when its definition in code has changed, updated in place. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
 
 ## Plugin Configuration
 

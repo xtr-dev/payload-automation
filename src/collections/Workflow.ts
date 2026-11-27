@@ -69,7 +69,7 @@ export const createWorkflowCollection = (
         // this flag isn't just self-protection anymore - anyone who could set it
         // could freeze someone else's trigger/step. `create`/`update` access:()=>false
         // means only Local API calls that don't pass overrideAccess:false can set
-        // it (that's how the plugin's own seeder in plugin/index.ts writes it);
+        // it (that's how the plugin's own seeder in plugin/seed-workflows.ts writes it);
         // REST, GraphQL, and any access-controlled Local API call cannot.
         access: {
           create: () => false,

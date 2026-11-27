@@ -5,10 +5,12 @@
 ## Behavior
 
 - On each startup (`onInit`), every seed workflow whose `slug` doesn't exist yet is created, together with its triggers (in `automation-triggers`) and steps (in `automation-steps`).
-- A workflow whose `slug` already exists is skipped. Changes to a seed definition in code are **not** applied to an existing workflow; give it a new `slug`, or delete the old one from the database and restart.
+- A workflow whose `slug` already exists is compared with its definition: `name`, `description`, triggers and steps. If nothing changed it is left alone. Otherwise it is updated in place: the workflow keeps its id, and triggers and steps that did not change keep theirs, so existing `workflow-runs` still point at them. Triggers are matched by position, steps by `slug`. A changed trigger or step is replaced by a new document and the old one is deleted, unless another workflow still uses it.
+- Only those four fields are written. Other settings on the stored workflow (`enabled`, error handling) are kept. Removing a workflow from `seedWorkflows` does not delete it.
+- If creating or updating a workflow fails partway, the triggers and steps created for that attempt are deleted again and an existing workflow stays as it was.
 - Seeded workflows, and the triggers and steps they reference, can't be updated or deleted through the admin UI, REST, GraphQL or access-controlled Local API calls. The `readOnly` flag itself can only be set by the plugin's seeder.
 - The admin panel shows a banner on read-only workflows.
-- A seed that fails (for example a slug clash) is logged as `Failed to seed workflow` and the others still run.
+- A seed that fails (for example an unknown step type) is logged as `Failed to seed workflow` and the others still run.
 
 ## Example
 
@@ -120,5 +122,5 @@ Step `input` values follow the README's [expression rules](../README.md#expressi
 ## Troubleshooting
 
 - **A seed was not created:** look for `Failed to seed workflow` in the logs (set `PAYLOAD_AUTOMATION_LOG_LEVEL=info` to also see `Seeded workflow: ...`). A unique-constraint error on `slug` means a workflow with that slug already exists.
-- **Changes are not applied:** expected, see [Behavior](#behavior).
+- **Changes are not applied:** changes are applied on the next startup. If they are not, look for `Failed to seed workflow` in the logs; a failed update leaves the stored workflow as it was.
 - **A step fails with `depends on non-existent step`:** `dependencies` must list step slugs, not names.
