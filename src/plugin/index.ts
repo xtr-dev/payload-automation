@@ -15,6 +15,7 @@ import { withStepOutputCapture } from '../core/step-output-capture.js'
 import { allCollectionHooks, allGlobalHooks } from '../triggers/hook-options.js'
 import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
 import { createWorkflowRunTask } from '../core/workflow-run-task.js'
+import { assertValidSchedule } from '../utils/schedule.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
 import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
@@ -321,6 +322,17 @@ export const workflowsPlugin =
               continue
             }
 
+            // Check every schedule before creating any record, so an invalid
+            // schedule or timezone leaves no orphaned triggers behind. Saving
+            // the trigger runs the same check (Triggers.ts beforeChange).
+            for (const triggerDef of seedWorkflow.triggers) {
+              const schedule = triggerDef.parameters?.schedule
+              if (triggerDef.type === 'scheduled' && typeof schedule === 'string') {
+                const timezone = triggerDef.parameters?.timezone
+                assertValidSchedule(schedule, typeof timezone === 'string' ? timezone.trim() || null : null)
+              }
+            }
+
             // Create triggers in automation-triggers collection
             const triggerIds: (string | number)[] = []
             for (let i = 0; i < seedWorkflow.triggers.length; i++) {
@@ -344,6 +356,7 @@ export const workflowsPlugin =
                   triggerData.hook = triggerDef.parameters.hook
                 } else if (triggerDef.type === 'scheduled') {
                   triggerData.schedule = triggerDef.parameters.schedule
+                  triggerData.timezone = triggerDef.parameters.timezone
                 } else if (triggerDef.type === 'webhook') {
                   triggerData.webhookPath = triggerDef.parameters.webhookPath
                   triggerData.webhookSecret = triggerDef.parameters.webhookSecret
