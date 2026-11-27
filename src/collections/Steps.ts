@@ -155,7 +155,7 @@ export const createStepsCollection = (
             name: 'retryOnFailure',
             type: 'checkbox',
             admin: {
-              description: 'Retry this step if it fails',
+              description: 'Retry this step when it fails, in every workflow that uses it. The step only counts as failed, and the workflow\'s error handling only applies, after the last retry. These settings take precedence over the retry settings of a workflow whose error handling is "Retry".',
             },
             defaultValue: false,
           },
@@ -164,18 +164,20 @@ export const createStepsCollection = (
             type: 'number',
             admin: {
               condition: (_, siblingData) => siblingData?.retryOnFailure === true,
-              description: 'Maximum number of retry attempts',
+              description: 'How many times the step is retried after a failed attempt (3 when empty; 3 means up to 4 attempts). 0 means never, also in a workflow whose error handling is "Retry".',
             },
             defaultValue: 3,
+            min: 0,
           },
           {
             name: 'retryDelay',
             type: 'number',
             admin: {
               condition: (_, siblingData) => siblingData?.retryOnFailure === true,
-              description: 'Delay between retries in milliseconds',
+              description: 'Milliseconds to wait before each retry (1000 when empty)',
             },
             defaultValue: 1000,
+            min: 0,
           },
         ],
       },

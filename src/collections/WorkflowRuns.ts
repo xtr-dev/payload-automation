@@ -217,12 +217,39 @@ export const createWorkflowRunsCollection = (
           },
         },
         {
+          name: 'attempts',
+          type: 'number',
+          admin: {
+            description: 'How many times this step was started in this run. 1 means it ran once without a retry; empty or 0 means it never ran.',
+            readOnly: true,
+          },
+        },
+        {
           name: 'retryCount',
           type: 'number',
           admin: {
-            description: 'Number of retry attempts for this step',
+            description: 'Number of retries of this step, i.e. attempts minus one',
           },
           defaultValue: 0,
+        },
+        {
+          name: 'lastError',
+          type: 'textarea',
+          admin: {
+            description: 'Error of the most recent failed attempt. Also kept when a later attempt succeeded, to show why the step was retried.',
+            readOnly: true,
+          },
+        },
+        {
+          name: 'nextRetryAt',
+          type: 'date',
+          admin: {
+            date: {
+              displayFormat: 'yyyy-MM-dd HH:mm:ss',
+            },
+            description: 'Set while the run is paused for a retry of this step (queue mode, long retry delay): when the next attempt is due.',
+            readOnly: true,
+          },
         },
       ],
     },

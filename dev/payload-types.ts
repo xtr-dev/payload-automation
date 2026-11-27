@@ -357,15 +357,15 @@ export interface AutomationStep {
     | boolean
     | null;
   /**
-   * Retry this step if it fails
+   * Retry this step when it fails, in every workflow that uses it. The step only counts as failed, and the workflow's error handling only applies, after the last retry. These settings take precedence over the retry settings of a workflow whose error handling is "Retry".
    */
   retryOnFailure?: boolean | null;
   /**
-   * Maximum number of retry attempts
+   * How many times the step is retried after a failed attempt (3 when empty; 3 means up to 4 attempts). 0 means never, also in a workflow whose error handling is "Retry".
    */
   maxRetries?: number | null;
   /**
-   * Delay between retries in milliseconds
+   * Milliseconds to wait before each retry (1000 when empty)
    */
   retryDelay?: number | null;
   /**
@@ -463,19 +463,19 @@ export interface Workflow {
       }[]
     | null;
   /**
-   * How to handle step failures
+   * What happens when a step fails. "Stop": the run fails at the first failed step. "Continue": the remaining steps still run, except those that depend on the failed step, and the run ends as completed. "Retry": every step is retried with the settings below, and the run fails when a step still fails after its last retry. A step with its own "Retry this step if it fails" setting is retried with that step's settings under all three options, and only counts as failed after its last retry.
    */
   errorHandling?: ('stop' | 'continue' | 'retry') | null;
   /**
-   * Maximum number of retry attempts
+   * How many times a failed step is retried before the run fails (3 when empty; 3 means up to 4 attempts). Steps with their own retry setting use that instead.
    */
   maxRetries?: number | null;
   /**
-   * Delay between retries in milliseconds
+   * Milliseconds to wait before each retry (1000 when empty). Steps with their own retry setting use that instead.
    */
   retryDelay?: number | null;
   /**
-   * Maximum execution time in milliseconds (0 for no timeout)
+   * Maximum duration of a whole run in milliseconds, including retries and the waits between them (0 or empty for no limit). When it passes, the run fails with "Workflow timed out", whatever the error handling setting: steps still running are recorded as failed, no further step or retry starts. A step that is already running is not interrupted, only its result is discarded.
    */
   timeout?: number | null;
   updatedAt: string;
@@ -594,9 +594,21 @@ export interface WorkflowRun {
          */
         error?: string | null;
         /**
-         * Number of retry attempts for this step
+         * How many times this step was started in this run. 1 means it ran once without a retry; empty or 0 means it never ran.
+         */
+        attempts?: number | null;
+        /**
+         * Number of retries of this step, i.e. attempts minus one
          */
         retryCount?: number | null;
+        /**
+         * Error of the most recent failed attempt. Also kept when a later attempt succeeded, to show why the step was retried.
+         */
+        lastError?: string | null;
+        /**
+         * Set while the run is paused for a retry of this step (queue mode, long retry delay): when the next attempt is due.
+         */
+        nextRetryAt?: string | null;
         id?: string | null;
       }[]
     | null;
@@ -1033,7 +1045,10 @@ export interface WorkflowRunsSelect<T extends boolean = true> {
         input?: T;
         output?: T;
         error?: T;
+        attempts?: T;
         retryCount?: T;
+        lastError?: T;
+        nextRetryAt?: T;
         id?: T;
       };
   context?: T;

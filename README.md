@@ -13,6 +13,7 @@ A workflow automation plugin for PayloadCMS 3.x. Workflows are configured in the
 - JSONata expressions for step inputs and conditions, including output from earlier steps
 - Step dependencies: independent steps run in parallel, dependent ones in order
 - Inline or queued (Payload job queue) execution
+- Step retries with a delay, per step or as a workflow default, and a run timeout
 - Run history in `workflow-runs`, with retry from a stored run
 - Read-only template workflows seeded from code
 
@@ -163,9 +164,43 @@ steps: [
 ]
 ```
 
-A dependency on a slug that doesn't exist, or a cycle, fails the run. When a step fails, the workflow's `errorHandling` decides what happens: `stop` (default) fails the run, `continue` runs the remaining independent steps and skips the steps that depend on the failed one, directly or through other skipped steps. A skipped step is recorded with status `skipped` and an `output.reason` such as `Dependency "fetch-user" failed`. A dependent step with its own `condition` is not skipped automatically; its condition decides, so a step with `dependencies: ['fetch-user']` and the condition `` steps.`fetch-user`.state = 'failed' `` runs only when `fetch-user` fails. The run ends as `completed`.
+A dependency on a slug that doesn't exist, or a cycle, fails the run. When a step fails (after its last retry, see [Retries and Timeout](#retries-and-timeout)), the workflow's `errorHandling` decides what happens: `stop` (default) and `retry` fail the run, `continue` runs the remaining independent steps and skips the steps that depend on the failed one, directly or through other skipped steps. A skipped step is recorded with status `skipped` and an `output.reason` such as `Dependency "fetch-user" failed`. A dependent step with its own `condition` is not skipped automatically; its condition decides, so a step with `dependencies: ['fetch-user']` and the condition `` steps.`fetch-user`.state = 'failed' `` runs only when `fetch-user` fails. The run ends as `completed`.
 
 Step outputs are captured as the task handler returns, so they work with Payload's default `jobs.deleteJobOnComplete: true`. The exception is a task whose `handler` is a module path string (or a task added to the config after this plugin runs): its output is read back from the job, so it is only available when completed jobs are kept (`deleteJobOnComplete: false`).
+
+## Retries and Timeout
+
+### Retries
+
+A failed step can be retried. Which settings apply to a step:
+
+| Step (`automation-steps`) | Workflow `errorHandling` | Retries |
+|---|---|---|
+| `retryOnFailure: true` | any | the step's `maxRetries` and `retryDelay` |
+| `retryOnFailure: false` (default) | `retry` | the workflow's `maxRetries` and `retryDelay` |
+| `retryOnFailure: false` (default) | `stop` or `continue` | none |
+
+- `maxRetries` is the number of retries after the first attempt, so `3` means up to 4 attempts. Empty means 3; `0` means no retries. A step with `retryOnFailure: true` and `maxRetries: 0` is never retried, also in a workflow with `errorHandling: 'retry'`.
+- `retryDelay` is the wait before each retry in milliseconds (empty means 1000). The delay is fixed; there is no backoff.
+- A step only counts as failed after its last attempt failed. Only then does `errorHandling` apply: `stop` fails the run, `continue` skips the step's dependents and carries on, and `retry` fails the run like `stop`. So `errorHandling: 'retry'` is `stop` plus a default retry policy for every step of the workflow.
+- Every attempt is a separate job in `payload-jobs` with the same resolved input; the step's condition and input expressions are evaluated once, before the first attempt.
+- The step result on the run records `attempts`, `retryCount` (`attempts - 1`) and `lastError`, the error of the most recent failed attempt, which is kept when a later attempt succeeds. Each failed attempt that is retried also adds a `warn` entry to the run's `logs`.
+- The plugin does the retrying, not Payload: `retries` on a task's own config is ignored for a task run as a workflow step, and the job of a failed attempt is cancelled so a job runner does not run it again outside the run. The `http-request-step` inputs `retries` and `retryDelay` are separate: they repeat the HTTP request inside one attempt.
+
+Where the delay is spent depends on the [execution mode](#plugin-configuration):
+
+- `inline` (default): the run waits inside the hook or call that fired the trigger, for every delay. Keep `maxRetries × retryDelay` short, or use queue mode.
+- `queue`: a delay up to `execution.maxInProcessRetryDelay` (default 5000 ms) is waited inside the `automation-workflow-run` job. For a longer delay the run is saved with status `pending`, the waiting step gets `nextRetryAt`, and a new `automation-workflow-run` job is queued with Payload's `waitUntil`; the run continues from its stored step results when a job runner picks that job up, so no runner is blocked while waiting. The retry therefore happens at the first job-runner pass after `nextRetryAt`, and expressions of later steps see the stored (serialized) step outputs.
+
+`retryWorkflowRun` (below) is something else: it starts a new run from a finished one.
+
+### Timeout
+
+A workflow's `timeout` (milliseconds, default `300000`; `0` or empty for no limit) limits the whole run, counted from the moment its steps start, including retries, retry delays and the time a queued run is paused for a retry. There is no per-step timeout.
+
+When the time is up, the run ends as `failed` with the error `Workflow timed out after <n> ms`, whatever `errorHandling` is. Steps that were running are recorded as `failed` with a `Step timed out: ...` error, steps that had not started stay `pending`, and no further step or retry starts.
+
+A running task handler cannot be interrupted: Payload gives task handlers no cancellation signal, so an HTTP request or database write already under way still finishes. The plugin cancels the step's job, so Payload discards its result and never runs it again, and whatever the handler returns later is not written to the run. Give long-running custom tasks their own limit (the `http-request-step` has a `timeout` input).
 
 ## Step Types
 
@@ -283,7 +318,7 @@ const results = await triggerCustomWorkflow(payload, { data: { source: 'import' 
 
 ## Execution Tracking
 
-Every execution is stored in `workflow-runs` with the trigger data, per-step results (slug, name, status, input, output, error, duration), logs and the final status. `findStepResult(run.stepResults, slug)` from `/server` picks one step's result by slug; runs stored before step results recorded their slug are matched on the step name instead (pass it as a third argument when it differs from the slug). Postgres and SQLite need a migration for the `slug` column on the step results table; MongoDB needs nothing.
+Every execution is stored in `workflow-runs` with the trigger data, per-step results (slug, name, status, input, output, error, duration, attempts, lastError), logs and the final status. `findStepResult(run.stepResults, slug)` from `/server` picks one step's result by slug; runs stored before step results recorded their slug are matched on the step name instead (pass it as a third argument when it differs from the slug). Postgres and SQLite need a migration for the `slug`, `attempts`, `last_error` and `next_retry_at` columns on the step results table; MongoDB needs nothing.
 
 ```typescript
 const runs = await payload.find({
@@ -377,7 +412,10 @@ type WorkflowsPluginConfig = {
   // queues one `automation-workflow-run` job on `queue` (default 'default');
   // the steps run when your job runner processes it, using the stored
   // triggerData snapshot and the job runner's request.
-  execution?: { mode?: 'inline' | 'queue'; queue?: string }
+  // maxInProcessRetryDelay (ms, default 5000, queue mode only): a step retry
+  // delay longer than this pauses the run and re-queues it with `waitUntil`
+  // instead of waiting inside the job. See "Retries and Timeout".
+  execution?: { mode?: 'inline' | 'queue'; queue?: string; maxInProcessRetryDelay?: number }
 
   // The automation-scheduled-triggers task, scheduled every `tick`
   // (default '* * * * *') on `queue` (default 'default'). false registers no

@@ -47,10 +47,120 @@ export type ResolvedStep = {
   config: Record<string, unknown>
   condition?: string | null
   dependencies: string[]
-  retryOnFailure?: boolean
-  maxRetries?: number
-  retryDelay?: number
+  /**
+   * How often a failed attempt of this step is retried (0 = never), after
+   * {@link resolveRetryPolicy} combined the step's and the workflow's settings.
+   */
+  maxRetries: number
+  /** Milliseconds to wait before each retry. */
+  retryDelay: number
 }
+
+/** Retries and delay used when retrying is switched on but the number field is empty. */
+export const DEFAULT_MAX_RETRIES = 3
+export const DEFAULT_RETRY_DELAY_MS = 1000
+
+/**
+ * Default for `execution.maxInProcessRetryDelay`: in queue mode, a retry delay
+ * longer than this is not slept through inside the job but handed back to the
+ * jobs queue (see `WorkflowExecutor.suspendForRetry`).
+ */
+export const DEFAULT_MAX_IN_PROCESS_RETRY_DELAY_MS = 5000
+
+/**
+ * Longest delay a Node.js timer supports (2^31 - 1 ms, about 24.8 days).
+ * `setTimeout` with a larger value fires immediately instead.
+ */
+const MAX_TIMER_MS = 2_147_483_647
+
+const nonNegativeInteger = (value: unknown, fallback: number): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback
+
+/**
+ * The retry policy that applies to one step.
+ *
+ * - A step with `retryOnFailure` uses its own `maxRetries` and `retryDelay`
+ *   (3 and 1000 ms when empty), whatever the workflow's `errorHandling` is.
+ *   Its `maxRetries: 0` therefore switches retries off for that step.
+ * - Any other step is retried only when the workflow's `errorHandling` is
+ *   `'retry'`, with the workflow's `maxRetries` and `retryDelay`.
+ * - Otherwise the step is not retried.
+ */
+export const resolveRetryPolicy = (
+  step: { maxRetries?: null | number; retryDelay?: null | number; retryOnFailure?: boolean | null },
+  workflow: { errorHandling?: null | string; maxRetries?: null | number; retryDelay?: null | number }
+): { maxRetries: number; retryDelay: number } => {
+  const source = step.retryOnFailure === true ? step : workflow.errorHandling === 'retry' ? workflow : undefined
+  if (!source) {
+    return { maxRetries: 0, retryDelay: 0 }
+  }
+  return {
+    maxRetries: nonNegativeInteger(source.maxRetries, DEFAULT_MAX_RETRIES),
+    retryDelay: nonNegativeInteger(source.retryDelay, DEFAULT_RETRY_DELAY_MS)
+  }
+}
+
+/** Thrown inside the executor when a run exceeds its workflow's `timeout`. */
+export class WorkflowTimeoutError extends Error {
+  constructor(public readonly timeoutMs: number) {
+    super(`Workflow timed out after ${timeoutMs} ms`)
+    this.name = 'WorkflowTimeoutError'
+  }
+}
+
+/**
+ * State shared by everything that works on one call of `runSteps`.
+ */
+interface RunState {
+  /** Aborted when the run closes, which cuts retry waits short. */
+  abort: AbortController
+  /**
+   * Whether a retry wait longer than `maxInProcessRetryDelay` may be handed
+   * to the jobs queue. Only true for runs executed by the queued-run job.
+   */
+  canDefer: boolean
+  /**
+   * True once the run's outcome is final while steps may still be in flight:
+   * it timed out, or a step failed and the run stopped. A step that finishes
+   * after that must not record anything, start a retry or touch the context.
+   */
+  closed: boolean
+  /** Steps currently executing, by step index. Used to fail them on timeout. */
+  inFlight: Map<number, { jobId?: number | string; result: StepResult; step: ResolvedStep }>
+  /** Log entries about retries, appended to the run's `logs` when it is saved. */
+  logs: Array<{ level: 'error' | 'info' | 'warn'; message: string; timestamp: string }>
+  maxInProcessRetryDelay: number
+}
+
+/** Attempt bookkeeping of a step whose retry was handed to the jobs queue. */
+interface StepResume {
+  attempts: number
+  lastError?: string
+  /** Epoch milliseconds before which the next attempt must not start. */
+  notBefore?: number
+  startedAt?: string
+}
+
+/**
+ * Resolves after `ms`, or as soon as `signal` aborts. The timer is cleared on
+ * abort so a closed run leaves nothing behind that keeps the process alive.
+ */
+const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    signal.addEventListener('abort', onAbort, { once: true })
+  })
 
 export interface ExecutionContext {
   steps: Record<string, any>
@@ -69,7 +179,20 @@ export interface StepResult {
   input?: Record<string, unknown>
   output?: Record<string, unknown>
   error?: string
+  /** Attempts started so far: 1 for a step that ran once, 0 for one that never ran. */
+  attempts?: number
+  /** Retries made, i.e. `attempts - 1`. */
   retryCount?: number
+  /**
+   * Error of the most recent failed attempt. Kept when a later attempt
+   * succeeds, so the run shows why the step had to be retried.
+   */
+  lastError?: string
+  /**
+   * Set on a `pending` step whose retry was handed to the jobs queue: the
+   * time the next attempt is due. Cleared once the step finishes.
+   */
+  nextRetryAt?: null | string
 }
 
 /**
@@ -124,6 +247,13 @@ export const WORKFLOW_RUN_TASK_SLUG = 'automation-workflow-run'
  * `step` may be the related step's id or the populated step document.
  */
 export interface PreviousStepResult {
+  attempts?: null | number
+  completedAt?: null | string
+  duration?: null | number
+  error?: null | string
+  lastError?: null | string
+  nextRetryAt?: null | string
+  startedAt?: null | string
   input?: null | Record<string, unknown>
   output?: null | Record<string, unknown>
   /** Missing on results stored before `stepResults.slug` existed. */
@@ -289,9 +419,7 @@ export class WorkflowExecutor {
         config: mergedConfig,
         condition: workflowStep.condition,
         dependencies,
-        retryOnFailure: baseStep.retryOnFailure,
-        maxRetries: baseStep.maxRetries || workflow.maxRetries || 3,
-        retryDelay: baseStep.retryDelay || workflow.retryDelay || 1000
+        ...resolveRetryPolicy(baseStep, workflow)
       })
     }
 
@@ -363,14 +491,26 @@ export class WorkflowExecutor {
   }
 
   /**
-   * Execute a single workflow step
+   * Execute a single workflow step, retrying failed attempts according to the
+   * step's retry policy (see {@link resolveRetryPolicy}).
+   *
+   * Never throws for a failing step. The returned result has status:
+   * - `succeeded`, `skipped` (condition not met) or `failed` (the last allowed
+   *   attempt failed): the step is finished.
+   * - `pending` with `nextRetryAt`: an attempt failed and the wait before the
+   *   next one is longer than the run may sleep in-process, so the caller has
+   *   to suspend the run (see `suspendForRetry`).
+   *
+   * Once `run.closed` is set the return value is meaningless and nothing is
+   * written to the context any more: the run has already been recorded.
    */
   private async executeStep(
     step: ResolvedStep,
     context: ExecutionContext,
     req: PayloadRequest,
-    stepResults: StepResult[],
-    jobMeta: WorkflowJobMeta
+    jobMeta: WorkflowJobMeta,
+    run: RunState,
+    resume?: StepResume
   ): Promise<StepResult> {
     const result: StepResult = {
       step: step.stepId,
@@ -378,8 +518,11 @@ export class WorkflowExecutor {
       stepName: step.stepName,
       stepIndex: step.stepIndex,
       status: 'running',
-      startedAt: new Date().toISOString(),
-      retryCount: 0
+      startedAt: resume?.startedAt ?? new Date().toISOString(),
+      attempts: resume?.attempts ?? 0,
+      retryCount: Math.max(0, (resume?.attempts ?? 0) - 1),
+      lastError: resume?.lastError,
+      nextRetryAt: null
     }
 
     this.logger.info({
@@ -388,9 +531,12 @@ export class WorkflowExecutor {
       stepIndex: step.stepIndex
     }, 'Executing step')
 
-    // Check step condition if present
-    if (step.condition) {
+    // A resumed step already passed its condition before its first attempt.
+    if (step.condition && !resume) {
       const conditionMet = await this.evaluateCondition(step.condition, context)
+      if (run.closed) {
+        return result
+      }
       if (!conditionMet) {
         this.logger.info({
           stepName: step.stepName,
@@ -414,6 +560,9 @@ export class WorkflowExecutor {
     const resolvedInput = this.sanitizeStepData(
       await this.resolveStepInput(step.config, this.stepInputContext(context))
     )
+    if (run.closed) {
+      return result
+    }
     result.input = resolvedInput
 
     this.setStepContext(context, step, {
@@ -421,84 +570,180 @@ export class WorkflowExecutor {
       input: resolvedInput
     })
 
+    const tracker: { jobId?: number | string; result: StepResult; step: ResolvedStep } = { result, step }
+    run.inFlight.set(step.stepIndex, tracker)
+    const maxAttempts = step.maxRetries + 1
+    let notBefore = resume?.notBefore
+
     try {
-      const job = await this.payload.jobs.queue({
-        input: resolvedInput,
-        req,
-        task: step.stepType,
-      })
-
-      if (this.config.debug) {
-        this.logger.info(job, `Queued job for step '${step.stepName}'`)
-      }
-
-      // Update the job with automation context fields
-      // This allows tracking which workflow run triggered this job
-      await this.payload.update({
-        collection: 'payload-jobs',
-        id: job.id,
-        data: {
-          automationWorkflow: jobMeta.automationWorkflowId,
-          automationWorkflowRun: jobMeta.automationWorkflowRunId,
-          automationTrigger: jobMeta.automationTriggerId,
-          automationStepName: step.stepName,
-        },
-        req,
-      })
-
-      // Payload's job runner only reports a status, and with its default
-      // jobs.deleteJobOnComplete it deletes the job (and the output logged in
-      // it) before runByID returns. The wrapped task handler hands the output
-      // over through this slot instead.
-      const outputSlot = expectStepOutput(this.payload, job.id)
-      let runResult: unknown
-      try {
-        runResult = await this.payload.jobs.runByID({
-          id: job.id,
-          req
-        })
-      } finally {
-        releaseStepOutput(this.payload, job.id, outputSlot)
-      }
-
-      if (this.config.debug) {
-        this.logger.info(runResult, `Run result for step '${step.stepName}'`)
-      }
-
-      // Check the job status from the run result
-      // runByID returns { jobStatus: { [jobId]: { status: 'success' | 'error' | ... } }, ... }
-      const jobStatus = (runResult as any)?.jobStatus?.[job.id]
-      const jobSucceeded = jobStatus?.status === 'success'
-
-      if (jobSucceeded) {
-        let output: Record<string, unknown> = outputSlot.output ?? {}
-        if (!outputSlot.captured) {
-          // The handler was not wrapped (a task with a module-path handler, or
-          // one added to the config after this plugin ran). Read the output
-          // from the job, which only works if the job has not been deleted.
-          try {
-            const completedJob = await this.payload.findByID({
-              id: job.id,
-              collection: 'payload-jobs',
-              req
-            })
-            const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
-            output = taskStatus?.output || {}
-          } catch {
-            this.logger.warn(
-              { stepName: step.stepName, stepType: step.stepType },
-              'Step output unavailable: the job was deleted on completion and the task handler is not a function the plugin could wrap'
-            )
+      for (;;) {
+        // Wait until the retry is due. Looping covers delays longer than one
+        // timer can hold (see MAX_TIMER_MS).
+        while (notBefore !== undefined) {
+          const wait = notBefore - Date.now()
+          if (wait <= 0) {
+            notBefore = undefined
+            break
+          }
+          if (run.canDefer && wait > run.maxInProcessRetryDelay) {
+            result.status = 'pending'
+            result.nextRetryAt = new Date(notBefore).toISOString()
+            this.setStepContext(context, step, { state: 'pending', input: resolvedInput })
+            return result
+          }
+          await sleep(Math.min(wait, MAX_TIMER_MS), run.abort.signal)
+          if (run.closed) {
+            return result
           }
         }
 
-        result.status = 'succeeded'
-        result.output = this.sanitizeStepData(output)
-        result.completedAt = new Date().toISOString()
-        result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
-      } else {
-        // Job failed - try to get error details from the job
-        let errorMessage = 'Task failed'
+        result.attempts = (result.attempts ?? 0) + 1
+        result.retryCount = result.attempts - 1
+
+        try {
+          const output = await this.runStepAttempt(step, resolvedInput, req, jobMeta, tracker)
+          if (run.closed) {
+            return result
+          }
+
+          result.status = 'succeeded'
+          result.output = this.sanitizeStepData(output)
+          result.completedAt = new Date().toISOString()
+          result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
+
+          this.setStepContext(context, step, {
+            state: 'succeeded',
+            input: resolvedInput,
+            output: result.output
+          })
+
+          this.logger.info({
+            attempts: result.attempts,
+            stepName: step.stepName,
+            duration: result.duration
+          }, 'Step completed successfully')
+
+          return result
+        } catch (error) {
+          if (run.closed) {
+            return result
+          }
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          result.lastError = errorMessage
+
+          if (result.attempts >= maxAttempts) {
+            result.status = 'failed'
+            result.error = errorMessage
+            result.completedAt = new Date().toISOString()
+            result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
+
+            this.setStepContext(context, step, {
+              state: 'failed',
+              input: resolvedInput,
+              error: errorMessage
+            })
+
+            this.logger.error({
+              attempts: result.attempts,
+              stepName: step.stepName,
+              error: errorMessage
+            }, 'Step execution failed')
+
+            return result
+          }
+
+          notBefore = Date.now() + step.retryDelay
+          const message = `Step "${step.stepName}" failed on attempt ${result.attempts} of ${maxAttempts}: ${errorMessage}. Retrying in ${step.retryDelay} ms`
+          run.logs.push({ level: 'warn', message, timestamp: new Date().toISOString() })
+          this.logger.warn({
+            attempt: result.attempts,
+            maxAttempts,
+            retryDelay: step.retryDelay,
+            stepName: step.stepName,
+            error: errorMessage
+          }, 'Step attempt failed, retrying')
+        }
+      }
+    } finally {
+      // After a timeout `runSteps` reads the in-flight entries to fail them,
+      // so a closed run keeps them.
+      if (!run.closed) {
+        run.inFlight.delete(step.stepIndex)
+      }
+    }
+  }
+
+  /**
+   * Run one attempt of a step as its own Payload job and return the task's
+   * output. Throws with the task's error message when the attempt fails.
+   *
+   * Every attempt is a new job rather than a retry of the same job: a job
+   * queued for a single task takes its retry count from the task's static
+   * config, while a step's retry policy is data on the step and workflow
+   * documents. A new job per attempt also keeps one `payload-jobs` record
+   * (with the automation fields) per attempt.
+   */
+  private async runStepAttempt(
+    step: ResolvedStep,
+    resolvedInput: Record<string, unknown>,
+    req: PayloadRequest,
+    jobMeta: WorkflowJobMeta,
+    tracker: { jobId?: number | string }
+  ): Promise<Record<string, unknown>> {
+    const job = await this.payload.jobs.queue({
+      input: resolvedInput,
+      req,
+      task: step.stepType,
+    })
+    tracker.jobId = job.id
+
+    if (this.config.debug) {
+      this.logger.info(job, `Queued job for step '${step.stepName}'`)
+    }
+
+    // Update the job with automation context fields
+    // This allows tracking which workflow run triggered this job
+    await this.payload.update({
+      collection: 'payload-jobs',
+      id: job.id,
+      data: {
+        automationWorkflow: jobMeta.automationWorkflowId,
+        automationWorkflowRun: jobMeta.automationWorkflowRunId,
+        automationTrigger: jobMeta.automationTriggerId,
+        automationStepName: step.stepName,
+      },
+      req,
+    })
+
+    // Payload's job runner only reports a status, and with its default
+    // jobs.deleteJobOnComplete it deletes the job (and the output logged in
+    // it) before runByID returns. The wrapped task handler hands the output
+    // over through this slot instead.
+    const outputSlot = expectStepOutput(this.payload, job.id)
+    let runResult: unknown
+    try {
+      runResult = await this.payload.jobs.runByID({
+        id: job.id,
+        req
+      })
+    } finally {
+      releaseStepOutput(this.payload, job.id, outputSlot)
+    }
+
+    if (this.config.debug) {
+      this.logger.info(runResult, `Run result for step '${step.stepName}'`)
+    }
+
+    // Check the job status from the run result
+    // runByID returns { jobStatus: { [jobId]: { status: 'success' | 'error' | ... } }, ... }
+    const jobStatus = (runResult as any)?.jobStatus?.[job.id]
+
+    if (jobStatus?.status === 'success') {
+      let output: Record<string, unknown> = outputSlot.output ?? {}
+      if (!outputSlot.captured) {
+        // The handler was not wrapped (a task with a module-path handler, or
+        // one added to the config after this plugin ran). Read the output
+        // from the job, which only works if the job has not been deleted.
         try {
           const completedJob = await this.payload.findByID({
             id: job.id,
@@ -506,53 +751,62 @@ export class WorkflowExecutor {
             req
           })
           const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
-          if (completedJob.log && completedJob.log.length > 0) {
-            const latestLog = completedJob.log[completedJob.log.length - 1]
-            errorMessage = latestLog.error?.message || latestLog.error || errorMessage
-          }
-          if (taskStatus?.output?.errorMessage) {
-            errorMessage = taskStatus.output.errorMessage
-          }
+          output = taskStatus?.output || {}
         } catch {
-          // Job may have been deleted - use the job status from run result
-          errorMessage = `Task failed with status: ${jobStatus?.status || 'unknown'}`
+          this.logger.warn(
+            { stepName: step.stepName, stepType: step.stepType },
+            'Step output unavailable: the job was deleted on completion and the task handler is not a function the plugin could wrap'
+          )
         }
-        throw new Error(errorMessage)
       }
-
-      this.setStepContext(context, step, {
-        state: 'succeeded',
-        input: resolvedInput,
-        output: result.output
-      })
-
-      this.logger.info({
-        stepName: step.stepName,
-        duration: result.duration
-      }, 'Step completed successfully')
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-      result.status = 'failed'
-      result.error = errorMessage
-      result.completedAt = new Date().toISOString()
-      result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
-
-      this.setStepContext(context, step, {
-        state: 'failed',
-        input: resolvedInput,
-        error: errorMessage
-      })
-
-      this.logger.error({
-        stepName: step.stepName,
-        error: errorMessage
-      }, 'Step execution failed')
-
-      throw error
+      return output
     }
 
-    return result
+    // Job failed - try to get error details from the job
+    let errorMessage = 'Task failed'
+    try {
+      const completedJob = await this.payload.findByID({
+        id: job.id,
+        collection: 'payload-jobs',
+        req
+      })
+      const taskStatus = completedJob.taskStatus?.[completedJob.taskSlug]?.[completedJob.totalTried]
+      if (completedJob.log && completedJob.log.length > 0) {
+        const latestLog = completedJob.log[completedJob.log.length - 1]
+        errorMessage = latestLog.error?.message || latestLog.error || errorMessage
+      }
+      if (taskStatus?.output?.errorMessage) {
+        errorMessage = taskStatus.output.errorMessage
+      }
+    } catch {
+      // Job may have been deleted - use the job status from run result
+      errorMessage = `Task failed with status: ${jobStatus?.status || 'unknown'}`
+    }
+
+    if (jobStatus?.status === 'error') {
+      // The task has Payload-level `retries` left, so Payload kept the job
+      // queued for the host's job runner. The executor has already counted
+      // this attempt as failed and decides about retries itself; without
+      // cancelling, the task would run again later outside the workflow run.
+      await this.cancelJob(job.id, req)
+    }
+
+    throw new Error(errorMessage)
+  }
+
+  /**
+   * Mark a step's job as cancelled so no job runner picks it up (again).
+   * Best effort: this cannot interrupt a task handler that is already running.
+   */
+  private async cancelJob(jobId: number | string, req: PayloadRequest): Promise<void> {
+    try {
+      await this.payload.jobs.cancelByID({ id: jobId, req })
+    } catch (error) {
+      this.logger.warn({
+        jobId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Could not cancel step job')
+    }
   }
 
   /**
@@ -865,6 +1119,7 @@ export class WorkflowExecutor {
     const resolvedSteps = await this.resolveWorkflowSteps(workflow)
     const queued = this.config.execution?.mode === 'queue' && options.inline !== true
 
+    const startedAt = Date.now()
     const workflowRun = await this.payload.create({
       collection: 'workflow-runs',
       data: {
@@ -873,7 +1128,7 @@ export class WorkflowExecutor {
         firedTrigger: firedTrigger?.id,
         triggerData: this.safeSerialize(context.trigger),
         status: queued ? 'pending' : 'running',
-        startedAt: new Date().toISOString(),
+        startedAt: new Date(startedAt).toISOString(),
         triggeredBy: this.describeTriggeredBy(req?.user ?? context.trigger.req?.user),
         stepResults: this.pendingStepResults(resolvedSteps),
         context: this.safeSerialize(context),
@@ -917,7 +1172,7 @@ export class WorkflowExecutor {
       workflowRun,
       resolvedSteps,
       firedTrigger?.id,
-      options.reuseSucceededSteps
+      { reuseSucceededSteps: options.reuseSucceededSteps, startedAt }
     )
     return workflowRun.id
   }
@@ -955,6 +1210,18 @@ export class WorkflowExecutor {
       ? (workflowRun.firedTrigger as { id: number | string }).id
       : (workflowRun.firedTrigger as number | string | null | undefined) ?? undefined
 
+    // A run that `suspendForRetry` paused is `pending` again but already has
+    // step results; a run that never started has only untouched placeholders.
+    const storedResults = (workflowRun.stepResults ?? []) as PreviousStepResult[]
+    const resuming = storedResults.some((result) =>
+      (result.status !== 'pending' && result.status !== null && result.status !== undefined) ||
+      (result.attempts ?? 0) > 0
+    )
+    // The workflow's timeout counts from the first start, also across pauses.
+    const startedAt = resuming && workflowRun.startedAt
+      ? new Date(workflowRun.startedAt as string).getTime()
+      : Date.now()
+
     let workflow: PayloadWorkflow
     let resolvedSteps: ResolvedStep[]
     let startedRun: { id: number | string; logs?: unknown[] | null }
@@ -978,13 +1245,13 @@ export class WorkflowExecutor {
         collection: 'workflow-runs',
         id: workflowRun.id,
         data: {
-          startedAt: new Date().toISOString(),
+          ...(resuming ? {} : { startedAt: new Date(startedAt).toISOString() }),
           logs: [
             ...(workflowRun.logs || []),
             {
               timestamp: new Date().toISOString(),
               level: 'info',
-              message: 'Workflow execution started'
+              message: resuming ? 'Workflow execution resumed' : 'Workflow execution started'
             }
           ]
         },
@@ -1017,7 +1284,11 @@ export class WorkflowExecutor {
       trigger: (workflowRun.triggerData as ExecutionContext['trigger'] | null) ?? {}
     }
 
-    await this.runSteps(workflow, context, req, startedRun, resolvedSteps, firedTriggerId)
+    await this.runSteps(workflow, context, req, startedRun, resolvedSteps, firedTriggerId, {
+      canDefer: true,
+      resumeFrom: resuming ? storedResults : undefined,
+      startedAt
+    })
   }
 
   /**
@@ -1127,6 +1398,13 @@ export class WorkflowExecutor {
 
   /**
    * Run the resolved steps batch by batch and record progress on the run.
+   *
+   * `options.startedAt` is when the run started (epoch ms); the workflow's
+   * `timeout` counts from there, so for a run resumed after a deferred retry
+   * the waiting time counts too. `options.resumeFrom` holds the step results
+   * stored when the run was suspended. `options.canDefer` allows suspending
+   * the run for a long retry delay; it requires the caller to be the
+   * queued-run job, because resuming needs a job runner.
    */
   private async runSteps(
     workflow: PayloadWorkflow,
@@ -1134,9 +1412,15 @@ export class WorkflowExecutor {
     req: PayloadRequest,
     workflowRun: { id: number | string; logs?: unknown[] | null },
     resolvedSteps: ResolvedStep[],
-    firedTriggerId?: number | string,
-    reuseSucceededSteps?: PreviousStepResult[]
+    firedTriggerId: number | string | undefined,
+    options: {
+      canDefer?: boolean
+      resumeFrom?: PreviousStepResult[]
+      reuseSucceededSteps?: PreviousStepResult[]
+      startedAt: number
+    }
   ): Promise<void> {
+    const { resumeFrom, reuseSucceededSteps } = options
     const stepResults = this.pendingStepResults(resolvedSteps)
     // Claim every step's slug before any batch runs, so a display-name alias
     // can never take another step's slug key (see setStepContext). Done here
@@ -1150,13 +1434,51 @@ export class WorkflowExecutor {
       automationTriggerId: firedTriggerId,
     }
 
+    const run: RunState = {
+      abort: new AbortController(),
+      canDefer: options.canDefer === true,
+      closed: false,
+      inFlight: new Map(),
+      logs: [],
+      maxInProcessRetryDelay: nonNegativeInteger(
+        this.config.execution?.maxInProcessRetryDelay,
+        DEFAULT_MAX_IN_PROCESS_RETRY_DELAY_MS
+      )
+    }
+
+    // The workflow's `timeout` limits the whole run. When it passes, the run
+    // is closed first (so steps still in flight stop recording) and then the
+    // batch being awaited is abandoned through `timedOut`. A timeout above
+    // MAX_TIMER_MS (about 24.8 days) is enforced at that maximum.
+    const timeoutMs = typeof workflow.timeout === 'number' && workflow.timeout > 0 ? workflow.timeout : undefined
+    let timeoutTimer: ReturnType<typeof setTimeout> | undefined
+    let timedOut: Promise<never> | undefined
+    if (timeoutMs !== undefined) {
+      const remaining = options.startedAt + timeoutMs - Date.now()
+      timedOut = new Promise<never>((_, reject) => {
+        timeoutTimer = setTimeout(() => {
+          run.closed = true
+          run.abort.abort()
+          reject(new WorkflowTimeoutError(timeoutMs))
+        }, Math.min(Math.max(0, remaining), MAX_TIMER_MS))
+      })
+      // Awaited through Promise.race below; this handler only keeps a timeout
+      // that fires between two batches from being an unhandled rejection.
+      timedOut.catch(() => undefined)
+    }
+
     try {
+      if (timeoutMs !== undefined && Date.now() >= options.startedAt + timeoutMs) {
+        // A resumed run whose retry wait outlasted the timeout.
+        throw new WorkflowTimeoutError(timeoutMs)
+      }
+
       const executionBatches = this.resolveExecutionOrder(resolvedSteps)
       // Slugs of steps whose earlier result was reused (see findReusableResult).
       const reusedSlugs = new Set<string>()
       // Slugs of steps that failed, or were skipped because a step they depend
-      // on failed. Only populated with errorHandling other than 'stop', since
-      // 'stop' ends the run at the first failure.
+      // on failed. Only populated with errorHandling 'continue', since
+      // 'stop' and 'retry' end the run at the first failed step.
       const unavailableSlugs = new Map<string, 'failed' | 'skipped'>()
 
       this.logger.info({
@@ -1167,6 +1489,11 @@ export class WorkflowExecutor {
       for (let batchIndex = 0; batchIndex < executionBatches.length; batchIndex++) {
         const batch = executionBatches[batchIndex]
 
+        if (run.closed && timeoutMs !== undefined) {
+          // The timeout fired while the previous batch was being saved.
+          throw new WorkflowTimeoutError(timeoutMs)
+        }
+
         this.logger.info({
           batchIndex,
           stepCount: batch.length,
@@ -1174,77 +1501,111 @@ export class WorkflowExecutor {
         }, 'Executing batch')
 
         const batchPromises = batch.map(async (step) => {
-          const skipped = this.skipForFailedDependency(step, context, unavailableSlugs)
-          if (skipped) {
-            unavailableSlugs.set(step.slug, 'skipped')
-            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
-            if (idx !== -1) {
-              stepResults[idx] = skipped
-            }
-            return skipped
-          }
-          try {
-            const reusable = this.findReusableResult(step, reuseSucceededSteps, reusedSlugs)
-            if (reusable) {
-              const now = new Date().toISOString()
-              const reused: StepResult = {
-                step: step.stepId,
-                slug: step.slug,
-                stepName: step.stepName,
-                stepIndex: step.stepIndex,
-                status: 'succeeded',
-                startedAt: now,
-                completedAt: now,
-                duration: 0,
-                // Results stored before secret stripping existed may still
-                // carry secrets, so clean them again before reuse.
-                input: this.sanitizeStepData(reusable.input ?? undefined),
-                output: this.sanitizeStepData(reusable.output ?? {})
-              }
-              this.setStepContext(context, step, {
-                state: 'succeeded',
-                input: reused.input,
-                output: reused.output
-              })
-              const reusedIdx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
-              if (reusedIdx !== -1) {
-                stepResults[reusedIdx] = reused
-              }
-              reusedSlugs.add(step.slug)
-              this.logger.info({ stepName: step.stepName }, 'Reusing succeeded step result from the earlier run')
-              return reused
-            }
-
-            const result = await this.executeStep(step, context, req, stepResults, jobMeta)
-            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+          const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+          const record = (result: StepResult): StepResult => {
             if (idx !== -1) {
               stepResults[idx] = result
             }
             return result
-          } catch (error) {
-            unavailableSlugs.set(step.slug, 'failed')
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-            const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
-            if (idx !== -1) {
-              stepResults[idx] = {
-                ...stepResults[idx],
-                status: 'failed',
-                error: errorMessage,
-                completedAt: new Date().toISOString()
-              }
-            }
+          }
 
-            if (workflow.errorHandling === 'stop') {
-              throw error
+          // A step that finished before the run was suspended keeps its result.
+          const stored = this.findStoredResult(step, resumeFrom)
+          const restored = stored && this.restoreStepResult(step, stored, context)
+          if (restored) {
+            if (restored.status === 'failed' || (restored.status === 'skipped' && !step.condition)) {
+              // Without a condition, a step can only have been skipped because
+              // a step it depends on failed.
+              unavailableSlugs.set(step.slug, restored.status)
+            }
+            return record(restored)
+          }
+
+          const skipped = this.skipForFailedDependency(step, context, unavailableSlugs)
+          if (skipped) {
+            unavailableSlugs.set(step.slug, 'skipped')
+            return record(skipped)
+          }
+
+          const reusable = this.findReusableResult(step, reuseSucceededSteps, reusedSlugs)
+          if (reusable) {
+            const now = new Date().toISOString()
+            const reused: StepResult = {
+              step: step.stepId,
+              slug: step.slug,
+              stepName: step.stepName,
+              stepIndex: step.stepIndex,
+              status: 'succeeded',
+              startedAt: now,
+              completedAt: now,
+              duration: 0,
+              // Results stored before secret stripping existed may still
+              // carry secrets, so clean them again before reuse.
+              input: this.sanitizeStepData(reusable.input ?? undefined),
+              output: this.sanitizeStepData(reusable.output ?? {})
+            }
+            this.setStepContext(context, step, {
+              state: 'succeeded',
+              input: reused.input,
+              output: reused.output
+            })
+            reusedSlugs.add(step.slug)
+            this.logger.info({ stepName: step.stepName }, 'Reusing succeeded step result from the earlier run')
+            return record(reused)
+          }
+
+          // A stored result that is still pending but has attempts is a step
+          // waiting for a deferred retry: continue its attempt count.
+          const resume: StepResume | undefined = stored && (stored.attempts ?? 0) > 0
+            ? {
+                attempts: stored.attempts ?? 0,
+                lastError: stored.lastError ?? undefined,
+                notBefore: stored.nextRetryAt ? new Date(stored.nextRetryAt).getTime() : undefined,
+                startedAt: stored.startedAt ?? undefined
+              }
+            : undefined
+
+          let result: StepResult
+          try {
+            result = await this.executeStep(step, context, req, jobMeta, run, resume)
+          } catch (error) {
+            // executeStep reports failed attempts in its result; this is an
+            // error outside an attempt (e.g. while resolving the input).
+            result = {
+              ...stepResults[idx],
+              status: 'failed',
+              error: error instanceof Error ? error.message : 'Unknown error',
+              completedAt: new Date().toISOString()
+            }
+          }
+
+          if (run.closed) {
+            // The run was already recorded as timed out or failed; this
+            // step's late outcome must not overwrite what was stored.
+            return undefined
+          }
+          record(result)
+
+          if (result.status === 'failed') {
+            unavailableSlugs.set(step.slug, 'failed')
+            if (workflow.errorHandling === 'stop' || workflow.errorHandling === 'retry') {
+              throw new Error(result.error)
             }
             this.logger.warn({
               stepName: step.stepName,
-              error: errorMessage
+              error: result.error
             }, 'Step failed but continuing due to error handling setting')
           }
+          return result
         })
 
-        await Promise.all(batchPromises)
+        await (timedOut ? Promise.race([Promise.all(batchPromises), timedOut]) : Promise.all(batchPromises))
+
+        const waiting = stepResults.filter((result) => result.status === 'pending' && result.nextRetryAt)
+        if (waiting.length > 0) {
+          await this.suspendForRetry(workflowRun, stepResults, waiting, context, run, req)
+          return
+        }
 
         await this.payload.update({
           id: workflowRun.id,
@@ -1256,6 +1617,9 @@ export class WorkflowExecutor {
           req
         })
       }
+
+      // Nothing may change the results while the run is being completed.
+      run.closed = true
 
       const outputs: Record<string, unknown> = {}
       for (const result of stepResults) {
@@ -1275,6 +1639,7 @@ export class WorkflowExecutor {
           outputs,
           logs: [
             ...(workflowRun.logs || []),
+            ...run.logs,
             {
               timestamp: new Date().toISOString(),
               level: 'info',
@@ -1292,7 +1657,46 @@ export class WorkflowExecutor {
 
 
     } catch (error) {
+      // Close the run before anything is awaited: steps of the failed batch
+      // may still be running or waiting to retry, and must not retry again or
+      // change `stepResults` and the context while they are being saved.
+      run.closed = true
+      run.abort.abort()
+
       const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+
+      // A step that was waiting for a deferred retry will not get it.
+      for (const result of stepResults) {
+        if (result.nextRetryAt) {
+          result.nextRetryAt = null
+        }
+      }
+
+      if (error instanceof WorkflowTimeoutError) {
+        // Fail the steps that were running when the time ran out. Their task
+        // handlers cannot be interrupted; cancelling the job only makes
+        // Payload discard its result and never run it again.
+        const completedAt = new Date().toISOString()
+        for (const { jobId, result, step } of run.inFlight.values()) {
+          const stepError = `Step timed out: the workflow exceeded its timeout of ${error.timeoutMs} ms while this step was running`
+          const idx = stepResults.findIndex(r => r.stepIndex === step.stepIndex)
+          if (idx !== -1) {
+            stepResults[idx] = {
+              ...result,
+              status: 'failed',
+              error: stepError,
+              lastError: stepError,
+              nextRetryAt: null,
+              completedAt,
+              duration: new Date(completedAt).getTime() - new Date(result.startedAt ?? completedAt).getTime()
+            }
+          }
+          this.setStepContext(context, step, { state: 'failed', input: result.input, error: stepError })
+          if (jobId !== undefined) {
+            await this.cancelJob(jobId, req)
+          }
+        }
+      }
 
       await this.payload.update({
         id: workflowRun.id,
@@ -1305,6 +1709,7 @@ export class WorkflowExecutor {
           error: errorMessage,
           logs: [
             ...(workflowRun.logs || []),
+            ...run.logs,
             {
               timestamp: new Date().toISOString(),
               level: 'error',
@@ -1322,6 +1727,124 @@ export class WorkflowExecutor {
       }, 'Workflow execution failed')
 
       throw error
+    } finally {
+      clearTimeout(timeoutTimer)
     }
+  }
+
+  /**
+   * The result stored for `step` when the run was suspended, if any. Matched
+   * like a reusable result: same position, same step document and same slug,
+   * so a workflow edited while the run waited runs the changed steps afresh.
+   */
+  private findStoredResult(
+    step: ResolvedStep,
+    stored: PreviousStepResult[] | undefined
+  ): PreviousStepResult | undefined {
+    return stored?.find((candidate) =>
+      candidate.stepIndex === step.stepIndex &&
+      String(relationId(candidate.step)) === String(step.stepId) &&
+      candidate.slug === step.slug
+    )
+  }
+
+  /**
+   * Rebuild the result and the expression context of a step that had already
+   * finished (succeeded, failed or skipped) before the run was suspended.
+   * Returns undefined for a step that still has to run.
+   */
+  private restoreStepResult(
+    step: ResolvedStep,
+    stored: PreviousStepResult,
+    context: ExecutionContext
+  ): StepResult | undefined {
+    if (stored.status !== 'succeeded' && stored.status !== 'failed' && stored.status !== 'skipped') {
+      return undefined
+    }
+    const result: StepResult = {
+      step: step.stepId,
+      slug: step.slug,
+      stepName: step.stepName,
+      stepIndex: step.stepIndex,
+      status: stored.status,
+      startedAt: stored.startedAt ?? undefined,
+      completedAt: stored.completedAt ?? undefined,
+      duration: stored.duration ?? undefined,
+      input: stored.input ?? undefined,
+      output: stored.output ?? undefined,
+      error: stored.error ?? undefined,
+      attempts: stored.attempts ?? undefined,
+      retryCount: Math.max(0, (stored.attempts ?? 0) - 1),
+      lastError: stored.lastError ?? undefined,
+      nextRetryAt: null
+    }
+    this.setStepContext(context, step, {
+      state: result.status,
+      ...(result.input !== undefined ? { input: result.input } : {}),
+      ...(result.output !== undefined ? { output: result.output } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {})
+    })
+    return result
+  }
+
+  /**
+   * Pause a queued run whose step has to wait longer for its next attempt
+   * than the run may sleep in-process.
+   *
+   * Instead of holding a job-runner slot for the whole delay, the run is
+   * saved with status `pending` and a new `WORKFLOW_RUN_TASK_SLUG` job is
+   * queued with Payload's `waitUntil` set to the earliest due retry. When a
+   * job runner picks that job up, `executeQueuedRun` continues the run from
+   * the stored step results.
+   */
+  private async suspendForRetry(
+    workflowRun: { id: number | string; logs?: unknown[] | null },
+    stepResults: StepResult[],
+    waiting: StepResult[],
+    context: ExecutionContext,
+    run: RunState,
+    req: PayloadRequest
+  ): Promise<void> {
+    // No step is in flight here (the batch has settled); closing the run
+    // documents that this call of runSteps records nothing further.
+    run.closed = true
+
+    const resumeAt = new Date(Math.min(...waiting.map((result) => new Date(result.nextRetryAt!).getTime())))
+    const names = waiting.map((result) => `"${result.stepName}"`).join(', ')
+
+    await this.payload.update({
+      id: workflowRun.id,
+      collection: 'workflow-runs',
+      data: {
+        status: 'pending',
+        stepResults,
+        context: this.safeSerialize(context),
+        logs: [
+          ...(workflowRun.logs || []),
+          ...run.logs,
+          {
+            timestamp: new Date().toISOString(),
+            level: 'info',
+            message: `Workflow run paused until ${resumeAt.toISOString()} to retry ${names}`
+          }
+        ]
+      },
+      req
+    })
+
+    const queue = this.config.execution?.queue
+    await this.payload.jobs.queue({
+      input: { workflowRunId: String(workflowRun.id) },
+      ...(queue ? { queue } : {}),
+      req,
+      task: WORKFLOW_RUN_TASK_SLUG,
+      waitUntil: resumeAt
+    })
+
+    this.logger.info({
+      resumeAt: resumeAt.toISOString(),
+      steps: waiting.map((result) => result.stepName),
+      workflowRunId: workflowRun.id
+    }, 'Workflow run paused for a deferred step retry')
   }
 }
