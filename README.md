@@ -89,6 +89,8 @@ import type { WorkflowsPluginConfig, SeedWorkflow, TriggerResult } from '@xtr-de
 | Workflows | `workflows` | References triggers and steps; each workflow step has a `slug`, optional `inputOverrides`, `condition` and `dependencies` |
 | Workflow Runs | `workflow-runs` | Execution history |
 
+Collection hook and global hook triggers share one `hook` field. Globals have fewer hooks than collections (`afterChange`, `afterRead`, `beforeValidate`, `beforeChange`, `beforeRead`, `beforeOperation`), so saving a global hook trigger with any other hook, such as `afterDelete`, is refused with a validation error on `hook`.
+
 A trigger's `condition` and a workflow step's `condition` are bare JSONata expressions (no `{{ }}`). A trigger whose condition is false skips the workflow; a step whose condition is false is recorded as `skipped`.
 
 ## Expressions

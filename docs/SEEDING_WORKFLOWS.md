@@ -108,7 +108,7 @@ Trigger `parameters` by type:
 | Type | Parameters |
 |------|------------|
 | `collection-hook` | `collectionSlug`, `hook` |
-| `global-hook` | `globalSlug`, `hook` |
+| `global-hook` | `globalSlug`, `hook` (one of the global hooks: `afterChange`, `afterRead`, `beforeValidate`, `beforeChange`, `beforeRead`, `beforeOperation`; a collection-only hook skips the workflow and logs `Failed to seed workflow`) |
 | `scheduled` | `schedule` (cron expression), optional `timezone` (IANA name such as `Europe/Amsterdam`; default: the server's timezone). An invalid schedule or timezone skips the workflow and logs `Failed to seed workflow` |
 | `webhook` | `webhookPath`, `webhookSecret` |
 | `manual` | none |
