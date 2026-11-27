@@ -62,14 +62,21 @@ export const ReadDocumentStepTask = {
       name: 'doc',
       type: 'json',
       admin: {
-        description: 'The document(s) found'
+        description: 'A single document: the one with the given ID, or the first match of the query (null when nothing matched)'
+      }
+    },
+    {
+      name: 'docs',
+      type: 'json',
+      admin: {
+        description: 'The documents found, as a list: the matches of the query (up to the limit), or the one document with the given ID'
       }
     },
     {
       name: 'totalDocs',
       type: 'number',
       admin: {
-        description: 'Total number of documents matching the query'
+        description: 'Total number of documents matching the query, which can be more than the limit returned in docs'
       }
     }
   ]

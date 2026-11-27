@@ -25,6 +25,7 @@ export const readDocumentHandler: TaskHandler<'read-document'> = async ({ input,
       return {
         output: {
           doc: result,
+          docs: [result],
           totalDocs: 1
         },
         state: 'succeeded'
@@ -44,9 +45,13 @@ export const readDocumentHandler: TaskHandler<'read-document'> = async ({ input,
       where: parsedWhere
     })
 
+    // `docs` is always the list and `doc` always a single document, so an
+    // expression never has to know whether the step read by id or by query:
+    // for a query, `doc` is the first match (null when nothing matched).
     return {
       output: {
-        doc: result.docs,
+        doc: result.docs[0] ?? null,
+        docs: result.docs,
         totalDocs: result.totalDocs
       },
       state: 'succeeded'
