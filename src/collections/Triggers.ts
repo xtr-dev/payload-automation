@@ -1,9 +1,11 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionConfig, SelectFieldSingleValidation } from 'payload'
+
+import { select as selectValidator } from 'payload/shared'
 
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
 import { adminUserAccess, resolveCollectionAccess } from './access.js'
-import { collectionHookOptions, globalHookOptions } from '../triggers/hook-options.js'
+import { allGlobalHooks, collectionHookOptions } from '../triggers/hook-options.js'
 import { refuseIfReferencedByReadOnlyWorkflow } from '../utils/readonly-access.js'
 import { assertValidSchedule } from '../utils/schedule.js'
 import { hashWebhookSecret, normalizeWebhookPath } from '../utils/webhook.js'
@@ -21,6 +23,22 @@ const readOnlyReferenceLock = refuseIfReferencedByReadOnlyWorkflow(
   (id) => ({ triggers: { contains: id } }),
   collectReferencedTriggerIds
 )
+
+/**
+ * Validates the `hook` select of a trigger against the trigger's type.
+ * A global-hook trigger saved with a collection-only hook (afterDelete,
+ * afterLogin, ...) would never fire, because Payload has no such hook on
+ * globals. It is refused on save, through the admin panel and the API alike,
+ * with a message that names the valid hooks. Every other case falls through to
+ * Payload's own check that the value is one of the field's options.
+ */
+const validateHookForTriggerType: SelectFieldSingleValidation = (value, args) => {
+  const type = (args.siblingData as { type?: unknown } | undefined)?.type
+  if (type === 'global-hook' && typeof value === 'string' && value && !allGlobalHooks.includes(value)) {
+    return `"${value}" is a collection hook that globals do not have. Hooks available for a global hook trigger: ${allGlobalHooks.join(', ')}.`
+  }
+  return selectValidator(value, args)
+}
 
 /**
  * Creates the automation-triggers collection.
@@ -137,16 +155,15 @@ export const createTriggersCollection = <T extends string>(
             siblingData?.type === 'collection-hook' || siblingData?.type === 'global-hook',
           description: 'The specific hook event to listen for',
         },
-        // Payload select fields take a static options array, so this can't branch on
-        // siblingData.type the way collectionSlug/globalSlug do below — it always shows
-        // collectionHookOptions, for both collection-hook and global-hook triggers. Every
-        // value in globalHookOptions already appears in collectionHookOptions, so a global
-        // trigger can still select a valid global hook here, but it can also select a
-        // collection-only one (afterDelete, refresh, me, ...) that Payload never fires on a
-        // global, leaving the trigger configured but silently dead. Fixing that requires
-        // splitting this into two differently-named fields (a schema change touching the
-        // target beforeChange hook, the automation-triggers query in trigger-hook.ts, and the
-        // seedWorkflows mapping in plugin/index.ts) — filed separately rather than done here.
+        // One select serves both trigger types. Its options are the collection
+        // hooks, a superset of the global hooks; filterOptions narrows the
+        // admin dropdown to the hooks Payload fires on a global when the
+        // trigger is a global-hook trigger.
+        filterOptions: ({ options, siblingData }) =>
+          (siblingData as { type?: unknown } | undefined)?.type === 'global-hook'
+            ? options.filter((option) => allGlobalHooks.includes(typeof option === 'string' ? option : option.value))
+            : options,
+        validate: validateHookForTriggerType,
         options: collectionHookOptions.map(opt => ({ label: opt.label, value: opt.value })),
       },
       // Global Hook fields
