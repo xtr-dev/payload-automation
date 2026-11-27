@@ -538,6 +538,10 @@ export interface WorkflowRun {
          */
         step?: (number | null) | AutomationStep;
         /**
+         * Slug of the step at execution time, as used in `steps.<slug>` expressions and dependencies. Empty on runs stored before this field existed; those are identified by step name.
+         */
+        slug?: string | null;
+        /**
          * Name of the step at execution time
          */
         stepName?: string | null;
@@ -1019,6 +1023,7 @@ export interface WorkflowRunsSelect<T extends boolean = true> {
     | T
     | {
         step?: T;
+        slug?: T;
         stepName?: T;
         stepIndex?: T;
         status?: T;

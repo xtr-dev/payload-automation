@@ -126,9 +126,12 @@ export const WORKFLOW_RUN_TASK_SLUG = 'automation-workflow-run'
 export interface PreviousStepResult {
   input?: null | Record<string, unknown>
   output?: null | Record<string, unknown>
+  /** Missing on results stored before `stepResults.slug` existed. */
+  slug?: null | string
   status?: null | string
   step?: null | number | string | { id: number | string }
   stepIndex?: null | number
+  stepName?: null | string
 }
 
 export interface ExecuteOptions {
@@ -141,8 +144,9 @@ export interface ExecuteOptions {
 
   /**
    * Step results of an earlier run of the same workflow. A step whose earlier
-   * result succeeded, at the same position and referencing the same
-   * `automation-steps` document, is not run again: its stored input and output
+   * result succeeded, at the same position, referencing the same
+   * `automation-steps` document and (when the result has one) under the same
+   * slug, is not run again: its stored input and output
    * are copied into this run and into `steps.<slug>` (and the step name alias) for later expressions.
    */
   reuseSucceededSteps?: PreviousStepResult[]
@@ -821,7 +825,11 @@ export class WorkflowExecutor {
     return previous?.find((candidate) =>
       candidate.status === 'succeeded' &&
       candidate.stepIndex === step.stepIndex &&
-      String(relationId(candidate.step)) === String(step.stepId)
+      String(relationId(candidate.step)) === String(step.stepId) &&
+      // Expressions and dependencies refer to a step by slug, so a result
+      // stored under another slug belongs to a different step. Results
+      // stored before the slug was recorded only match on position and step.
+      (!candidate.slug || candidate.slug === step.slug)
     )
   }
 

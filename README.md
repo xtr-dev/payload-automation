@@ -279,7 +279,7 @@ const results = await triggerCustomWorkflow(payload, { slug: 'manual', data: { s
 
 ## Execution Tracking
 
-Every execution is stored in `workflow-runs` with the trigger data, per-step results (status, input, output, error, duration), logs and the final status.
+Every execution is stored in `workflow-runs` with the trigger data, per-step results (slug, name, status, input, output, error, duration), logs and the final status. `findStepResult(run.stepResults, slug)` from `/server` picks one step's result by slug; runs stored before step results recorded their slug are matched on the step name instead (pass it as a third argument when it differs from the slug). Postgres and SQLite need a migration for the `slug` column on the step results table; MongoDB needs nothing.
 
 ```typescript
 const runs = await payload.find({
@@ -303,7 +303,7 @@ const rerun = await retryWorkflowRun(payload, failedRunId)
 const resumed = await retryWorkflowRun(payload, failedRunId, { resumeFromFailedStep: true })
 ```
 
-The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`, and always runs inline, also with `execution: { mode: 'queue' }`.
+With `resumeFromFailedStep`, a succeeded step is only reused when it is at the same position, references the same step document and has the same slug as in the original run (runs stored before step results recorded their slug skip the slug check). The retry uses the workflow's current definition and does not check the trigger condition again. It refuses runs that are still `pending` or `running`, and always runs inline, also with `execution: { mode: 'queue' }`.
 
 ## Seeding Template Workflows
 
