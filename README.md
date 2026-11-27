@@ -90,6 +90,8 @@ import type { WorkflowsPluginConfig, SeedWorkflow, TriggerResult } from '@xtr-de
 | Workflows | `workflows` | References triggers and steps; each workflow step has a `slug`, optional `inputOverrides`, `condition` and `dependencies` |
 | Workflow Runs | `workflow-runs` | Execution history |
 
+Collection hook and global hook triggers share one `hook` field. Globals have fewer hooks than collections (`afterChange`, `afterRead`, `beforeValidate`, `beforeChange`, `beforeRead`, `beforeOperation`), so saving a global hook trigger with any other hook, such as `afterDelete`, is refused with a validation error on `hook`.
+
 A trigger's `condition` and a workflow step's `condition` are bare JSONata expressions (no `{{ }}`). A trigger whose condition is false skips the workflow; a step whose condition is false is recorded as `skipped`.
 
 ## Expressions
@@ -307,8 +309,10 @@ if (result.status === 'failed') {
 }
 
 // Every enabled workflow with a manual trigger
-const results = await triggerCustomWorkflow(payload, { slug: 'manual', data: { source: 'import' } })
+const results = await triggerCustomWorkflow(payload, { data: { source: 'import' } })
 ```
+
+`triggerCustomWorkflow` only starts workflows with a **Manual** trigger. Trigger types are fixed (collection hook, global hook, scheduled, webhook, manual); there are no custom trigger types. To give a group of workflows their own event, give them a manual trigger and tell them apart with a trigger `condition` on the data you pass, for example `trigger.data.source = "import"`.
 
 `triggerWorkflowById` throws, without creating a run, when the workflow doesn't exist, has no trigger of that type, or is disabled. Once a run exists it resolves to `{ status: 'triggered' | 'failed', runId, workflowId, workflowName, error? }` instead of throwing.
 
@@ -376,7 +380,7 @@ const seedWorkflows: SeedWorkflow[] = [
 workflowsPlugin({ seedWorkflows, steps: [SendEmailStepTask] })
 ```
 
-A workflow whose `slug` already exists is left as it is, so later changes in code are not applied to it. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
+On every startup a seeded workflow is matched by `slug` and, when its definition in code has changed, updated in place. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
 
 ## Plugin Configuration
 

@@ -5,7 +5,7 @@
 
 import type { triggerCustomWorkflow } from '../src/core/trigger-custom-workflow.js'
 import type { ExecutionContext as RuntimeExecutionContext } from '../src/core/workflow-executor.js'
-import type { CustomTriggerOptions, ExecutionContext, TriggerResult } from '../src/index.js'
+import type { CustomTriggerOptions, ExecutionContext, TriggerResult, WorkflowsPluginConfig } from '../src/index.js'
 
 function assertAssignable<T>(_value: T): void {
   return undefined
@@ -33,3 +33,12 @@ declare const runtimeExecutionContext: RuntimeExecutionContext
 declare const publishedExecutionContext: ExecutionContext
 assertAssignable<ExecutionContext>(runtimeExecutionContext)
 assertAssignable<RuntimeExecutionContext>(publishedExecutionContext)
+
+// The plugin has no custom trigger types: the `triggers` option was never read
+// and has been removed, so passing it must be a type error rather than a
+// silently ignored setting.
+// @ts-expect-error `triggers` is not a plugin option
+assertAssignable<WorkflowsPluginConfig>({ triggers: [] })
+
+// triggerCustomWorkflow starts manual-trigger workflows, so `slug` is optional.
+assertAssignable<CustomTriggerOptions>({ data: { source: 'import' } })

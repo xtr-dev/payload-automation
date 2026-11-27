@@ -15,8 +15,8 @@ import { withStepOutputCapture } from '../core/step-output-capture.js'
 import { allCollectionHooks, allGlobalHooks } from '../triggers/hook-options.js'
 import { WORKFLOW_RUN_TASK_SLUG } from '../core/workflow-executor.js'
 import { createWorkflowRunTask } from '../core/workflow-run-task.js'
-import { assertValidSchedule } from '../utils/schedule.js'
 import { getConfigLogger, initializeLogger } from './logger.js'
+import { seedWorkflows } from './seed-workflows.js'
 import { withTriggerCacheInvalidation } from './trigger-cache.js'
 import { createCollectionTriggerHook, createGlobalTriggerHook } from './trigger-hook.js'
 import { webhookEndpoint } from './webhook-endpoint.js'
@@ -302,142 +302,7 @@ export const workflowsPlugin =
 
       // Seed workflows if configured
       if (pluginOptions.seedWorkflows && pluginOptions.seedWorkflows.length > 0) {
-        logger.info(`Seeding ${pluginOptions.seedWorkflows.length} workflows...`)
-
-        for (const seedWorkflow of pluginOptions.seedWorkflows) {
-          try {
-            // Check if workflow already exists by slug
-            const existingWorkflow = await payload.find({
-              collection: 'workflows',
-              where: {
-                slug: {
-                  equals: seedWorkflow.slug,
-                },
-              },
-              limit: 1,
-            })
-
-            if (existingWorkflow.docs.length > 0) {
-              logger.debug(`Workflow '${seedWorkflow.slug}' already exists, skipping seed`)
-              continue
-            }
-
-            // Check every schedule before creating any record, so an invalid
-            // schedule or timezone leaves no orphaned triggers behind. Saving
-            // the trigger runs the same check (Triggers.ts beforeChange).
-            for (const triggerDef of seedWorkflow.triggers) {
-              const schedule = triggerDef.parameters?.schedule
-              if (triggerDef.type === 'scheduled' && typeof schedule === 'string') {
-                const timezone = triggerDef.parameters?.timezone
-                assertValidSchedule(schedule, typeof timezone === 'string' ? timezone.trim() || null : null)
-              }
-            }
-
-            // Create triggers in automation-triggers collection
-            const triggerIds: (string | number)[] = []
-            for (let i = 0; i < seedWorkflow.triggers.length; i++) {
-              const triggerDef = seedWorkflow.triggers[i]
-              const triggerName = `${seedWorkflow.name} - Trigger ${i + 1}`
-
-              // Build trigger data based on type
-              const triggerData: Record<string, unknown> = {
-                name: triggerName,
-                type: triggerDef.type,
-                condition: triggerDef.condition,
-              }
-
-              // Map parameters to trigger fields based on type
-              if (triggerDef.parameters) {
-                if (triggerDef.type === 'collection-hook') {
-                  triggerData.collectionSlug = triggerDef.parameters.collectionSlug
-                  triggerData.hook = triggerDef.parameters.hook
-                } else if (triggerDef.type === 'global-hook') {
-                  triggerData.globalSlug = triggerDef.parameters.globalSlug
-                  triggerData.hook = triggerDef.parameters.hook
-                } else if (triggerDef.type === 'scheduled') {
-                  triggerData.schedule = triggerDef.parameters.schedule
-                  triggerData.timezone = triggerDef.parameters.timezone
-                } else if (triggerDef.type === 'webhook') {
-                  triggerData.webhookPath = triggerDef.parameters.webhookPath
-                  triggerData.webhookSecret = triggerDef.parameters.webhookSecret
-                }
-              }
-
-              const trigger = await payload.create({
-                collection: 'automation-triggers',
-                data: triggerData,
-              })
-              triggerIds.push(trigger.id)
-              logger.debug(`Created trigger: ${triggerName}`)
-            }
-
-            // Helper to generate slug from name
-            const slugify = (str: string): string =>
-              str.toLowerCase()
-                .replace(/[^a-z0-9]+/g, '-')
-                .replace(/^-+|-+$/g, '')
-
-            // Create steps in automation-steps collection and build workflow steps array
-            const workflowSteps: Array<{
-              step: string | number
-              slug: string
-              stepName: string
-              inputOverrides: Record<string, unknown>
-              condition?: string
-              dependencies?: Array<{ slug: string }>
-            }> = []
-
-            for (const stepDef of seedWorkflow.steps) {
-              const stepName = `${seedWorkflow.name} - ${stepDef.name}`
-              const stepSlug = stepDef.slug || slugify(stepDef.name)
-
-              // Create step in automation-steps collection
-              const step = await payload.create({
-                collection: 'automation-steps',
-                data: {
-                  name: stepName,
-                  type: stepDef.type,
-                  config: stepDef.input || {},
-                },
-              })
-              logger.debug(`Created step: ${stepName}`)
-
-              // Add to workflow steps with relationship ID
-              workflowSteps.push({
-                step: step.id,
-                slug: stepSlug,
-                stepName: stepDef.name,
-                inputOverrides: stepDef.input || {},
-                condition: stepDef.condition,
-                dependencies: stepDef.dependencies?.map(dep => ({ slug: dep })),
-              })
-            }
-
-            // Create the workflow with relationship IDs
-            await payload.create({
-              collection: 'workflows',
-              data: {
-                slug: seedWorkflow.slug,
-                name: seedWorkflow.name,
-                description: seedWorkflow.description,
-                triggers: triggerIds,
-                steps: workflowSteps,
-                readOnly: true,
-              },
-            })
-
-            logger.info(`Seeded workflow: ${seedWorkflow.name}`)
-          } catch (error) {
-            logger.error(
-              {
-                workflowName: seedWorkflow.name,
-                workflowSlug: seedWorkflow.slug,
-                error: error instanceof Error ? error.message : String(error),
-              },
-              'Failed to seed workflow',
-            )
-          }
-        }
+        await seedWorkflows(payload, pluginOptions.seedWorkflows, logger)
       }
 
         logger.info(`Plugin configuration: ${collectionCount} collection triggers, ${globalCount} global triggers, ${stepCount} steps`
