@@ -133,6 +133,14 @@ export const createWorkflowRunsCollection = (
           relationTo: 'automation-steps',
         },
         {
+          name: 'slug',
+          type: 'text',
+          admin: {
+            description: 'Slug of the step at execution time, as used in `steps.<slug>` expressions and dependencies. Empty on runs stored before this field existed; those are identified by step name.',
+            readOnly: true,
+          },
+        },
+        {
           name: 'stepName',
           type: 'text',
           admin: {

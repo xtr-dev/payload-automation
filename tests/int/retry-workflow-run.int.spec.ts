@@ -277,6 +277,36 @@ describe('retryWorkflowRun', () => {
     expect(JSON.stringify(retried)).not.toContain('secret-')
   })
 
+  it('with resumeFromFailedStep, re-runs a succeeded step stored under another slug', async () => {
+    const workflow = await createWorkflow(payload!)
+    const steps = (workflow as unknown as { steps: Array<{ step: number | string | { id: number | string } }> }).steps
+    const stepId = (index: number) => {
+      const step = steps[index].step
+      return typeof step === 'object' ? step.id : step
+    }
+    const earlier = await payload!.create({
+      collection: 'workflow-runs',
+      data: {
+        workflow: workflow.id,
+        status: 'failed',
+        startedAt: new Date().toISOString(),
+        triggeredBy: 'test',
+        triggerData: {},
+        stepResults: [
+          { step: stepId(0), stepIndex: 0, slug: 'renamed', stepName: 'count', status: 'succeeded', output: { count: 99 } },
+          { step: stepId(1), stepIndex: 1, slug: 'flaky', stepName: 'flaky', status: 'failed' },
+        ],
+      },
+    })
+
+    flakyShouldFail = false
+    const retried = (await retryWorkflowRun(payload!, earlier.id, { resumeFromFailedStep: true })) as unknown as StoredRun
+
+    expect(retried.status).toBe('completed')
+    expect(calls.counted).toBe(1)
+    expect(retried.stepResults?.[0]?.output).toEqual({ count: 1 })
+  })
+
   it('refuses to retry a run that is still running', async () => {
     const workflow = await createWorkflow(payload!)
     const running = await payload!.create({
