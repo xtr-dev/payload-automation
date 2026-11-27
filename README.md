@@ -274,8 +274,10 @@ if (result.status === 'failed') {
 }
 
 // Every enabled workflow with a manual trigger
-const results = await triggerCustomWorkflow(payload, { slug: 'manual', data: { source: 'import' } })
+const results = await triggerCustomWorkflow(payload, { data: { source: 'import' } })
 ```
+
+`triggerCustomWorkflow` only starts workflows with a **Manual** trigger. Trigger types are fixed (collection hook, global hook, scheduled, webhook, manual); there are no custom trigger types. To give a group of workflows their own event, give them a manual trigger and tell them apart with a trigger `condition` on the data you pass, for example `trigger.data.source = "import"`.
 
 `triggerWorkflowById` throws, without creating a run, when the workflow doesn't exist, has no trigger of that type, or is disabled. Once a run exists it resolves to `{ status: 'triggered' | 'failed', runId, workflowId, workflowName, error? }` instead of throwing.
 

@@ -16,9 +16,13 @@ export interface CustomTriggerOptions {
   req?: PayloadRequest
 
   /**
-   * The slug of the custom trigger to execute
+   * The trigger type to match. Defaults to `'manual'`, the type meant for
+   * starting workflows from code. A trigger's type is one of the plugin's
+   * built-in types (`manual`, `collection-hook`, `global-hook`, `scheduled`,
+   * `webhook`); custom trigger types do not exist, so any other value matches
+   * no workflow.
    */
-  slug: string
+  slug?: string
 
   /**
    * Optional user information for tracking who triggered the workflow
@@ -38,14 +42,13 @@ export interface TriggerResult {
 }
 
 /**
- * Programmatically trigger the enabled workflows that have a matching custom
- * trigger. Workflows with `enabled: false` are skipped.
+ * Starts every enabled workflow that has a trigger of type **Manual**.
+ * Workflows with `enabled: false` are skipped. Resolves to one result per
+ * workflow that was started; an empty array when none matched.
  *
  * @example
  * ```typescript
- * // In your onInit or elsewhere in your code
  * await triggerCustomWorkflow(payload, {
- *   slug: 'data-import',
  *   data: {
  *     source: 'external-api',
  *     recordCount: 100,
@@ -58,7 +61,7 @@ export async function triggerCustomWorkflow(
   payload: Payload,
   options: CustomTriggerOptions
 ): Promise<TriggerResult[]> {
-  const { slug, data = {}, req, user } = options
+  const { slug = 'manual', data = {}, req, user } = options
 
   const logger = initializeLogger(payload)
 
