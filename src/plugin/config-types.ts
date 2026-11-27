@@ -142,8 +142,16 @@ export type WorkflowsPluginConfig<
      *   steps see the stored `triggerData` snapshot instead of the live hook
      *   arguments, and run with the job runner's request rather than the
      *   triggering user's.
+     * - `maxInProcessRetryDelay` (milliseconds, default 5000): the longest
+     *   wait between two attempts of a retried step that a queued run sleeps
+     *   through inside its job. For a longer `retryDelay` the run is saved as
+     *   `pending` and a new `automation-workflow-run` job is queued with
+     *   `waitUntil` set to the retry time, so no job-runner slot is held
+     *   while waiting. Only applies with `mode: 'queue'`: an inline run has
+     *   no job runner to resume it and always waits in the triggering call.
      */
     execution?: {
+        maxInProcessRetryDelay?: number
         mode?: 'inline' | 'queue'
         queue?: string
     }

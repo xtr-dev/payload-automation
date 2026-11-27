@@ -206,13 +206,13 @@ export const createWorkflowCollection = (
             name: 'errorHandling',
             type: 'select',
             admin: {
-              description: 'How to handle step failures',
+              description: 'What happens when a step fails. "Stop": the run fails at the first failed step. "Continue": the remaining steps still run, except those that depend on the failed step, and the run ends as completed. "Retry": every step is retried with the settings below, and the run fails when a step still fails after its last retry. A step with its own "Retry this step if it fails" setting is retried with that step\'s settings under all three options, and only counts as failed after its last retry.',
             },
             defaultValue: 'stop',
             options: [
               { label: 'Stop workflow', value: 'stop' },
               { label: 'Continue to next step', value: 'continue' },
-              { label: 'Retry failed step', value: 'retry' },
+              { label: 'Retry failed step, then stop workflow', value: 'retry' },
             ],
           },
           {
@@ -220,26 +220,29 @@ export const createWorkflowCollection = (
             type: 'number',
             admin: {
               condition: (_, siblingData) => siblingData?.errorHandling === 'retry',
-              description: 'Maximum number of retry attempts',
+              description: 'How many times a failed step is retried before the run fails (3 when empty; 3 means up to 4 attempts). Steps with their own retry setting use that instead.',
             },
             defaultValue: 3,
+            min: 0,
           },
           {
             name: 'retryDelay',
             type: 'number',
             admin: {
               condition: (_, siblingData) => siblingData?.errorHandling === 'retry',
-              description: 'Delay between retries in milliseconds',
+              description: 'Milliseconds to wait before each retry (1000 when empty). Steps with their own retry setting use that instead.',
             },
             defaultValue: 1000,
+            min: 0,
           },
           {
             name: 'timeout',
             type: 'number',
             admin: {
-              description: 'Maximum execution time in milliseconds (0 for no timeout)',
+              description: 'Maximum duration of a whole run in milliseconds, including retries and the waits between them (0 or empty for no limit). When it passes, the run fails with "Workflow timed out", whatever the error handling setting: steps still running are recorded as failed, no further step or retry starts. A step that is already running is not interrupted, only its result is discarded.',
             },
             defaultValue: 300000, // 5 minutes
+            min: 0,
           },
         ],
       },
