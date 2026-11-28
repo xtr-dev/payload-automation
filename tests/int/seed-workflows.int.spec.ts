@@ -2,10 +2,10 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { getPayload } from 'payload'
-import type { Payload } from 'payload'
+import type { Payload, TaskConfig } from 'payload'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { buildTestConfig } from './build-test-config.js'
+import { buildTestConfig, noopTask } from './build-test-config.js'
 import type { SeedWorkflow } from '../../src/plugin/config-types.js'
 
 const singleTriggerWorkflow: SeedWorkflow = {
@@ -459,5 +459,202 @@ describe('seedWorkflows', () => {
     expect(await findWorkflow(twoStepWorkflow.slug)).toEqual(before)
     expect(await allIds('automation-triggers')).toEqual(triggerIdsBefore)
     expect(await allIds('automation-steps')).toEqual(stepIdsBefore)
+  })
+
+  const findStepDoc = async (id: number | string): Promise<Record<string, any>> =>
+    (await payload!.findByID({ collection: 'automation-steps', id, overrideAccess: true })) as Record<string, any>
+
+  const retryingWorkflow: SeedWorkflow = {
+    ...twoStepWorkflow,
+    slug: 'test-retry-settings',
+    errorHandling: 'retry',
+    maxRetries: 5,
+    retryDelay: 250,
+    timeout: 60000,
+    steps: [
+      { ...twoStepWorkflow.steps[0], retryOnFailure: true, maxRetries: 2, retryDelay: 10 },
+      twoStepWorkflow.steps[1],
+    ],
+  }
+
+  it('writes the declared retry and timeout settings when it creates a workflow', async () => {
+    await boot([retryingWorkflow, twoStepWorkflow])
+
+    const workflow = await findWorkflow(retryingWorkflow.slug)
+    expect(workflow).toMatchObject({ errorHandling: 'retry', maxRetries: 5, retryDelay: 250, timeout: 60000 })
+    expect(await findStepDoc(workflow.steps[0].step)).toMatchObject({
+      retryOnFailure: true,
+      maxRetries: 2,
+      retryDelay: 10,
+    })
+
+    // Settings a definition leaves out get the collection defaults.
+    expect(await findStepDoc(workflow.steps[1].step)).toMatchObject({
+      retryOnFailure: false,
+      maxRetries: 3,
+      retryDelay: 1000,
+    })
+    expect(await findWorkflow(twoStepWorkflow.slug)).toMatchObject({
+      errorHandling: 'stop',
+      maxRetries: 3,
+      retryDelay: 1000,
+      timeout: 300000,
+    })
+  })
+
+  it('leaves a workflow with declared settings untouched when its definition has not changed', async () => {
+    await boot([retryingWorkflow])
+    const before = await findWorkflow(retryingWorkflow.slug)
+    const stepIdsBefore = await allIds('automation-steps')
+
+    await boot([retryingWorkflow])
+
+    expect(await findWorkflow(retryingWorkflow.slug)).toEqual(before)
+    expect(await allIds('automation-steps')).toEqual(stepIdsBefore)
+  })
+
+  it('updates the stored workflow in place when its declared workflow settings change', async () => {
+    await boot([retryingWorkflow])
+    const before = await findWorkflow(retryingWorkflow.slug)
+
+    await boot([{ ...retryingWorkflow, errorHandling: 'continue', maxRetries: 0, retryDelay: 0, timeout: 0 }])
+    const after = await findWorkflow(retryingWorkflow.slug)
+
+    expect(after.id).toBe(before.id)
+    expect(after).toMatchObject({ errorHandling: 'continue', maxRetries: 0, retryDelay: 0, timeout: 0 })
+    // Neither a trigger nor a step changed, so the same documents are referenced.
+    expect(after.triggers).toEqual(before.triggers)
+    expect(after.steps.map((step: any) => step.step)).toEqual(before.steps.map((step: any) => step.step))
+  })
+
+  it('adds settings to a workflow that was seeded without them', async () => {
+    await boot([{ ...twoStepWorkflow, slug: retryingWorkflow.slug }])
+    const before = await findWorkflow(retryingWorkflow.slug)
+
+    await boot([retryingWorkflow])
+    const after = await findWorkflow(retryingWorkflow.slug)
+
+    expect(after.id).toBe(before.id)
+    expect(after).toMatchObject({ errorHandling: 'retry', maxRetries: 5, retryDelay: 250, timeout: 60000 })
+    expect(await findStepDoc(after.steps[0].step)).toMatchObject({
+      retryOnFailure: true,
+      maxRetries: 2,
+      retryDelay: 10,
+    })
+    // Only the step whose retry settings changed got a new step document.
+    expect(after.steps[0].step).not.toBe(before.steps[0].step)
+    expect(after.steps[1].step).toBe(before.steps[1].step)
+    expect(await allIds('automation-steps')).toHaveLength(2)
+  })
+
+  it('replaces the step document when a declared step retry setting changes', async () => {
+    await boot([retryingWorkflow])
+    const before = await findWorkflow(retryingWorkflow.slug)
+
+    await boot([
+      {
+        ...retryingWorkflow,
+        steps: [{ ...retryingWorkflow.steps[0], maxRetries: 7 }, retryingWorkflow.steps[1]],
+      },
+    ])
+    const after = await findWorkflow(retryingWorkflow.slug)
+
+    expect(after.id).toBe(before.id)
+    expect(after.steps[0].step).not.toBe(before.steps[0].step)
+    expect(after.steps[1].step).toBe(before.steps[1].step)
+    expect(await findStepDoc(after.steps[0].step)).toMatchObject({
+      retryOnFailure: true,
+      maxRetries: 7,
+      retryDelay: 10,
+    })
+    expect(await allIds('automation-steps')).toHaveLength(2)
+  })
+
+  it('restores a declared setting that was changed on the stored workflow', async () => {
+    await boot([retryingWorkflow])
+    const before = await findWorkflow(retryingWorkflow.slug)
+    await payload!.update({
+      collection: 'workflows',
+      id: before.id,
+      data: { enabled: false, errorHandling: 'stop', timeout: 1 },
+    })
+
+    await boot([retryingWorkflow])
+    const restored = await findWorkflow(retryingWorkflow.slug)
+
+    expect(restored).toMatchObject({ errorHandling: 'retry', timeout: 60000 })
+    // `enabled` is not part of a seed definition and stays as stored.
+    expect(restored.enabled).toBe(false)
+  })
+
+  it('keeps retry settings the definition does not declare when it replaces a step document', async () => {
+    await boot([twoStepWorkflow])
+    const before = await findWorkflow(twoStepWorkflow.slug)
+    // Seeded steps refuse edits through the admin panel and the API, so this
+    // edit can only come from code that bypasses access control.
+    await payload!.update({
+      collection: 'automation-steps',
+      id: before.steps[0].step,
+      data: { retryOnFailure: true, maxRetries: 9, retryDelay: 20 },
+    })
+
+    // The definition is silent about retries, so the patched step still matches.
+    await boot([twoStepWorkflow])
+    expect((await findWorkflow(twoStepWorkflow.slug)).steps[0].step).toBe(before.steps[0].step)
+
+    await boot([
+      {
+        ...twoStepWorkflow,
+        steps: [{ ...twoStepWorkflow.steps[0], input: { message: 'v2' } }, twoStepWorkflow.steps[1]],
+      },
+    ])
+    const after = await findWorkflow(twoStepWorkflow.slug)
+
+    expect(after.steps[0].step).not.toBe(before.steps[0].step)
+    expect(await findStepDoc(after.steps[0].step)).toMatchObject({
+      config: { message: 'v2' },
+      retryOnFailure: true,
+      maxRetries: 9,
+      retryDelay: 20,
+    })
+  })
+
+  it('retries a failing step of a seeded workflow with the declared settings', async () => {
+    let calls = 0
+    const failsOnceTask: TaskConfig<string> = {
+      slug: 'fails-once-step',
+      label: 'Fails once',
+      handler: () => {
+        calls += 1
+        return calls === 1
+          ? Promise.reject(new Error('first attempt fails'))
+          : Promise.resolve({ output: { calls }, state: 'succeeded' })
+      },
+    }
+    payload = await getTestPayload(
+      buildTestConfig({
+        dbFile,
+        pluginOptions: { steps: [noopTask, failsOnceTask] },
+        seedWorkflows: [
+          {
+            slug: 'test-seeded-retry',
+            name: 'Seeded retry',
+            triggers: [{ type: 'collection-hook', parameters: { collectionSlug: 'posts', hook: 'afterChange' } }],
+            steps: [
+              { name: 'Flaky', slug: 'flaky', type: failsOnceTask.slug, retryOnFailure: true, maxRetries: 1, retryDelay: 0 },
+            ],
+          },
+        ],
+      }),
+    )
+
+    await payload.create({ collection: 'posts', data: {} })
+
+    const { docs } = await payload.find({ collection: 'workflow-runs', depth: 0 })
+    expect(docs).toHaveLength(1)
+    const run = docs[0] as Record<string, any>
+    expect(run.status).toBe('completed')
+    expect(run.stepResults[0]).toMatchObject({ attempts: 2, status: 'succeeded' })
+    expect(calls).toBe(2)
   })
 })

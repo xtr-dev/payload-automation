@@ -1,5 +1,16 @@
 import type {CollectionConfig, GlobalConfig, TaskConfig} from "payload"
 
+/**
+ * A workflow defined in code and created (or brought back in line) on startup.
+ *
+ * `slug`, `name`, `description`, `triggers` and `steps` are always written.
+ * The optional settings (`errorHandling`, `maxRetries`, `retryDelay`,
+ * `timeout`, and a step's `retryOnFailure`, `maxRetries`, `retryDelay`) are
+ * only managed when the definition declares them: a declared setting is
+ * written on create and restored on startup when the stored value differs,
+ * an omitted one gets the collection's default on create and is left as
+ * stored afterwards.
+ */
 export type SeedWorkflow = {
   slug: string
   name: string
@@ -16,7 +27,45 @@ export type SeedWorkflow = {
     input?: Record<string, any>
     dependencies?: string[]  // Array of step slugs
     condition?: string
+    /**
+     * Retry this step when it fails, with the step's own `maxRetries` and
+     * `retryDelay` instead of the workflow's. Stored on the step's
+     * `automation-steps` document.
+     */
+    retryOnFailure?: boolean
+    /**
+     * Retries after the first failed attempt (3 means up to 4 attempts).
+     * Only used with `retryOnFailure: true`. Collection default: 3.
+     */
+    maxRetries?: number
+    /**
+     * Milliseconds to wait before each retry. Only used with
+     * `retryOnFailure: true`. Collection default: 1000.
+     */
+    retryDelay?: number
   }>
+  /**
+   * What happens when a step fails after its last attempt: `'stop'` fails
+   * the run, `'continue'` runs the remaining steps that do not depend on the
+   * failed one, `'retry'` retries every step with the workflow's `maxRetries`
+   * and `retryDelay` and then stops. Collection default: `'stop'`.
+   */
+  errorHandling?: 'continue' | 'retry' | 'stop'
+  /**
+   * Retries per failed step when `errorHandling` is `'retry'` (3 means up to
+   * 4 attempts). Collection default: 3.
+   */
+  maxRetries?: number
+  /**
+   * Milliseconds to wait before each retry when `errorHandling` is
+   * `'retry'`. Collection default: 1000.
+   */
+  retryDelay?: number
+  /**
+   * Maximum duration of a whole run in milliseconds, retries and their
+   * delays included; `0` for no limit. Collection default: 300000.
+   */
+  timeout?: number
 }
 
 /**
