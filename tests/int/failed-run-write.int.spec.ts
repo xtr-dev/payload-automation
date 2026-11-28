@@ -21,8 +21,8 @@ const removeDbFile = (dbFile: string) => {
 
 /**
  * Deletes its own step document while the run is in progress. From then on
- * the run's step results point at a document that no longer exists, so
- * Payload's relationship validation rejects every write that includes them.
+ * the run's step results point at a document that no longer exists, and a SQL
+ * database rejects every write that includes them with a foreign key error.
  */
 const selfDeletingTask: TaskConfig<string> = {
   slug: 'self-deleting-step',
@@ -126,8 +126,20 @@ describe('recording a failed run when the write itself is rejected', () => {
     return docs[0] as unknown as StoredRun
   }
 
-  it('ends the run as failed when the database rejects its step results', async () => {
+  /**
+   * MongoDB has no foreign keys: it stores a step result that points at a
+   * deleted step document, so the write the self-deleting step is meant to
+   * break succeeds there and the run completes normally.
+   */
+  const skipWithoutForeignKeys = (skip: (note?: string) => void) => {
+    if (payload.db.name === 'mongoose') {
+      skip('MongoDB accepts a reference to a deleted document')
+    }
+  }
+
+  it('ends the run as failed when the database rejects its step results', async ({ skip }) => {
     await init()
+    skipWithoutForeignKeys(skip)
     const workflowId = await createWorkflow(selfDeletingTask.slug)
 
     const result = await triggerWorkflowById(payload, workflowId, 'manual')
@@ -138,7 +150,9 @@ describe('recording a failed run when the write itself is rejected', () => {
     expect(run.completedAt).toBeTruthy()
     // The stored error carries the database's reason, so the cause can be
     // found without the step results that could not be stored.
-    expect(run.error).toContain('could not be stored: FOREIGN KEY constraint failed')
+    // The wording is the database's own: SQLite says "FOREIGN KEY constraint
+    // failed", Postgres "violates foreign key constraint".
+    expect(run.error).toMatch(/could not be stored: .*foreign key constraint/i)
   })
 
   it('stores status and error when a host hook rejects the run details', async () => {
@@ -187,8 +201,9 @@ describe('recording a failed run when the write itself is rejected', () => {
     expect(run.error).toContain('runs are frozen')
   })
 
-  it('ends a queued run as failed without failing the job that ran it', async () => {
+  it('ends a queued run as failed without failing the job that ran it', async ({ skip }) => {
     await init({ pluginOptions: { execution: { mode: 'queue' } } })
+    skipWithoutForeignKeys(skip)
     const workflowId = await createWorkflow(selfDeletingTask.slug)
 
     await triggerWorkflowById(payload, workflowId, 'manual')
