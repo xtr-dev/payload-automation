@@ -34,3 +34,54 @@ jobs:
         run: pnpm test:int
       - name: Build
         run: pnpm build
+
+  # The same integration tests on Postgres. Unlike SQLite, Postgres wraps every
+  # Local API write in a transaction, so this is what covers workflows that are
+  # triggered from a hook inside one. The stock image has no PostGIS, which
+  # also keeps the plugin's schema free of extension requirements.
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Every test starts its own Payload instance with its own connection
+      # pool, and test files run in parallel, so together they open more than
+      # the 100 connections Postgres allows by default. The limit can only be
+      # changed with a restart, which a service container's options cannot do.
+      - name: Raise the Postgres connection limit
+        run: |
+          docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "ALTER SYSTEM SET max_connections = 500"
+          docker restart "$POSTGRES_CONTAINER"
+          for attempt in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER" pg_isready -U postgres -q; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres did not come back after the restart" >&2
+          exit 1
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+      - name: Integration tests (Postgres)
+        run: pnpm test:int
+        env:
+          TEST_DATABASE: postgres
+          TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres

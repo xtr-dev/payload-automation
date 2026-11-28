@@ -93,6 +93,22 @@ import type { WorkflowsPluginConfig, SeedWorkflow, TriggerResult } from '@xtr-de
 
 Collection hook and global hook triggers share one `hook` field. Globals have fewer hooks than collections (`afterChange`, `afterRead`, `beforeValidate`, `beforeChange`, `beforeRead`, `beforeOperation`), so saving a global hook trigger with any other hook, such as `afterDelete`, is refused with a validation error on `hook`.
 
+### Hooks and database transactions
+
+Payload runs collection and global hooks inside the database transaction of the operation that fired them, when the database uses transactions: always on Postgres, on MongoDB when it is a replica set, and on SQLite only with the adapter's `transactionOptions`.
+
+A workflow triggered from a hook inside a transaction starts when that transaction has committed:
+
+- Its steps see the committed document, and a `workflow-runs` document exists only for operations that really happened.
+- If the operation fails and is rolled back, no workflow starts and no run is stored.
+- The operation still waits for the workflow (with the default `execution.mode: 'inline'`): `payload.create()` or the REST request returns after the last step, as it does without transactions.
+- When several operations share one transaction (you pass the same `req` to nested Local API calls), their workflows all start when the outermost operation commits, in the order they were triggered.
+- This also holds for the `before*` hooks: with a transaction, a workflow triggered by `beforeChange` runs after the change is stored. The trigger `condition` is still evaluated in the hook, on the hook's arguments.
+
+Without a transaction (SQLite by default, a standalone MongoDB, hooks of read operations) the workflow runs inside the hook as before.
+
+With `execution.mode: 'queue'` nothing is deferred: the `pending` run and its job are written inside the transaction, so they are stored or rolled back together with the operation, and the steps run later in your job runner.
+
 A trigger's `condition` and a workflow step's `condition` are bare JSONata expressions (no `{{ }}`). A trigger whose condition is false skips the workflow; a step whose condition is false is recorded as `skipped`.
 
 ## Expressions
@@ -336,6 +352,8 @@ const results = await triggerCustomWorkflow(payload, { data: { source: 'import' 
 
 `triggerCustomWorkflow` only starts workflows with a **Manual** trigger. Trigger types are fixed (collection hook, global hook, scheduled, webhook, manual); there are no custom trigger types. To give a group of workflows their own event, give them a manual trigger and tell them apart with a trigger `condition` on the data you pass, for example `trigger.data.source = "import"`.
 
+Call both outside a database transaction. They run the steps before they return, so they cannot wait for a commit: on Postgres, passing a `req` that belongs to an open transaction (the `req` of a collection hook, for example) makes every step fail, because Payload's job runner cannot see the step's job until that transaction commits. Leave `req` out there, or use `execution.mode: 'queue'`.
+
 `triggerWorkflowById` throws, without creating a run, when the workflow doesn't exist, has no trigger of that type, or is disabled. Once a run exists it resolves to `{ status: 'triggered' | 'failed', runId, workflowId, workflowName, error?, discarded? }` instead of throwing (`discarded` is explained under [Keeping Idle Runs Out of the History](#keeping-idle-runs-out-of-the-history)).
 
 ## Execution Tracking
@@ -466,7 +484,9 @@ type WorkflowsPluginConfig = {
   >>
 
   // 'inline' (default) runs the steps inside the hook or call that fired the
-  // trigger, so that request waits for them. 'queue' records a pending run and
+  // trigger, so that request waits for them (a hook inside a database
+  // transaction starts them once it has committed, see "Hooks and database
+  // transactions"). 'queue' records a pending run and
   // queues one `automation-workflow-run` job on `queue` (default 'default');
   // the steps run when your job runner processes it, using the stored
   // triggerData snapshot and the job runner's request.
@@ -517,6 +537,11 @@ workflowsPlugin({
 Read-only (seeded) workflows, and the triggers and steps they reference, can't be updated or deleted through the API. An `update` or `delete` override doesn't lift that lock: the plugin ANDs it with your function.
 
 ## Upgrading
+
+### Workflows triggered inside a transaction run after the commit
+
+Hosts on Postgres, on a MongoDB replica set, or on SQLite with `transactionOptions`: a workflow triggered from a collection or global hook now starts when the triggering operation's transaction has committed, and not at all when it is rolled back (see [Hooks and database transactions](#hooks-and-database-transactions)). On Postgres such workflows failed at their first step before; on MongoDB with transactions they ran inside the hook, so steps could act on a change that was later rolled back, and a workflow on a `before*` hook ran before the change was written. No schema change.
+
 
 ### The `position` field on workflow steps was removed
 

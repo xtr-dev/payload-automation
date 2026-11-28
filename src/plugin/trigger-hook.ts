@@ -1,3 +1,6 @@
+import type { PayloadRequest } from 'payload'
+
+import { getTransactionID, runAfterCommit, withoutTransaction } from '../core/after-commit.js'
 import { WorkflowExecutor } from '../core/workflow-executor.js'
 import { getPluginConfig } from './get-plugin-config.js'
 import {
@@ -114,6 +117,18 @@ export const createTriggerHook = (config: TriggerConfig) => {
 
       const executor = new WorkflowExecutor(payload, logger)
 
+      // A hook that runs inside a database transaction must not run steps
+      // yet: they would act on a document that can still be rolled back, and
+      // Payload's job runner, which works in transactions of its own, cannot
+      // see a step job inserted by the open one. Inline workflows therefore
+      // start once that transaction has committed (see after-commit.ts), and
+      // not at all when it is rolled back. A queued workflow is only recorded
+      // here, as a pending run plus its job; those are written inside the
+      // transaction on purpose, so they are stored or rolled back together
+      // with the triggering change.
+      const transactionID = await getTransactionID(req)
+      const deferUntilCommitted = transactionID !== undefined && pluginConfig.execution?.mode !== 'queue'
+
       const triggerIds = matchingTriggers.map((t) => t.id)
 
       // Step 2: Find all enabled workflows that reference any of these triggers
@@ -176,29 +191,44 @@ export const createTriggerHook = (config: TriggerConfig) => {
           }
         }
 
-        try {
-          await executor.execute(workflow, context, req, firedTrigger)
-          logger.info({
+        const runWorkflow = async (runReq: PayloadRequest): Promise<void> => {
+          try {
+            await executor.execute(workflow, context, runReq, firedTrigger)
+            logger.info({
+              workflowId: workflow.id,
+              workflowName: workflow.name,
+              triggerId: firedTrigger.id,
+              triggerName: firedTrigger.name,
+              triggerType: type,
+              slug,
+              hookType
+            }, 'Workflow executed successfully')
+          } catch (error) {
+            logger.error({
+              workflowId: workflow.id,
+              workflowName: workflow.name,
+              triggerId: firedTrigger.id,
+              triggerName: firedTrigger.name,
+              triggerType: type,
+              slug,
+              hookType,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            }, 'Workflow execution failed')
+            // Don't throw to prevent breaking the original operation
+          }
+        }
+
+        if (deferUntilCommitted) {
+          // The run gets a request without the (by then finished)
+          // transaction, so its writes and its steps use their own.
+          runAfterCommit(payload, transactionID, () => runWorkflow(withoutTransaction(req)))
+          logger.debug({
             workflowId: workflow.id,
-            workflowName: workflow.name,
             triggerId: firedTrigger.id,
-            triggerName: firedTrigger.name,
-            triggerType: type,
-            slug,
-            hookType
-          }, 'Workflow executed successfully')
-        } catch (error) {
-          logger.error({
-            workflowId: workflow.id,
-            workflowName: workflow.name,
-            triggerId: firedTrigger.id,
-            triggerName: firedTrigger.name,
-            triggerType: type,
-            slug,
-            hookType,
-            error: error instanceof Error ? error.message : 'Unknown error'
-          }, 'Workflow execution failed')
-          // Don't throw to prevent breaking the original operation
+            transactionID
+          }, 'Workflow deferred until the triggering transaction has committed')
+        } else {
+          await runWorkflow(req)
         }
       }
 
@@ -207,7 +237,9 @@ export const createTriggerHook = (config: TriggerConfig) => {
         slug,
         hookType,
         workflowCount: workflows.length
-      }, `${type} workflow execution completed`)
+      }, deferUntilCommitted
+        ? `${type} workflows deferred until the triggering transaction has committed`
+        : `${type} workflow execution completed`)
 
     } catch (error) {
       logger.error({

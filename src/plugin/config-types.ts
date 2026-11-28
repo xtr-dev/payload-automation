@@ -171,7 +171,10 @@ export type WorkflowsPluginConfig<
      *
      * - `mode: 'inline'` (default): steps run inside the hook or call that
      *   fired the trigger, so e.g. a payment webhook's request waits for every
-     *   step to finish.
+     *   step to finish. A hook that runs inside a database transaction
+     *   (always on Postgres, on MongoDB with a replica set) starts the
+     *   workflow when that transaction has committed, and not at all when it
+     *   is rolled back; the triggering operation still waits for the steps.
      * - `mode: 'queue'`: the trigger only records a `pending` workflow run and
      *   queues one `automation-workflow-run` job on `queue` (Payload's
      *   `'default'` queue when omitted). The steps run when your job runner
