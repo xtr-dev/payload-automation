@@ -257,7 +257,11 @@ export const createWorkflowCollection = (
     ],
     hooks: {
       afterChange: [
-        // Update usage counts for triggers and steps
+        // Update usage counts for triggers and steps. Every call passes
+        // `req` so it joins the transaction that is saving the workflow: a
+        // count on another connection would not see this workflow yet, and
+        // on SQLite a second connection waits forever for the lock the open
+        // transaction holds.
         async ({ doc, req }) => {
           const payload = req.payload
 
@@ -270,6 +274,7 @@ export const createWorkflowCollection = (
                   // Count workflows using this trigger
                   const count = await payload.count({
                     collection: 'workflows',
+                    req,
                     where: {
                       triggers: { contains: id },
                     },
@@ -278,6 +283,7 @@ export const createWorkflowCollection = (
                     collection: 'automation-triggers',
                     id,
                     data: { usageCount: count.totalDocs },
+                    req,
                   })
                 } catch {
                   // Ignore errors - trigger might have been deleted
@@ -301,6 +307,7 @@ export const createWorkflowCollection = (
                 // Count workflows using this step
                 const count = await payload.count({
                   collection: 'workflows',
+                  req,
                   where: {
                     'steps.step': { equals: stepId },
                   },
@@ -309,6 +316,7 @@ export const createWorkflowCollection = (
                   collection: 'automation-steps',
                   id: stepId,
                   data: { usageCount: count.totalDocs },
+                  req,
                 })
               } catch {
                 // Ignore errors - step might have been deleted
