@@ -160,6 +160,8 @@ Expressions time out after 5 seconds. See the [JSONata docs](https://docs.jsonat
 
 Each workflow step has a `slug`. `dependencies` lists the slugs a step waits for; steps whose dependencies are done run together in parallel.
 
+A workflow's step slugs must be unique and not empty. Saving a workflow in which two steps share a slug, through the admin panel, REST, GraphQL or the Local API (drafts included), is refused with a validation error on the `slug` field of the later step, for example `steps.2.slug: The slug "fetch" is already used by step 1 of this workflow`. Slugs are compared exactly, so `Fetch` and `fetch` are different. The check runs when a workflow is created and when an update changes its step slugs. A workflow stored with duplicate slugs by an earlier version is not touched: it keeps running as before and can still be saved, until its step slugs are changed, and then they have to be unique.
+
 ```typescript
 steps: [
   { name: 'Fetch User', slug: 'fetch-user', type: 'http-request-step', input: { url: 'https://api.example.com/user' } },

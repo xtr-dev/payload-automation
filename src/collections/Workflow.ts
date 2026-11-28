@@ -1,8 +1,11 @@
 import type { CollectionConfig } from 'payload'
 
+import { ValidationError } from 'payload'
+
 import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
 
 import { adminUserAccess, readOnlyWorkflowLock, resolveCollectionAccess } from './access.js'
+import { findStepSlugErrors, sameStepSlugs } from '../utils/step-slugs.js'
 
 /**
  * Creates the workflows collection.
@@ -140,7 +143,7 @@ export const createWorkflowCollection = (
             type: 'text',
             required: true,
             admin: {
-              description: 'Unique identifier for this step within the workflow. Used for dependencies.',
+              description: 'Identifier of this step within the workflow, used in expressions (steps.<slug>) and dependencies. Two steps of one workflow cannot share a slug.',
             },
           },
           {
@@ -256,6 +259,28 @@ export const createWorkflowCollection = (
       },
     ],
     hooks: {
+      beforeChange: [
+        // Reject a write whose steps do not each have their own slug, with an
+        // error on the slug field of every offending step. This is a
+        // collection hook rather than a field `validate` because Payload
+        // skips field validation when a draft is saved, and a workflow saved
+        // as a draft is still run when its trigger fires.
+        //
+        // An update that leaves the sequence of step slugs as it is stored
+        // is not checked. Workflows saved before this check existed may hold
+        // duplicate slugs; they stay editable (switching `enabled`, changing
+        // a description) and only have to be fixed once their slugs change.
+        ({ data, operation, originalDoc, req }) => {
+          if (operation === 'update' && sameStepSlugs(originalDoc?.steps, data?.steps)) {
+            return data
+          }
+          const errors = findStepSlugErrors(data?.steps)
+          if (errors.length > 0) {
+            throw new ValidationError({ collection: 'workflows', errors, req })
+          }
+          return data
+        },
+      ],
       afterChange: [
         // Update usage counts for triggers and steps. Every call passes
         // `req` so it joins the transaction that is saving the workflow: a
