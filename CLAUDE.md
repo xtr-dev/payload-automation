@@ -25,6 +25,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, type tests, integration te
 - `src/core/workflow-executor.ts` - resolves steps (base `config` + `inputOverrides`), orders them into dependency batches by slug, runs each step as a Payload job, records the run. Step context is keyed by slug with the display name as an alias.
 - `src/core/expression-engine.ts` - JSONata with custom functions, a compiled-expression cache and a 5 s timeout. `transform()` evaluates a string only when the whole string is `{{ ... }}`.
 - `src/core/step-output-capture.ts` - wraps task handlers so outputs survive `deleteJobOnComplete`.
+- `src/core/redact-fields.ts` - the `redactFields` option: removes configured (or config-hidden) fields from stored trigger data, whole-document step inputs and document step outputs, on copies; the live expression context keeps them unless `hideFromExpressions`.
 - `src/core/scheduled-triggers.ts`, `workflow-run-task.ts`, `retry-workflow-run.ts`, `trigger-custom-workflow.ts` - cron triggers, queued execution, retries, `triggerWorkflowById` / `triggerCustomWorkflow`.
 - `src/steps/` - built-in step tasks (`*.ts`) and handlers (`*-handler.ts`).
 - Exports: `.` is types only; `./server` has the plugin, step tasks and server functions; `./client` has admin components (referenced by import-map path `@xtr-dev/payload-automation/client#...`). `./rsc`, `./fields`, `./views` are placeholders.
