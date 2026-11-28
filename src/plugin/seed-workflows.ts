@@ -2,6 +2,7 @@ import type { Payload } from 'payload'
 
 import type { SeedWorkflow } from './config-types.js'
 
+import { describeError } from '../utils/describe-error.js'
 import { hashWebhookSecret, normalizeWebhookPath } from '../utils/webhook.js'
 
 type Logger = Payload['logger']
@@ -221,6 +222,36 @@ const seedWorkflowMatches = (existing: AnyRecord, seedWorkflow: SeedWorkflow): b
   return true
 }
 
+// Throws when the steps of a seed definition do not each get their own
+// non-empty slug. A step's slug defaults to its slugified name, so two steps
+// named "Send email" and "Send Email!" collide without either declaring one.
+//
+// The slug is how the rest of the plugin identifies a step: `steps.<slug>` in
+// expressions, `dependencies`, and the seeder's own matching of stored steps.
+// With a shared slug the seeder would link both entries to one
+// automation-steps document and the second step's output would overwrite the
+// first's. Picking a different slug for one of them here would silently
+// change what `steps.<slug>` refers to, so the definition is rejected instead.
+const assertUniqueStepSlugs = (seedWorkflow: SeedWorkflow): void => {
+  const nameBySlug = new Map<string, string>()
+  for (const stepDef of seedWorkflow.steps) {
+    const slug = stepDef.slug || slugify(stepDef.name)
+    if (!slug) {
+      throw new Error(
+        `Step "${stepDef.name}" has no usable slug: its name contains no letters or digits. Give the step an explicit \`slug\`.`
+      )
+    }
+    const other = nameBySlug.get(slug)
+    if (other !== undefined) {
+      throw new Error(
+        `Steps "${other}" and "${stepDef.name}" both resolve to the slug "${slug}". ` +
+        'Step slugs must be unique within a workflow; give one of the steps an explicit, different `slug`.'
+      )
+    }
+    nameBySlug.set(slug, stepDef.name)
+  }
+}
+
 const idOf = (doc: AnyRecord | number | string | undefined | null): number | string | undefined =>
   doc && typeof doc === 'object' ? doc.id : (doc ?? undefined)
 
@@ -282,13 +313,56 @@ type ReconcileResult<TItems> = {
   staleIds: (number | string)[]
 }
 
-// Reconciles the workflow's triggers against its seed definition one trigger
-// at a time: a trigger whose stored fields already match its definition is
-// left alone and reused by id, so an unrelated change elsewhere in the
-// workflow does not invalidate workflow-runs history that references it via
+// Pairs each trigger of a seed definition with the stored trigger document it
+// can keep, by content rather than by position: a trigger whose stored fields
+// match a definition is reused wherever it now sits in the list. Matching by
+// position alone would treat a pure reorder (or a trigger inserted at the
+// front) as "every trigger changed" and recreate them all, leaving the
+// `firedTrigger` of every earlier workflow run pointing at a deleted document.
+//
+// A trigger still at its old position is paired first, so two identical
+// triggers keep their own documents. Each stored trigger is paired at most
+// once. The result has one entry per seed trigger: the stored document to
+// reuse, or undefined when a new one has to be created.
+const pairTriggers = (
+  existingTriggers: AnyRecord[],
+  desiredFields: Record<string, unknown>[]
+): (AnyRecord | undefined)[] => {
+  const paired: (AnyRecord | undefined)[] = desiredFields.map(() => undefined)
+  const taken = new Set<number>()
+  const isUsable = (index: number, desired: Record<string, unknown>): boolean => {
+    const candidate = existingTriggers[index]
+    return !taken.has(index) && Boolean(candidate) && typeof candidate === 'object' && triggerMatches(candidate, desired)
+  }
+
+  desiredFields.forEach((desired, i) => {
+    if (isUsable(i, desired)) {
+      paired[i] = existingTriggers[i]
+      taken.add(i)
+    }
+  })
+  desiredFields.forEach((desired, i) => {
+    if (paired[i]) {
+      return
+    }
+    const match = existingTriggers.findIndex((_, index) => isUsable(index, desired))
+    if (match !== -1) {
+      paired[i] = existingTriggers[match]
+      taken.add(match)
+    }
+  })
+
+  return paired
+}
+
+// Reconciles the workflow's triggers against its seed definition: a stored
+// trigger whose fields match a definition is left alone and reused by id (see
+// pairTriggers), so neither an unrelated change elsewhere in the workflow nor
+// a reorder invalidates workflow-runs history that references it via
 // firedTrigger. Only triggers that actually differ (or are new) are created;
-// their now-superseded predecessors are returned as staleIds for the caller
-// to delete once it has safely pointed the workflow at the replacements.
+// the stored triggers no definition uses any more are returned as staleIds
+// for the caller to delete once it has safely pointed the workflow at the
+// replacements.
 //
 // If a create call throws partway through, everything this call already
 // created is deleted before rethrowing, so a failed attempt never leaves an
@@ -303,35 +377,32 @@ const reconcileTriggers = async (
   const createdIds: (number | string)[] = []
   const staleIds: (number | string)[] = []
 
-  try {
-    for (let i = 0; i < seedWorkflow.triggers.length; i++) {
-      const triggerDef = seedWorkflow.triggers[i]
-      const desired = mapTriggerFields(triggerDef)
-      const existingTrigger = existingTriggers[i]
+  const desiredFields = seedWorkflow.triggers.map(mapTriggerFields)
+  const reusable = pairTriggers(existingTriggers, desiredFields)
+  const reusedIds = new Set<number | string>()
 
-      if (existingTrigger && typeof existingTrigger === 'object' && triggerMatches(existingTrigger, desired)) {
-        triggerIds.push(existingTrigger.id)
+  try {
+    for (let i = 0; i < desiredFields.length; i++) {
+      const reused = reusable[i]
+      if (reused) {
+        triggerIds.push(reused.id)
+        reusedIds.add(reused.id)
         continue
       }
 
       const triggerName = `${seedWorkflow.name} - Trigger ${i + 1}`
       const trigger = await payload.create({
         collection: 'automation-triggers',
-        data: { name: triggerName, ...desired },
+        data: { name: triggerName, ...desiredFields[i] },
       })
       logger.debug(`Created trigger: ${triggerName}`)
       triggerIds.push(trigger.id)
       createdIds.push(trigger.id)
-
-      const staleId = idOf(existingTrigger)
-      if (staleId !== undefined) {
-        staleIds.push(staleId)
-      }
     }
 
-    for (let i = seedWorkflow.triggers.length; i < existingTriggers.length; i++) {
-      const staleId = idOf(existingTriggers[i])
-      if (staleId !== undefined) {
+    for (const existingTrigger of existingTriggers) {
+      const staleId = idOf(existingTrigger)
+      if (staleId !== undefined && !reusedIds.has(staleId)) {
         staleIds.push(staleId)
       }
     }
@@ -454,6 +525,10 @@ export const seedWorkflows = async (
 
   for (const seedWorkflow of seedWorkflowDefs) {
     try {
+      // Before anything is read or written, so an invalid definition leaves
+      // a workflow seeded from an earlier, valid definition as it was.
+      assertUniqueStepSlugs(seedWorkflow)
+
       // depth: 2 populates each trigger doc and each step's linked automation-steps
       // doc, both required to detect whether the stored workflow still matches.
       const existingWorkflow = await payload.find({
@@ -559,7 +634,9 @@ export const seedWorkflows = async (
         {
           workflowName: seedWorkflow.name,
           workflowSlug: seedWorkflow.slug,
-          error: error instanceof Error ? error.message : String(error),
+          // Includes the per-field errors of a ValidationError, whose message
+          // alone only says that "the following field is invalid".
+          error: error instanceof Error ? describeError(error) : String(error),
         },
         'Failed to seed workflow',
       )
