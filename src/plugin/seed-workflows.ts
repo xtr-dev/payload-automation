@@ -15,6 +15,36 @@ type WorkflowStepEntry = {
   dependencies?: Array<{ slug: string }>
 }
 
+// Optional workflow settings a seed definition may declare, stored under the
+// same names on the workflows document.
+const workflowSettingKeys = ['errorHandling', 'maxRetries', 'retryDelay', 'timeout'] as const
+
+// Optional retry settings a seed step may declare, stored under the same
+// names on the step's automation-steps document.
+const stepRetryKeys = ['retryOnFailure', 'maxRetries', 'retryDelay'] as const
+
+// Picks the optional settings a seed definition actually declares. Settings
+// left out are not managed by the seeder: they are neither written nor
+// compared, so the collection default applies on create and a value changed
+// on the stored document afterwards is kept.
+const declaredSettings = (
+  source: Record<string, unknown>,
+  keys: readonly string[]
+): Record<string, unknown> => {
+  const declared: Record<string, unknown> = {}
+  for (const key of keys) {
+    if (source[key] !== undefined) {
+      declared[key] = source[key]
+    }
+  }
+  return declared
+}
+
+const declaredSettingsMatch = (
+  existing: Record<string, unknown> | null | undefined,
+  declared: Record<string, unknown>
+): boolean => Object.entries(declared).every(([key, value]) => (existing?.[key] ?? undefined) === value)
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRecord = Record<string, any>
 
@@ -136,7 +166,8 @@ const stepEntryMatches = (
     (existingEntry?.condition ?? undefined) === (stepDef.condition ?? undefined) &&
     jsonEquals(existingDependencySlugs, stepDef.dependencies || []) &&
     existingStepDoc?.type === stepDef.type &&
-    jsonEquals(existingStepDoc?.config || {}, desiredInput)
+    jsonEquals(existingStepDoc?.config || {}, desiredInput) &&
+    declaredSettingsMatch(existingStepDoc, declaredSettings(stepDef, stepRetryKeys))
   )
 }
 
@@ -149,6 +180,9 @@ const seedWorkflowMatches = (existing: AnyRecord, seedWorkflow: SeedWorkflow): b
     return false
   }
   if ((existing.description ?? undefined) !== (seedWorkflow.description ?? undefined)) {
+    return false
+  }
+  if (!declaredSettingsMatch(existing, declaredSettings(seedWorkflow, workflowSettingKeys))) {
     return false
   }
 
@@ -356,6 +390,13 @@ const reconcileSteps = async (
         }
       }
 
+      // A replacement for an existing step keeps that step's retry settings
+      // where the definition does not declare them, so replacing the document
+      // for an unrelated change (new input, new type) does not silently reset
+      // settings the seeder does not manage.
+      const replacedStepDoc =
+        existingEntry?.step && typeof existingEntry.step === 'object' ? existingEntry.step : {}
+
       const stepName = `${seedWorkflow.name} - ${stepDef.name}`
       const step = await payload.create({
         collection: 'automation-steps',
@@ -363,6 +404,8 @@ const reconcileSteps = async (
           name: stepName,
           type: stepDef.type,
           config: desiredInput,
+          ...declaredSettings(replacedStepDoc, stepRetryKeys),
+          ...declaredSettings(stepDef, stepRetryKeys),
         },
       })
       logger.debug(`Created step: ${stepName}`)
@@ -399,7 +442,8 @@ const reconcileSteps = async (
 /**
  * Creates configured seed workflows that don't exist yet, and brings existing
  * ones back in line with their current code definition (name, description,
- * triggers, steps) instead of leaving a stale copy in place forever.
+ * triggers, steps, and the retry/timeout settings the definition declares)
+ * instead of leaving a stale copy in place forever.
  */
 export const seedWorkflows = async (
   payload: Payload,
@@ -451,6 +495,7 @@ export const seedWorkflows = async (
               triggers: triggerResult.items,
               steps: stepResult.items,
               readOnly: true,
+              ...declaredSettings(seedWorkflow, workflowSettingKeys),
             },
           })
         } catch (error) {
@@ -491,6 +536,7 @@ export const seedWorkflows = async (
             triggers: triggerIds,
             steps: workflowSteps,
             readOnly: true,
+            ...declaredSettings(seedWorkflow, workflowSettingKeys),
           },
         })
       } catch (error) {

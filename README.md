@@ -392,13 +392,22 @@ const seedWorkflows: SeedWorkflow[] = [
           subject: 'Welcome!',
           text: '{{"Thanks for joining, " & trigger.doc.email}}',
         },
+        // Optional: retry this step with its own settings.
+        retryOnFailure: true,
+        maxRetries: 2,
+        retryDelay: 5000,
       },
     ],
+    // Optional workflow settings.
+    errorHandling: 'continue',
+    timeout: 60000,
   },
 ]
 
 workflowsPlugin({ seedWorkflows, steps: [SendEmailStepTask] })
 ```
+
+A step can declare `retryOnFailure`, `maxRetries` and `retryDelay`, a workflow `errorHandling`, `maxRetries`, `retryDelay` and `timeout` (see [Retries and Timeout](#retries-and-timeout)). A setting you leave out gets its default when the workflow is created and is not touched afterwards.
 
 On every startup a seeded workflow is matched by `slug` and, when its definition in code has changed, updated in place. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
 
