@@ -183,15 +183,6 @@ export const createWorkflowCollection = (
               },
             ],
           },
-          // Visual builder position
-          {
-            name: 'position',
-            type: 'point',
-            admin: {
-              description: 'Position in the visual workflow builder',
-              hidden: true,
-            },
-          },
         ],
       },
       // Global workflow settings

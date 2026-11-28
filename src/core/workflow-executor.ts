@@ -27,7 +27,6 @@ export type PayloadWorkflow = {
     inputOverrides?: Record<string, unknown> | null
     condition?: string | null
     dependencies?: Array<{ slug: string }> | null
-    position?: { x: number; y: number } | null
   }> | null
   errorHandling?: 'stop' | 'continue' | 'retry' | null
   maxRetries?: number | null
