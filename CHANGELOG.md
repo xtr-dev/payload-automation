@@ -2,6 +2,13 @@
 
 Release notes from before this changelog was generated (up to v0.0.39) are in [changelog/HISTORY.md](changelog/HISTORY.md).
 
+## [0.6.1](https://github.com/xtr-dev/payload-automation/compare/v0.6.0...v0.6.1) - 2026-11-28
+
+### Fixes
+- **seed:** reject duplicate step slugs, keep triggers across a reorder, log field errors ([#74](https://github.com/xtr-dev/payload-automation/issues/74)) ([b7c58ec](https://github.com/xtr-dev/payload-automation/commit/b7c58ecfaad21b2af74715772eec46fd36f8add6))
+- **runs:** delete the step jobs of a run discarded by discardRunWhen ([#73](https://github.com/xtr-dev/payload-automation/issues/73)) ([3696c16](https://github.com/xtr-dev/payload-automation/commit/3696c16553e1ac0b7710bb6cf054511fa6d37c02))
+- **executor:** end a run as failed when the write recording the failure is rejected ([#72](https://github.com/xtr-dev/payload-automation/issues/72)) ([96ebea4](https://github.com/xtr-dev/payload-automation/commit/96ebea47a549e9aa4e2aa87f72143586a44ad322))
+
 ## [0.6.0](https://github.com/xtr-dev/payload-automation/compare/v0.5.0...v0.6.0) - 2026-11-28
 
 ### Features

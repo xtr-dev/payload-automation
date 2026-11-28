@@ -3,6 +3,61 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.6.1",
+      "date": "2026-11-28",
+      "commit": "b7c58ec",
+      "breaking": false,
+      "groups": {
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "seed",
+            "description": "reject duplicate step slugs, keep triggers across a reorder, log field errors (#74)",
+            "commit": "b7c58ec",
+            "hash": "b7c58ecfaad21b2af74715772eec46fd36f8add6",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "runs",
+            "description": "delete the step jobs of a run discarded by discardRunWhen (#73)",
+            "commit": "3696c16",
+            "hash": "3696c16553e1ac0b7710bb6cf054511fa6d37c02",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "fix",
+            "scope": "executor",
+            "description": "end a run as failed when the write recording the failure is rejected (#72)",
+            "commit": "96ebea4",
+            "hash": "96ebea47a549e9aa4e2aa87f72143586a44ad322",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.6.0",
       "date": "2026-11-28",
       "commit": "e2e9a34",
