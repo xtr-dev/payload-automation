@@ -62,6 +62,24 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Every test starts its own Payload instance with its own connection
+      # pool, and test files run in parallel, so together they open more than
+      # the 100 connections Postgres allows by default. The limit can only be
+      # changed with a restart, which a service container's options cannot do.
+      - name: Raise the Postgres connection limit
+        run: |
+          docker exec "$POSTGRES_CONTAINER" psql -U postgres -c "ALTER SYSTEM SET max_connections = 500"
+          docker restart "$POSTGRES_CONTAINER"
+          for attempt in $(seq 1 30); do
+            if docker exec "$POSTGRES_CONTAINER" pg_isready -U postgres -q; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Postgres did not come back after the restart" >&2
+          exit 1
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
       - name: Integration tests (Postgres)
         run: pnpm test:int
         env:
