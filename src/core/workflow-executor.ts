@@ -8,6 +8,7 @@ import {
 import { expectStepOutput, releaseStepOutput } from './step-output-capture.js'
 import {getPluginConfig} from "../plugin/get-plugin-config.js";
 import {WorkflowsPluginConfig} from "../plugin/config-types.js";
+import { describeError } from '../utils/describe-error.js'
 
 /**
  * Type for workflow data from the refactored collection
@@ -311,36 +312,6 @@ export interface ExecuteOptions {
 
   /** Message of the run's first log entry. Defaults to "Workflow execution started". */
   startMessage?: string
-}
-
-/**
- * Short description of why a write to a run was rejected, for the run's
- * `error` field and the log.
- *
- * The message alone is often not enough: a Payload ValidationError only names
- * field labels, while its `data.errors` has the path and reason per field; a
- * database adapter error is the full SQL statement with its parameters, while
- * the reason (for example a foreign key violation) is in `cause`. The
- * statement is cut short because it would otherwise bury the reason.
- */
-const describeError = (error: unknown): string => {
-  if (!(error instanceof Error)) {
-    return 'Unknown error'
-  }
-  const fieldErrors = (error as { data?: { errors?: unknown } }).data?.errors
-  if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
-    const fields = fieldErrors
-      .map((fieldError: { message?: unknown; path?: unknown }) =>
-        `${String(fieldError.path ?? 'unknown field')}: ${String(fieldError.message ?? 'invalid')}`)
-      .join('; ')
-    return `${error.message} (${fields})`
-  }
-  if (error.cause instanceof Error && error.cause.message) {
-    const statement = error.message.split('\n')[0]
-    const shortened = statement.length > 200 ? `${statement.slice(0, 200)}...` : statement
-    return `${error.cause.message} (${shortened})`
-  }
-  return error.message
 }
 
 const relationId = (value: PreviousStepResult['step']): number | string | undefined => {

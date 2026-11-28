@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildTestConfig, noopTask } from './build-test-config.js'
 import type { SeedWorkflow } from '../../src/plugin/config-types.js'
+import { seedWorkflows } from '../../src/plugin/seed-workflows.js'
 
 const singleTriggerWorkflow: SeedWorkflow = {
   slug: 'test-seeded-workflow',
@@ -334,6 +335,122 @@ describe('seedWorkflows', () => {
     expect(after.steps.map((step: any) => step.slug)).toEqual(['second', 'first'])
     expect(after.steps.map((step: any) => step.step)).toEqual([before.steps[1].step, before.steps[0].step])
     expect(await allIds('automation-steps')).toHaveLength(2)
+  })
+
+  it('keeps the trigger documents when the triggers are reordered or one is inserted in front', async () => {
+    const hook = { type: 'collection-hook', parameters: { collectionSlug: 'posts', hook: 'afterChange' } } as const
+    const schedule = { type: 'scheduled', parameters: { schedule: '0 9 * * *' } } as const
+    const manual = { type: 'manual' } as const
+    await boot([{ ...twoStepWorkflow, triggers: [hook, schedule] }])
+    const before = await findWorkflow(twoStepWorkflow.slug)
+
+    await boot([{ ...twoStepWorkflow, triggers: [schedule, hook] }])
+    const reordered = await findWorkflow(twoStepWorkflow.slug)
+
+    // Runs that these triggers fired keep a valid firedTrigger.
+    expect(reordered.triggers).toEqual([before.triggers[1], before.triggers[0]])
+    expect(await allIds('automation-triggers')).toHaveLength(2)
+
+    await boot([{ ...twoStepWorkflow, triggers: [manual, schedule, hook] }])
+    const inserted = await findWorkflow(twoStepWorkflow.slug)
+
+    expect(inserted.triggers.slice(1)).toEqual(reordered.triggers)
+    expect(await allIds('automation-triggers')).toHaveLength(3)
+  })
+
+  it('gives two identical triggers their own documents and keeps both across a restart', async () => {
+    const hook = { type: 'collection-hook', parameters: { collectionSlug: 'posts', hook: 'afterChange' } } as const
+    const schedule = { type: 'scheduled', parameters: { schedule: '0 9 * * *' } } as const
+    await boot([{ ...twoStepWorkflow, triggers: [hook, hook] }])
+    const before = await findWorkflow(twoStepWorkflow.slug)
+    expect(new Set(before.triggers).size).toBe(2)
+
+    await boot([{ ...twoStepWorkflow, triggers: [schedule, hook, hook] }])
+    const after = await findWorkflow(twoStepWorkflow.slug)
+
+    expect([...after.triggers.slice(1)].sort()).toEqual([...before.triggers].sort())
+  })
+
+  // Runs the seeder against the booted instance the way onInit does, with a
+  // logger that records error entries, to read what the seeder reports for a
+  // definition it rejects.
+  const seedCapturingErrors = async (seedWorkflowDefs: SeedWorkflow[]) => {
+    const errors: Array<{ details: Record<string, unknown>; message: string }> = []
+    const logger = {
+      debug: () => undefined,
+      error: (details: Record<string, unknown>, message: string) => {
+        errors.push({ details, message })
+      },
+      info: () => undefined,
+      warn: () => undefined,
+    } as unknown as Payload['logger']
+    await seedWorkflows(payload!, seedWorkflowDefs, logger)
+    return errors.filter((entry) => entry.message === 'Failed to seed workflow')
+  }
+
+  it('rejects a definition in which two steps resolve to the same slug', async () => {
+    await boot([])
+    const errors = await seedCapturingErrors([
+      {
+        ...twoStepWorkflow,
+        steps: [
+          { name: 'Send email', type: 'noop-step', input: { to: 'a' } },
+          { name: 'Send Email!', type: 'noop-step', input: { to: 'b' } },
+        ],
+      },
+      singleTriggerWorkflow,
+    ])
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0].details.workflowSlug).toBe(twoStepWorkflow.slug)
+    expect(errors[0].details.error).toContain('Steps "Send email" and "Send Email!" both resolve to the slug "send-email"')
+    // Nothing of the rejected workflow is created; the next definition still is.
+    const workflows = await payload!.find({ collection: 'workflows', depth: 0, overrideAccess: true })
+    expect(workflows.docs.map((doc) => doc.slug)).toEqual([singleTriggerWorkflow.slug])
+    expect(await allIds('automation-steps')).toHaveLength(1)
+    expect(await allIds('automation-triggers')).toHaveLength(1)
+  })
+
+  it('leaves the stored workflow as it was when its definition gets two steps with the same slug', async () => {
+    await boot([twoStepWorkflow])
+    const before = await findWorkflow(twoStepWorkflow.slug)
+
+    const errors = await seedCapturingErrors([
+      {
+        ...twoStepWorkflow,
+        steps: [...twoStepWorkflow.steps, { name: 'Again', slug: 'first', type: 'noop-step', input: {} }],
+      },
+    ])
+
+    expect(errors).toHaveLength(1)
+    const after = await findWorkflow(twoStepWorkflow.slug)
+    expect(after.steps).toEqual(before.steps)
+    expect(await allIds('automation-steps')).toHaveLength(2)
+  })
+
+  it('rejects a step whose name gives an empty slug', async () => {
+    await boot([])
+    const errors = await seedCapturingErrors([
+      { ...twoStepWorkflow, steps: [{ name: '!!!', type: 'noop-step', input: {} }] },
+    ])
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0].details.error).toContain('Step "!!!" has no usable slug')
+    expect((await payload!.find({ collection: 'workflows', overrideAccess: true })).docs).toHaveLength(0)
+  })
+
+  it('logs which field was rejected when a seed fails validation', async () => {
+    await boot([])
+    const errors = await seedCapturingErrors([
+      {
+        ...twoStepWorkflow,
+        triggers: [{ type: 'scheduled', parameters: { schedule: '0 9 * * *', timezone: 'Mars/Olympus_Mons' } }],
+      },
+    ])
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0].details.error).toContain('timezone')
+    expect(errors[0].details.error).toContain('Mars/Olympus_Mons')
   })
 
   it('replaces a webhook trigger when only its secret changes', async () => {

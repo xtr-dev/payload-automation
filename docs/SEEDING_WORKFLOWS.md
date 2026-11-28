@@ -5,14 +5,15 @@
 ## Behavior
 
 - On each startup (`onInit`), every seed workflow whose `slug` doesn't exist yet is created, together with its triggers (in `automation-triggers`) and steps (in `automation-steps`).
-- A workflow whose `slug` already exists is compared with its definition: `name`, `description`, triggers, steps and the optional settings the definition declares. If nothing changed it is left alone. Otherwise it is updated in place: the workflow keeps its id, and triggers and steps that did not change keep theirs, so existing `workflow-runs` still point at them. Triggers are matched by position, steps by `slug`. A changed trigger or step is replaced by a new document and the old one is deleted, unless another workflow still uses it.
+- A workflow whose `slug` already exists is compared with its definition: `name`, `description`, triggers, steps and the optional settings the definition declares. If nothing changed it is left alone. Otherwise it is updated in place: the workflow keeps its id, and triggers and steps that did not change keep theirs, so existing `workflow-runs` still point at them. Steps are matched by `slug`, triggers by their content, so reordering triggers or steps, or adding one in front, keeps the existing documents. A changed trigger or step is replaced by a new document and the old one is deleted, unless another workflow still uses it; runs that the old trigger fired then no longer link to a trigger.
 - The optional settings are a workflow's `errorHandling`, `maxRetries`, `retryDelay`, `timeout` and `discardRunWhen`, and a step's `retryOnFailure`, `maxRetries` and `retryDelay`. A declared setting is written when the workflow is created and restored on startup when the stored value differs. A setting the definition leaves out gets the collection's default on create and is not compared or written afterwards, so removing a setting from the definition does not reset the stored value; declare the value you want instead (for example `retryOnFailure: false`).
 - Step retry settings are stored on the step's `automation-steps` document, so changing one replaces that step document like any other step change.
 - Nothing else is written. Other settings on the stored workflow (such as `enabled`) are kept. Removing a workflow from `seedWorkflows` does not delete it.
 - If creating or updating a workflow fails partway, the triggers and steps created for that attempt are deleted again and an existing workflow stays as it was.
 - Seeded workflows, and the triggers and steps they reference, can't be updated or deleted through the admin UI, REST, GraphQL or access-controlled Local API calls. The `readOnly` flag itself can only be set by the plugin's seeder.
 - The admin panel shows a banner on read-only workflows.
-- A seed that fails (for example an unknown step type) is logged as `Failed to seed workflow` and the others still run.
+- Step slugs must be unique within a workflow. A step without a `slug` gets its slugified name (`Send Email!` becomes `send-email`), so two steps with similar names can collide. A definition in which two steps resolve to the same slug, or a step resolves to an empty one, is rejected: nothing is created or changed for that workflow.
+- A seed that fails (for example an unknown step type) is logged as `Failed to seed workflow`, with the rejected fields when it failed validation, and the others still run.
 
 ## Example
 
@@ -98,7 +99,7 @@ type SeedWorkflow = {
   }>
   steps: Array<{
     name: string
-    slug?: string       // Defaults to the slugified name
+    slug?: string       // Defaults to the slugified name; unique within the workflow
     type: string        // A registered task slug, e.g. 'http-request-step'
     input?: Record<string, any>
     dependencies?: string[]  // Step slugs
@@ -135,4 +136,5 @@ Step `input` values follow the README's [expression rules](../README.md#expressi
 
 - **A seed was not created:** look for `Failed to seed workflow` in the logs (set `PAYLOAD_AUTOMATION_LOG_LEVEL=info` to also see `Seeded workflow: ...`). A unique-constraint error on `slug` means a workflow with that slug already exists.
 - **Changes are not applied:** changes are applied on the next startup. If they are not, look for `Failed to seed workflow` in the logs; a failed update leaves the stored workflow as it was.
+- **`Steps "A" and "B" both resolve to the slug "x"`:** give one of the two steps an explicit `slug`. Expressions and `dependencies` refer to a step by its slug, so the seeder does not pick one for you.
 - **A step fails with `depends on non-existent step`:** `dependencies` must list step slugs, not names.
