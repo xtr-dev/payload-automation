@@ -4,6 +4,7 @@ import type { SeedWorkflow } from './config-types.js'
 
 import { describeError } from '../utils/describe-error.js'
 import { hashWebhookSecret, normalizeWebhookPath } from '../utils/webhook.js'
+import { clearHookTriggerCache } from './trigger-cache.js'
 
 type Logger = Payload['logger']
 
@@ -311,6 +312,59 @@ type ReconcileResult<TItems> = {
   items: TItems
   createdIds: (number | string)[]
   staleIds: (number | string)[]
+  /**
+   * Puts documents that were changed in place back as they were. Called when
+   * a later part of the same seed attempt fails, so the stored workflow keeps
+   * the triggers it had.
+   */
+  restore?: () => Promise<void>
+}
+
+// The fields of a stored trigger that an in-place update may change, read
+// before the update so they can be written back if the seed attempt fails.
+// `lastFiredAt` is included because the collection resets it when a schedule
+// changes; `webhookSecretHash` because only the hash of a secret is stored.
+const restorableTriggerFields = [
+  'condition',
+  'collectionSlug',
+  'hook',
+  'globalSlug',
+  'schedule',
+  'timezone',
+  'lastFiredAt',
+  'webhookPath',
+  'webhookSecretHash',
+] as const
+
+// Whether a workflow other than `workflowId` references trigger `triggerId`.
+// automation-triggers is a shared library: a workflow made in the admin panel
+// can point at a trigger the seeder created. Changing such a trigger in place
+// would silently change when that other workflow runs. When the lookup fails
+// the trigger counts as shared, which only costs a replacement document.
+const isTriggerShared = async (
+  payload: Payload,
+  triggerId: number | string,
+  workflowId: number | string,
+  logger: Logger
+): Promise<boolean> => {
+  try {
+    const { totalDocs } = await payload.count({
+      collection: 'workflows',
+      where: {
+        and: [
+          { triggers: { contains: triggerId } },
+          { id: { not_equals: workflowId } },
+        ],
+      },
+    })
+    return totalDocs > 0
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : 'Unknown error', triggerId },
+      'Failed to check whether a trigger is used by another workflow while seeding workflows'
+    )
+    return true
+  }
 }
 
 // Pairs each trigger of a seed definition with the stored trigger document it
@@ -355,38 +409,126 @@ const pairTriggers = (
   return paired
 }
 
-// Reconciles the workflow's triggers against its seed definition: a stored
-// trigger whose fields match a definition is left alone and reused by id (see
-// pairTriggers), so neither an unrelated change elsewhere in the workflow nor
-// a reorder invalidates workflow-runs history that references it via
-// firedTrigger. Only triggers that actually differ (or are new) are created;
-// the stored triggers no definition uses any more are returned as staleIds
+// Reconciles the workflow's triggers against its seed definition, keeping
+// the stored trigger documents wherever possible, because workflow runs
+// reference them through `firedTrigger` and a scheduled trigger carries its
+// `lastFiredAt`:
+//
+// 1. A stored trigger whose fields match a definition is reused as it is (see
+//    pairTriggers), so neither an unrelated change elsewhere in the workflow
+//    nor a reorder touches it.
+// 2. A definition without a match takes over a stored trigger that no
+//    definition matched, when that trigger has the same type and no other
+//    workflow uses it: the document is updated in place and keeps its id.
+//    The trigger at the same position is preferred. A trigger of another
+//    type is never converted; the fields that would carry over (a schedule's
+//    `lastFiredAt`, say) mean nothing for a different kind of trigger.
+// 3. Otherwise a new trigger is created.
+//
+// The stored triggers no definition uses any more are returned as staleIds
 // for the caller to delete once it has safely pointed the workflow at the
 // replacements.
 //
-// If a create call throws partway through, everything this call already
-// created is deleted before rethrowing, so a failed attempt never leaves an
-// orphan behind for the next restart to find.
+// If a call throws partway through, everything this call already created is
+// deleted and everything it updated in place is restored before rethrowing,
+// so a failed attempt leaves neither an orphan nor a half-applied trigger.
+// The caller does the same through `createdIds` and `restore` when a later
+// step of the attempt fails.
 const reconcileTriggers = async (
   payload: Payload,
   existingTriggers: AnyRecord[],
   seedWorkflow: SeedWorkflow,
-  logger: Logger
+  logger: Logger,
+  workflowId?: number | string
 ): Promise<ReconcileResult<(number | string)[]>> => {
   const triggerIds: (number | string)[] = []
   const createdIds: (number | string)[] = []
   const staleIds: (number | string)[] = []
+  const updatedInPlace: { id: number | string; previous: Record<string, unknown> }[] = []
 
   const desiredFields = seedWorkflow.triggers.map(mapTriggerFields)
   const reusable = pairTriggers(existingTriggers, desiredFields)
   const reusedIds = new Set<number | string>()
+  for (const reused of reusable) {
+    if (reused) {
+      reusedIds.add(reused.id)
+    }
+  }
+
+  const restore = async (): Promise<void> => {
+    for (const { id, previous } of updatedInPlace) {
+      try {
+        // Written through the database adapter: the collection's hooks would
+        // hash the stored secret hash again and move `lastFiredAt`.
+        await payload.db.updateOne({ collection: 'automation-triggers', id, data: previous, returning: false })
+      } catch (error) {
+        logger.warn(
+          { error: error instanceof Error ? error.message : 'Unknown error', id },
+          'Failed to restore a trigger that was updated in place while seeding workflows'
+        )
+      }
+    }
+    if (updatedInPlace.length > 0) {
+      // The adapter write runs no hooks, so the hook handlers' cached trigger
+      // list has to be dropped by hand.
+      clearHookTriggerCache(payload)
+    }
+  }
+
+  // The stored trigger a changed definition at position `index` can take
+  // over, if any (rule 2 above).
+  const findUpdatable = async (index: number, desired: Record<string, unknown>): Promise<AnyRecord | undefined> => {
+    if (workflowId === undefined) {
+      return undefined
+    }
+    const isCandidate = (candidate: AnyRecord | undefined): candidate is AnyRecord =>
+      Boolean(candidate) &&
+      typeof candidate === 'object' &&
+      candidate.id !== undefined &&
+      !reusedIds.has(candidate.id) &&
+      candidate.type === desired.type
+    const candidates = [
+      existingTriggers[index],
+      ...existingTriggers.filter((_, position) => position !== index),
+    ].filter(isCandidate)
+    for (const candidate of candidates) {
+      if (!(await isTriggerShared(payload, candidate.id, workflowId, logger))) {
+        return candidate
+      }
+    }
+    return undefined
+  }
 
   try {
     for (let i = 0; i < desiredFields.length; i++) {
       const reused = reusable[i]
       if (reused) {
         triggerIds.push(reused.id)
-        reusedIds.add(reused.id)
+        continue
+      }
+
+      const updatable = await findUpdatable(i, desiredFields[i])
+      if (updatable) {
+        const previous: Record<string, unknown> = {}
+        const data: Record<string, unknown> = {}
+        for (const key of restorableTriggerFields) {
+          previous[key] = updatable[key] ?? null
+        }
+        // A field the definition no longer sets (a removed condition or
+        // timezone) has to be cleared, not left at its stored value.
+        for (const key of ['condition', 'collectionSlug', 'hook', 'globalSlug', 'schedule', 'timezone', 'webhookPath']) {
+          data[key] = desiredFields[i][key] ?? null
+        }
+        if (desiredFields[i].webhookSecret !== undefined) {
+          data.webhookSecret = desiredFields[i].webhookSecret
+        }
+        reusedIds.add(updatable.id)
+        // Registered before the write, so a write that fails halfway is
+        // restored as well.
+        updatedInPlace.push({ id: updatable.id, previous })
+        await payload.update({ collection: 'automation-triggers', id: updatable.id, data })
+        logger.debug(`Updated trigger in place: ${String(updatable.name ?? updatable.id)}`)
+        triggerIds.push(updatable.id)
         continue
       }
 
@@ -408,10 +550,11 @@ const reconcileTriggers = async (
     }
   } catch (error) {
     await deleteResources(payload, 'automation-triggers', createdIds, logger)
+    await restore()
     throw error
   }
 
-  return { items: triggerIds, createdIds, staleIds }
+  return { items: triggerIds, createdIds, restore, staleIds }
 }
 
 // Reconciles steps the same way reconcileTriggers does, but matched by the
@@ -558,7 +701,7 @@ export const seedWorkflows = async (
         let stepResult: ReconcileResult<WorkflowStepEntry[]> | undefined
 
         try {
-          triggerResult = await reconcileTriggers(payload, existing.triggers || [], seedWorkflow, logger)
+          triggerResult = await reconcileTriggers(payload, existing.triggers || [], seedWorkflow, logger, existing.id)
           stepResult = await reconcileSteps(payload, existing.steps || [], seedWorkflow, logger)
 
           await payload.update({
@@ -581,6 +724,9 @@ export const seedWorkflows = async (
           // restart to find, and let the outer catch log the failure.
           await deleteResources(payload, 'automation-triggers', triggerResult?.createdIds || [], logger)
           await deleteResources(payload, 'automation-steps', stepResult?.createdIds || [], logger)
+          // Triggers that were updated in place are still referenced by the
+          // workflow, so they get their previous fields back.
+          await triggerResult?.restore?.()
           throw error
         }
 

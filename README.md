@@ -491,7 +491,7 @@ workflowsPlugin({ seedWorkflows, steps: [SendEmailStepTask] })
 
 A step can declare `retryOnFailure`, `maxRetries` and `retryDelay`, a workflow `errorHandling`, `maxRetries`, `retryDelay` and `timeout` (see [Retries and Timeout](#retries-and-timeout)) and `discardRunWhen` (see [Keeping Idle Runs Out of the History](#keeping-idle-runs-out-of-the-history)). A setting you leave out gets its default when the workflow is created and is not touched afterwards.
 
-On every startup a seeded workflow is matched by `slug` and, when its definition in code has changed, updated in place. Step slugs (by default the slugified step name) must be unique within a workflow; a definition where two steps share one is rejected with a `Failed to seed workflow` error. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
+On every startup a seeded workflow is matched by `slug` and, when its definition in code has changed, updated in place. A trigger whose fields changed (but not its type) keeps its document, so earlier runs still link to it, unless another workflow shares that trigger. Step slugs (by default the slugified step name) must be unique within a workflow; a definition where two steps share one is rejected with a `Failed to seed workflow` error. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
 
 ## Plugin Configuration
 

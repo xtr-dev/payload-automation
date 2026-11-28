@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { buildTestConfig, noopTask } from './build-test-config.js'
 import type { SeedWorkflow } from '../../src/plugin/config-types.js'
 import { seedWorkflows } from '../../src/plugin/seed-workflows.js'
+import { hashWebhookSecret } from '../../src/utils/webhook.js'
 
 const singleTriggerWorkflow: SeedWorkflow = {
   slug: 'test-seeded-workflow',
@@ -283,7 +284,7 @@ describe('seedWorkflows', () => {
     expect(firstStep.config).toEqual({ message: 'v2' })
   })
 
-  it('replaces a changed trigger and removes triggers and steps dropped from the definition', async () => {
+  it('updates a changed trigger in place and removes triggers and steps dropped from the definition', async () => {
     await boot([
       {
         ...twoStepWorkflow,
@@ -307,8 +308,9 @@ describe('seedWorkflows', () => {
     ])
     const after = await findWorkflow(twoStepWorkflow.slug)
 
-    expect(after.triggers).toHaveLength(1)
-    expect(before.triggers).not.toContain(after.triggers[0])
+    // The collection hook trigger keeps its document; the scheduled trigger
+    // the definition dropped is deleted.
+    expect(after.triggers).toEqual([before.triggers[0]])
     expect(await allIds('automation-triggers')).toEqual(after.triggers)
     const trigger = await payload!.findByID({ collection: 'automation-triggers', id: after.triggers[0] })
     expect(trigger.hook).toBe('afterDelete')
@@ -453,7 +455,7 @@ describe('seedWorkflows', () => {
     expect(errors[0].details.error).toContain('Mars/Olympus_Mons')
   })
 
-  it('replaces a webhook trigger when only its secret changes', async () => {
+  it('rotates the secret of a webhook trigger in place when only the secret changes', async () => {
     const webhookWorkflow = (webhookSecret: string): SeedWorkflow => ({
       ...singleTriggerWorkflow,
       triggers: [{ type: 'webhook', parameters: { webhookPath: '/seed-hook/', webhookSecret } }],
@@ -466,6 +468,64 @@ describe('seedWorkflows', () => {
     expect((await findWorkflow(singleTriggerWorkflow.slug)).triggers).toEqual(before.triggers)
 
     await boot([webhookWorkflow('second-secret')])
+    const after = await findWorkflow(singleTriggerWorkflow.slug)
+    expect(after.triggers).toEqual(before.triggers)
+    expect(await allIds('automation-triggers')).toEqual(after.triggers)
+    const trigger = await payload!.findByID({
+      collection: 'automation-triggers',
+      id: after.triggers[0],
+      showHiddenFields: true,
+    })
+    expect(trigger.webhookSecretHash).toBe(hashWebhookSecret('second-secret'))
+
+    // The rotated secret is what the definition now matches: nothing changes
+    // on the next start.
+    await boot([webhookWorkflow('second-secret')])
+    expect((await findWorkflow(singleTriggerWorkflow.slug)).triggers).toEqual(before.triggers)
+  })
+
+  it('keeps the trigger document, the runs that reference it and lastFiredAt when a trigger changes', async () => {
+    const scheduledWorkflow = (condition?: string): SeedWorkflow => ({
+      ...singleTriggerWorkflow,
+      triggers: [{ type: 'scheduled', condition, parameters: { schedule: '0 9 * * *' } }],
+    })
+    await boot([scheduledWorkflow()])
+    const before = await findWorkflow(singleTriggerWorkflow.slug)
+    const [triggerId] = before.triggers
+    // As if the scheduler had fired the trigger and a run recorded it.
+    const firedAt = '2024-05-01T09:00:00.000Z'
+    await payload!.db.updateOne({ collection: 'automation-triggers', id: triggerId, data: { lastFiredAt: firedAt } })
+    const run = await payload!.create({
+      collection: 'workflow-runs',
+      data: { firedTrigger: triggerId, startedAt: firedAt, status: 'completed', triggeredBy: 'system', workflow: before.id },
+    })
+
+    await boot([scheduledWorkflow('trigger.type = "scheduled"')])
+
+    const after = await findWorkflow(singleTriggerWorkflow.slug)
+    expect(after.triggers).toEqual([triggerId])
+    expect(await allIds('automation-triggers')).toEqual([triggerId])
+    const trigger = await payload!.findByID({ collection: 'automation-triggers', id: triggerId })
+    expect(trigger.condition).toBe('trigger.type = "scheduled"')
+    // The schedule itself did not change, so the trigger does not start
+    // counting from now again.
+    expect(new Date(trigger.lastFiredAt as string).toISOString()).toBe(firedAt)
+    const storedRun = await payload!.findByID({ collection: 'workflow-runs', id: run.id, depth: 0 })
+    expect(storedRun.firedTrigger).toBe(triggerId)
+
+    // Removing the condition again clears it on the same document.
+    await boot([scheduledWorkflow()])
+    const cleared = await payload!.findByID({ collection: 'automation-triggers', id: triggerId })
+    expect(cleared.condition ?? null).toBeNull()
+    expect((await findWorkflow(singleTriggerWorkflow.slug)).triggers).toEqual([triggerId])
+  })
+
+  it('replaces a trigger whose type changes instead of converting the document', async () => {
+    await boot([singleTriggerWorkflow])
+    const before = await findWorkflow(singleTriggerWorkflow.slug)
+
+    await boot([{ ...singleTriggerWorkflow, triggers: [{ type: 'scheduled', parameters: { schedule: '0 9 * * *' } }] }])
+
     const after = await findWorkflow(singleTriggerWorkflow.slug)
     expect(after.triggers).toHaveLength(1)
     expect(after.triggers).not.toEqual(before.triggers)
@@ -513,10 +573,14 @@ describe('seedWorkflows', () => {
     ])
     const after = await findWorkflow(twoStepWorkflow.slug)
 
+    // The shared trigger is not changed under the other workflow: the seeded
+    // workflow gets a new document and the old one stays as it was.
     expect(after.triggers).not.toEqual(before.triggers)
     const handmade = await payload!.findByID({ collection: 'workflows', id: other.id, depth: 0 })
     expect(handmade.triggers).toEqual(before.triggers)
     expect(await allIds('automation-triggers')).toHaveLength(2)
+    const shared = await payload!.findByID({ collection: 'automation-triggers', id: before.triggers[0] })
+    expect(shared.hook).toBe('afterChange')
   })
 
   it('leaves no triggers or steps behind when creating a new seeded workflow fails', async () => {
@@ -576,6 +640,10 @@ describe('seedWorkflows', () => {
     expect(await findWorkflow(twoStepWorkflow.slug)).toEqual(before)
     expect(await allIds('automation-triggers')).toEqual(triggerIdsBefore)
     expect(await allIds('automation-steps')).toEqual(stepIdsBefore)
+    // The trigger had already been updated in place when the step failed; it
+    // got its previous hook back, so the stored workflow still fires as before.
+    const trigger = await payload!.findByID({ collection: 'automation-triggers', id: triggerIdsBefore[0] })
+    expect(trigger.hook).toBe('afterChange')
   })
 
   const findStepDoc = async (id: number | string): Promise<Record<string, any>> =>
