@@ -1,5 +1,7 @@
 import type { Payload, TaskConfig, TaskHandler } from 'payload'
 
+import { getSharedState } from './shared-state.js'
+
 /**
  * Hands a step's output from its task handler to the WorkflowExecutor.
  *
@@ -21,7 +23,15 @@ export type StepOutputSlot = {
   output?: Record<string, unknown>
 }
 
-const slotsByPayload = new WeakMap<Payload, Map<string, StepOutputSlot>>()
+// Shared between all copies of the plugin in the process: the wrapped handler
+// lives in the copy that built the Payload config, while the executor that
+// registers the slot can be another copy (see shared-state.ts). With a
+// module-level map the handler would look in a different map than the one the
+// executor wrote to, and every step output would be lost.
+const slotsByPayload = getSharedState(
+  'stepOutputSlots',
+  () => new WeakMap<Payload, Map<string, StepOutputSlot>>()
+)
 
 const WRAPPED = Symbol.for('payload-automation.stepOutputCapture')
 

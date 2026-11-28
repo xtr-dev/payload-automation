@@ -301,6 +301,9 @@ const relationId = (value: PreviousStepResult['step']): number | string | undefi
 
 export class WorkflowExecutor {
   private config: WorkflowsPluginConfig<string, string>;
+  // Which step owns each key of `context.steps`. Kept on the executor rather
+  // than in process-wide shared state because an execution context never
+  // leaves the executor (and so the copy of this module) that created it.
   private stepContextOwners = new WeakMap<ExecutionContext, Map<string, string>>()
 
   constructor(

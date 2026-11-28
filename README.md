@@ -281,15 +281,23 @@ buildConfig({
 })
 ```
 
-In a Next.js app, `jobs.autoRun` alone is not enough: Payload only starts the `autoRun` crons when it is loaded with `cron: true`. The admin panel loads it that way, a plain `getPayload({ config })` in your own server code does not, so after a restart nothing fires until someone opens `/admin`. Pass `cron: true` where your server code loads Payload:
+In a Next.js app, `jobs.autoRun` alone is not enough: Payload only starts the `autoRun` crons when it is loaded with `cron: true`. The admin panel loads it that way, a plain `getPayload({ config })` in your own server code does not, so after a restart nothing fires until someone opens `/admin`. Load Payload with `cron: true` when the server starts, from `instrumentation.ts` (in `src/` if your app uses it):
 
 ```typescript
-import config from '@payload-config'
-import { getPayload } from 'payload'
+// instrumentation.ts
+export async function register() {
+  // Payload needs Node.js; skip the Edge runtime, where register() also runs.
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return
 
-// Starts the autoRun crons the first time it runs in a server process; later calls reuse them.
-const payload = await getPayload({ config, cron: true })
+  const { getPayload } = await import('payload')
+  const { default: config } = await import('@payload-config')
+
+  // Starts the autoRun crons once per server process; later getPayload calls reuse the instance.
+  await getPayload({ config, cron: true })
+}
 ```
+
+Next.js bundles `instrumentation.ts` separately from your routes, so the plugin's code is loaded twice in the server process. That is supported: workflows started from a route or server action (`triggerWorkflowById`, `triggerCustomWorkflow`) work on the Payload instance that `register()` created, step outputs included.
 
 Other ways to run the queue:
 

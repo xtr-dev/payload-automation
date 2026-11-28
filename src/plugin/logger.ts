@@ -1,7 +1,14 @@
 import type { Payload } from 'payload'
 
-// Global logger instance - use Payload's logger type
-let pluginLogger: null | Payload['logger'] = null
+import { getSharedState } from '../core/shared-state.js'
+
+// The most recently initialised plugin logger. Shared between all copies of
+// the plugin in the process (see shared-state.ts): the plugin's onInit runs
+// in the copy that built the Payload config, and `getLogger()` called from
+// another copy must not report the logger as uninitialised.
+const loggerState = getSharedState<{ current: null | Payload['logger'] }>('logger', () => ({
+  current: null,
+}))
 
 /**
  * Get the configured log level from environment variables
@@ -59,11 +66,11 @@ export function initializeLogger(payload: Payload): Payload['logger'] {
                    process.env.PAYLOAD_AUTOMATION_LOGGING || // Legacy support
                    'warn' // Default to warn level for production
   
-  pluginLogger = payload.logger.child({
+  loggerState.current = payload.logger.child({
     level: logLevel,
     plugin: '@xtr-dev/payload-automation'
   })
-  return pluginLogger
+  return loggerState.current
 }
 
 /**
@@ -71,9 +78,9 @@ export function initializeLogger(payload: Payload): Payload['logger'] {
  * Throws error if not initialized
  */
 export function getLogger(): Payload['logger'] {
-  if (!pluginLogger) {
+  if (!loggerState.current) {
     throw new Error('@xtr-dev/payload-automation: Logger not initialized. Make sure the plugin is properly configured.')
   }
 
-  return pluginLogger
+  return loggerState.current
 }
