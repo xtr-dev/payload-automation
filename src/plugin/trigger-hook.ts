@@ -1,6 +1,9 @@
-import type { PayloadRequest } from 'payload'
+import type { Payload, PayloadRequest } from 'payload'
+
+import type { WorkflowsPluginConfig } from './config-types.js'
 
 import { getTransactionID, runAfterCommit, withoutTransaction } from '../core/after-commit.js'
+import { redactTrigger } from '../core/redact-fields.js'
 import { WorkflowExecutor } from '../core/workflow-executor.js'
 import { getPluginConfig } from './get-plugin-config.js'
 import {
@@ -55,9 +58,18 @@ export const createTriggerHook = (config: TriggerConfig) => {
   // PayloadRequest: through `trigger.req.payload` an expression could reach
   // the whole Payload instance. Hook args carry req at the top level and, for
   // operation hooks (beforeOperation, me, refresh), also under `args.req`.
-  const buildContext = (args: any, firedTrigger?: any) => ({
-    steps: {},
-    trigger: {
+  //
+  // With `redactFields.hideFromExpressions` the redacted fields are removed
+  // here already, so neither a condition nor a step input can read them. By
+  // default they stay in this live context and are only removed from what is
+  // stored (see WorkflowExecutor.storedTrigger).
+  const buildContext = (
+    args: any,
+    firedTrigger: any,
+    payload: Payload,
+    redactFields: WorkflowsPluginConfig['redactFields']
+  ) => {
+    const trigger = {
       ...toExpressionArgs(args),
       type,
       firedTrigger,
@@ -66,7 +78,13 @@ export const createTriggerHook = (config: TriggerConfig) => {
         : { global: slug, operation: hookType }
       )
     }
-  })
+    return {
+      steps: {},
+      trigger: redactFields?.hideFromExpressions === true
+        ? redactTrigger(payload, redactFields, trigger)
+        : trigger
+    }
+  }
 
   return async function automationTriggerHook(args: any) {
     // Standard doc-lifecycle hooks (afterChange, beforeDelete, ...) receive req directly.
@@ -166,7 +184,7 @@ export const createTriggerHook = (config: TriggerConfig) => {
           continue
         }
 
-        const context = buildContext(args, firedTrigger)
+        const context = buildContext(args, firedTrigger, payload, pluginConfig.redactFields)
 
         // Evaluate trigger condition if present
         if (firedTrigger.condition) {

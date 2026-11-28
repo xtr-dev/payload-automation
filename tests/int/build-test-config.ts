@@ -96,6 +96,8 @@ export const buildTestConfig = (options: {
   extraPlugins?: Config['plugins']
   /** Payload `jobs` config; Payload's defaults apply when omitted. */
   jobs?: Config['jobs']
+  /** Plugins applied before the workflows plugin, e.g. to add a collection it registers trigger hooks on. */
+  prePlugins?: Config['plugins']
   /** Extra plugin options, merged over the defaults below. */
   pluginOptions?: Partial<WorkflowsPluginConfig>
   seedWorkflows?: SeedWorkflow[]
@@ -125,6 +127,7 @@ export const buildTestConfig = (options: {
     ],
     db: options.db ?? testDatabase(options.dbFile),
     plugins: [
+      ...(options.prePlugins ?? []),
       workflowsPlugin({
         collectionTriggers: { posts: true },
         globalTriggers: { settings: true },

@@ -335,6 +335,39 @@ Expressions see `trigger.type` (`'scheduled'`), `trigger.scheduledAt` (the occur
 
 Database schema: scheduled triggers add `timezone` and `last_fired_at` to `automation-triggers`, and the scheduled task makes Payload add its `payload-jobs-stats` global. Postgres and SQLite need a migration; MongoDB needs nothing.
 
+## Keeping Fields Out of Runs
+
+A collection or global hook hands the workflow the document as the Local API reads it: every field, including ones the collection hides from its own readers, such as a token with `access: { read: () => false }`. The run stores that document in `triggerData`, where everyone who may read `workflow-runs` sees it. `redactFields` leaves fields out:
+
+```typescript
+workflowsPlugin({
+  redactFields: {
+    // Per collection (or global) slug: dot paths of the fields to leave out.
+    collections: { orders: ['accessToken', 'payment.token', 'items.secret'] },
+    globals: { settings: ['apiSecret'] },
+    // Also leave out every field the config itself restricts.
+    hiddenFields: true,
+  },
+})
+```
+
+- A path through an array or blocks field applies to every row (`items.secret`). A path to a group, array or named tab removes it whole. Array indexes are not supported.
+- `hiddenFields: true` adds, for every collection and global, the fields with `hidden: true` and the fields with an `access.read` function. The function is not called: a run is read by other people than the one who triggered it, so a field with read access control is left out for everybody. It is off by default because existing workflows may rely on such fields being stored.
+
+What is removed, for collection hook and global hook triggers:
+
+| Where | Effect |
+|---|---|
+| `triggerData`, `inputs` and `context` of the run | The fields are missing from `doc`, `previousDoc`, `originalDoc`, `data`, `args.data`, and from an afterOperation `result`, `result.doc` and `result.docs`. |
+| Step inputs | A document, or part of one, that an expression copies as a whole (`{{trigger.doc}}`, `{{trigger.doc.payment}}`, `{{trigger}}`) reaches the step without the fields. So do the stored `stepResults`, the job in `payload-jobs` and the `debug` log of queued jobs. |
+| Step outputs | For a step whose input has a `collectionSlug` and whose output has `doc` or `docs` (the built-in read, create, update and delete document steps), the fields listed for that collection are removed before Payload logs the output on the job, before it is stored on the run, and before later steps see it. |
+
+What still works: with the default `execution.mode: 'inline'`, conditions and step inputs are evaluated against the live hook arguments, so a step that needs a redacted field can name it, `{{trigger.doc.accessToken}}`. That value is then an ordinary step input and is stored as one. With `execution.mode: 'queue'`, and in a run started by `retryWorkflowRun`, steps read the stored `triggerData`, so a redacted field is not available to them.
+
+Set `hideFromExpressions: true` to drop the fields entirely: they are removed from the live context too, and no condition or step input can read them in any mode.
+
+Not covered: the `data` of manual, webhook and scheduled triggers (it belongs to no collection), documents of other collections populated into the triggering document through a relationship, the output of custom steps with another shape, and runs stored before the option was set.
+
 ## Triggering From Code
 
 Workflows with a trigger of type **Manual** can be started from server code:
@@ -508,6 +541,16 @@ type WorkflowsPluginConfig = {
   // those users as undefined; conditions still see them. Default: false.
   stripUserData?: boolean
 
+  // Fields of the triggering document to keep out of workflow-runs and
+  // payload-jobs, per collection or global slug, as dot paths. See "Keeping
+  // Fields Out of Runs". Default: none.
+  redactFields?: {
+    collections?: Record<string, string[]>
+    globals?: Record<string, string[]>
+    hiddenFields?: boolean        // also fields with `hidden: true` or `access.read`
+    hideFromExpressions?: boolean // also hide them from conditions and step inputs
+  }
+
   // How long (ms) hook handlers cache the list of hook triggers. Edits through
   // this Payload instance clear it immediately; the TTL bounds how long edits
   // from other processes take to apply. 0 disables caching. Default: 60000.
@@ -518,7 +561,7 @@ type WorkflowsPluginConfig = {
 }
 ```
 
-Independent of `stripUserData`, auth secrets (`hash`, `salt`, `password`, reset and verification tokens, API keys) are removed from step inputs, outputs and stored runs, and session tokens are never stored. Stripping works on object keys: a scalar you pick out explicitly (`{{trigger.previousDoc.hash}}`) is stored like any value, and a task's own output in its `payload-jobs` log is written by Payload as-is.
+`redactFields` keeps fields of your own collections out of runs, see [Keeping Fields Out of Runs](#keeping-fields-out-of-runs). Independent of `stripUserData` and `redactFields`, auth secrets (`hash`, `salt`, `password`, reset and verification tokens, API keys) are removed from step inputs, outputs and stored runs, and session tokens are never stored. Stripping works on object keys: a scalar you pick out explicitly (`{{trigger.previousDoc.hash}}`) is stored like any value, and a task's own output in its `payload-jobs` log is written by Payload as-is.
 
 ## Access Control
 

@@ -5,6 +5,7 @@ import {
   resolveStepInput as resolveInput,
   type ExpressionContext
 } from './expression-engine.js'
+import { type RedactedCopies, redactStepOutput, redactTrigger } from './redact-fields.js'
 import { expectStepOutput, releaseStepOutput } from './step-output-capture.js'
 import {getPluginConfig} from "../plugin/get-plugin-config.js";
 import {WorkflowsPluginConfig} from "../plugin/config-types.js";
@@ -326,6 +327,12 @@ export class WorkflowExecutor {
   // than in process-wide shared state because an execution context never
   // leaves the executor (and so the copy of this module) that created it.
   private stepContextOwners = new WeakMap<ExecutionContext, Map<string, string>>()
+  // Redacted copies of the trigger's documents (see `redactFields`), by the
+  // original object. Step data is checked against it, so a document that an
+  // expression copied whole into a step input is replaced by its copy.
+  private redactedCopies: RedactedCopies = new WeakMap()
+  // The redacted version of each trigger context this executor has stored.
+  private redactedTriggers = new WeakMap<object, Record<string, unknown>>()
 
   constructor(
     private payload: Payload,
@@ -631,7 +638,16 @@ export class WorkflowExecutor {
           }
 
           result.status = 'succeeded'
-          result.output = this.sanitizeStepData(output)
+          // The wrapped task handler has already removed redacted fields from
+          // the output (see step-output-capture.ts); this covers a handler
+          // the plugin could not wrap. The cleaned output is also what later
+          // steps see as `steps.<slug>.output`.
+          result.output = redactStepOutput(
+            this.payload,
+            this.config.redactFields,
+            resolvedInput,
+            this.sanitizeStepData(output)
+          )
           result.completedAt = new Date().toISOString()
           result.duration = new Date(result.completedAt).getTime() - new Date(result.startedAt!).getTime()
 
@@ -927,10 +943,13 @@ export class WorkflowExecutor {
     const cleanedOutside = new WeakMap<object, unknown>()
     const cleanedInside = new WeakMap<object, unknown>()
 
-    const clean = (current: unknown, inDocument: boolean): unknown => {
-      if (current === null || typeof current !== 'object') {
-        return current
+    const clean = (value: unknown, inDocument: boolean): unknown => {
+      if (value === null || typeof value !== 'object') {
+        return value
       }
+      // A document of the trigger (or a part of one) that has redacted
+      // fields is replaced by its redacted copy before anything else.
+      const current: object = (this.redactedCopies.get(value) as object | undefined) ?? value
       const cleaned = inDocument ? cleanedInside : cleanedOutside
       const done = cleaned.get(current)
       if (done !== undefined) {
@@ -965,6 +984,34 @@ export class WorkflowExecutor {
     }
 
     return clean(value, false) as T
+  }
+
+  /**
+   * The trigger context as it may be stored: without the fields the
+   * `redactFields` option lists for the trigger's collection or global.
+   * The live context that conditions and step input expressions read keeps
+   * them, so a step can still be given such a field by naming it.
+   */
+  private storedTrigger(trigger: ExecutionContext['trigger']): ExecutionContext['trigger'] {
+    if (!this.config.redactFields || trigger === null || typeof trigger !== 'object') {
+      return trigger
+    }
+    let redacted = this.redactedTriggers.get(trigger)
+    if (!redacted) {
+      redacted = redactTrigger(this.payload, this.config.redactFields, trigger, this.redactedCopies)
+      this.redactedTriggers.set(trigger, redacted)
+    }
+    return redacted
+  }
+
+  /** Serializes the trigger context for `triggerData` and `inputs` of a run. */
+  private serializeTrigger(trigger: ExecutionContext['trigger']): unknown {
+    return this.safeSerialize(this.storedTrigger(trigger))
+  }
+
+  /** Serializes the whole execution context for the `context` field of a run. */
+  private serializeContext(context: ExecutionContext): unknown {
+    return this.safeSerialize({ ...context, trigger: this.storedTrigger(context.trigger) })
   }
 
   /**
@@ -1150,13 +1197,13 @@ export class WorkflowExecutor {
         workflow: workflow.id,
         workflowVersion: 1,
         firedTrigger: firedTrigger?.id,
-        triggerData: this.safeSerialize(context.trigger),
+        triggerData: this.serializeTrigger(context.trigger),
         status: queued ? 'pending' : 'running',
         startedAt: new Date(startedAt).toISOString(),
         triggeredBy: this.describeTriggeredBy(req?.user ?? context.trigger.req?.user),
         stepResults: this.pendingStepResults(resolvedSteps),
-        context: this.safeSerialize(context),
-        inputs: this.safeSerialize(context.trigger),
+        context: this.serializeContext(context),
+        inputs: this.serializeTrigger(context.trigger),
         logs: [{
           timestamp: new Date().toISOString(),
           level: 'info',
@@ -1639,7 +1686,7 @@ export class WorkflowExecutor {
           collection: 'workflow-runs',
           data: {
             stepResults,
-            context: this.safeSerialize(context)
+            context: this.serializeContext(context)
           },
           req
         })
@@ -1670,7 +1717,7 @@ export class WorkflowExecutor {
           status: 'completed',
           completedAt: new Date().toISOString(),
           stepResults,
-          context: this.safeSerialize(context),
+          context: this.serializeContext(context),
           outputs,
           logs: [
             ...(workflowRun.logs || []),
@@ -1738,7 +1785,7 @@ export class WorkflowExecutor {
         errorMessage,
         {
           stepResults,
-          context: this.safeSerialize(context),
+          context: this.serializeContext(context),
           logs: [
             ...(workflowRun.logs || []),
             ...run.logs,
@@ -2049,7 +2096,7 @@ export class WorkflowExecutor {
       data: {
         status: 'pending',
         stepResults,
-        context: this.safeSerialize(context),
+        context: this.serializeContext(context),
         logs: [
           ...(workflowRun.logs || []),
           ...run.logs,

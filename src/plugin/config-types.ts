@@ -260,6 +260,67 @@ export type WorkflowsPluginConfig<
     stripUserData?: boolean
 
     /**
+     * Fields of the triggering document that must not end up in
+     * `workflow-runs` or `payload-jobs`.
+     *
+     * A hook receives the document as the Local API reads it, with every
+     * field, including ones the collection hides from its own readers (for
+     * example a token with `access: { read: () => false }`). Without this
+     * option the whole document is stored in the run's `triggerData`, where
+     * everyone who may read runs can see it.
+     *
+     * - `collections` / `globals`: per slug, the paths of the fields to leave
+     *   out, in dot notation (`'accessToken'`, `'payment.token'`). A path
+     *   through an array or blocks field applies to every row
+     *   (`'items.secret'`); a path to a group, array or tab removes it whole.
+     * - `hiddenFields: true`: also leave out every field that the collection
+     *   or global config itself restricts: `hidden: true`, or any
+     *   `access.read` function. The function is not called, because a run is
+     *   read by other people than the one who triggered it: a field with
+     *   read access control is left out for everybody.
+     * - `hideFromExpressions: true`: also remove the fields from the live
+     *   context, so no trigger condition, step condition or step input can
+     *   read them. Use it for fields no workflow should ever handle.
+     *
+     * What is cleaned, for a collection or global hook trigger:
+     * - the documents in the trigger (`doc`, `previousDoc`, `originalDoc`,
+     *   `data`, `args.data`, and an afterOperation `result`, `result.doc` and
+     *   `result.docs`) as stored in the run's `triggerData`, `inputs` and
+     *   `context`;
+     * - a step input that copies such a document, or a part of it, as a
+     *   whole (`{{trigger.doc}}`, `{{trigger}}`): the copy the step's job
+     *   receives, and with it `stepResults`, `payload-jobs` and the debug log
+     *   of queued jobs, has the fields removed;
+     * - the output of a step whose input has a `collectionSlug` and whose
+     *   output has `doc` or `docs`, which is the shape of the built-in
+     *   read, create, update and delete document steps: the fields listed
+     *   for that collection are removed before the output is stored or
+     *   passed on to later steps.
+     *
+     * What still works without `hideFromExpressions`: with
+     * `execution.mode: 'inline'`, conditions and step inputs are evaluated
+     * against the live hook arguments, so a step can be given a redacted
+     * field by naming it: `{{trigger.doc.accessToken}}`. That value is then
+     * part of the step's input and stored like any other input. With
+     * `execution.mode: 'queue'`, and when a run is retried with
+     * `retryWorkflowRun`, steps read the stored `triggerData`, so a redacted
+     * field is not available to them at all.
+     *
+     * Not covered: the `data` of manual, webhook and scheduled triggers
+     * (they have no collection), documents nested through a relationship
+     * populated at `depth` > 0, and the output of custom steps that do not
+     * follow the shape above.
+     *
+     * Defaults to no redaction.
+     */
+    redactFields?: {
+        collections?: { [key in TCollection]?: string[] }
+        globals?: { [key in TGlobal]?: string[] }
+        hiddenFields?: boolean
+        hideFromExpressions?: boolean
+    }
+
+    /**
      * How long, in milliseconds, the collection/global hook handlers reuse the
      * list of collection-hook and global-hook triggers before reloading it.
      * Creating, updating or deleting a trigger through this Payload instance

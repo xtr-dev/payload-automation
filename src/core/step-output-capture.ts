@@ -1,5 +1,8 @@
 import type { Payload, TaskConfig, TaskHandler } from 'payload'
 
+import type { WorkflowsPluginConfig } from '../plugin/config-types.js'
+
+import { redactStepOutput } from './redact-fields.js'
 import { getSharedState } from './shared-state.js'
 
 /**
@@ -68,7 +71,22 @@ export const withStepOutputCapture = <T extends TaskConfig<any>>(task: T): T => 
   }
 
   const wrapped: TaskHandler<any> = async (args) => {
-    const result = await handler(args)
+    let result = await handler(args)
+    // Fields the host keeps out of workflow runs (`redactFields`) are removed
+    // from a document step's output here, before Payload's job runner writes
+    // the output into the job's log in `payload-jobs`.
+    const output = (result as { output?: unknown } | undefined)?.output
+    // Read without getPluginConfig, which throws when the options are
+    // missing: a wrapped task must keep working whatever the config holds.
+    const redactFields = (args.req.payload.config.custom?.pluginConfigs?.['@xtr-dev/payload-automation'] as
+      | undefined
+      | WorkflowsPluginConfig)?.redactFields
+    if (output && redactFields) {
+      const redacted = redactStepOutput(args.req.payload, redactFields, args.input, output)
+      if (redacted !== output) {
+        result = { ...result, output: redacted } as typeof result
+      }
+    }
     const slot = slotsByPayload.get(args.req.payload)?.get(String(args.job.id))
     if (slot && result && result.state !== 'failed') {
       slot.captured = true
