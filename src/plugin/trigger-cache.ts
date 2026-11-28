@@ -1,5 +1,7 @@
 import type { CollectionConfig, Payload } from 'payload'
 
+import { getSharedState } from '../core/shared-state.js'
+
 /**
  * The fields of an `automation-triggers` document that the collection/global
  * hook handlers need to decide whether a hook event fired a trigger.
@@ -28,8 +30,10 @@ interface CacheEntry {
 export const DEFAULT_TRIGGER_CACHE_TTL_MS = 60_000
 
 // Keyed by Payload instance so separate instances in one process (tests,
-// multi-tenant setups) never share trigger lists.
-const cache = new WeakMap<Payload, CacheEntry>()
+// multi-tenant setups) never share trigger lists. Shared between all copies
+// of the plugin in the process (see shared-state.ts), so that a copy other
+// than the one whose hooks filled the cache can still clear it.
+const cache = getSharedState('hookTriggerCache', () => new WeakMap<Payload, CacheEntry>())
 
 const loadHookTriggers = async (payload: Payload): Promise<HookTriggerDoc[]> => {
   const { docs } = await payload.find({
