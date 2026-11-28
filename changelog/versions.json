@@ -3,6 +3,63 @@
   "schemaVersion": 2,
   "versions": [
     {
+      "version": "0.6.0",
+      "date": "2026-11-28",
+      "commit": "e2e9a34",
+      "breaking": false,
+      "groups": {
+        "features": [
+          {
+            "type": "feat",
+            "scope": "runs",
+            "description": "add discardRunWhen to keep idle runs out of the run history (#71)",
+            "commit": "e2e9a34",
+            "hash": "e2e9a345306676f9df6f0b6fc6ed69ab085942ce",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          },
+          {
+            "type": "feat",
+            "scope": "seed",
+            "description": "declare retry, error handling and timeout settings in seedWorkflows (#70)",
+            "commit": "d64b446",
+            "hash": "d64b4466e5285a88d869b15fbbb2653c724fd78e",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ],
+        "fixes": [
+          {
+            "type": "fix",
+            "scope": "core",
+            "description": "keep step outputs when Payload is initialised from Next instrumentation.ts (#69)",
+            "commit": "2c031e2",
+            "hash": "2c031e28e2f6eedd514d60c577d994aa77340fd4",
+            "author": "Bas",
+            "breaking": false,
+            "notes": [
+              {
+                "title": "Co-authored-by",
+                "text": "Claude Fable 5.2 <noreply@anthropic.com>"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "version": "0.5.0",
       "date": "2026-11-27",
       "commit": "69621e0",

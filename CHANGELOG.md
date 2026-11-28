@@ -2,6 +2,15 @@
 
 Release notes from before this changelog was generated (up to v0.0.39) are in [changelog/HISTORY.md](changelog/HISTORY.md).
 
+## [0.6.0](https://github.com/xtr-dev/payload-automation/compare/v0.5.0...v0.6.0) - 2026-11-28
+
+### Features
+- **runs:** add discardRunWhen to keep idle runs out of the run history ([#71](https://github.com/xtr-dev/payload-automation/issues/71)) ([e2e9a34](https://github.com/xtr-dev/payload-automation/commit/e2e9a345306676f9df6f0b6fc6ed69ab085942ce))
+- **seed:** declare retry, error handling and timeout settings in seedWorkflows ([#70](https://github.com/xtr-dev/payload-automation/issues/70)) ([d64b446](https://github.com/xtr-dev/payload-automation/commit/d64b4466e5285a88d869b15fbbb2653c724fd78e))
+
+### Fixes
+- **core:** keep step outputs when Payload is initialised from Next instrumentation.ts ([#69](https://github.com/xtr-dev/payload-automation/issues/69)) ([2c031e2](https://github.com/xtr-dev/payload-automation/commit/2c031e28e2f6eedd514d60c577d994aa77340fd4))
+
 ## [0.5.0](https://github.com/xtr-dev/payload-automation/compare/v0.4.0...v0.5.0) - 2026-11-27
 
 ### Breaking
