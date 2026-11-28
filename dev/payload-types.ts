@@ -478,6 +478,10 @@ export interface Workflow {
    * Maximum duration of a whole run in milliseconds, including retries and the waits between them (0 or empty for no limit). When it passes, the run fails with "Workflow timed out", whatever the error handling setting: steps still running are recorded as failed, no further step or retry starts. A step that is already running is not interrupted, only its result is discarded.
    */
   timeout?: number | null;
+  /**
+   * JSONata expression evaluated when a run finishes without a failed step. When it is true, the run is deleted instead of kept in the run history. Use it for workflows that often have nothing to do, such as a schedule that polls for work. Leave empty to keep every run. Failed runs, and runs with a failed step, are always kept. Example: $count(steps.find.output.docs) = 0
+   */
+  discardRunWhen?: string | null;
   updatedAt: string;
   createdAt: string;
   _status?: ('draft' | 'published') | null;
@@ -1014,6 +1018,7 @@ export interface WorkflowsSelect<T extends boolean = true> {
   maxRetries?: T;
   retryDelay?: T;
   timeout?: T;
+  discardRunWhen?: T;
   updatedAt?: T;
   createdAt?: T;
   _status?: T;

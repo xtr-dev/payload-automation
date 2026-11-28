@@ -143,6 +143,9 @@ export async function retryWorkflowRun(
       // A retry is an explicit request for a result, so it runs inline even
       // when the plugin queues trigger-fired runs (execution.mode 'queue').
       inline: true,
+      // The new run is returned to the caller, so it must still exist when
+      // the workflow would otherwise discard it as idle.
+      keepRun: true,
       onRunCreated: (id) => {
         newRunId = id
       },

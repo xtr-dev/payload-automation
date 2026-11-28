@@ -14,7 +14,7 @@ A workflow automation plugin for PayloadCMS 3.x. Workflows are configured in the
 - Step dependencies: independent steps run in parallel, dependent ones in order
 - Inline or queued (Payload job queue) execution
 - Step retries with a delay, per step or as a workflow default, and a run timeout
-- Run history in `workflow-runs`, with retry from a stored run
+- Run history in `workflow-runs`, with retry from a stored run and an optional rule that leaves idle runs out
 - Read-only template workflows seeded from code
 
 ## Requirements
@@ -309,6 +309,7 @@ How firing works:
 - On each tick, every trigger whose next occurrence after its `lastFiredAt` has passed fires once. Each occurrence is claimed with an atomic update first, so overlapping ticks and multiple server instances don't fire it twice. Firing is at most once: a crash between the claim and the run skips that occurrence.
 - Occurrences missed during downtime fire once in total, not once each. A new or changed schedule starts counting from the save time, so past occurrences are never backfilled.
 - Occurrences that pass while a workflow is disabled, or whose condition is false, are consumed, not fired later.
+- Every fired occurrence stores a run. A trigger condition is evaluated before any step runs and only sees the schedule's own data, so it cannot skip a tick that turns out to have nothing to do; use the workflow's [`discardRunWhen`](#keeping-idle-runs-out-of-the-history) to keep those runs out of the history.
 - Precision is the tick: with the default, up to about a minute late.
 
 Expressions see `trigger.type` (`'scheduled'`), `trigger.scheduledAt` (the occurrence being fired), `trigger.firedAt`, `trigger.previousFiredAt`, `trigger.schedule`, `trigger.timezone` and `trigger.firedTrigger`.
@@ -334,7 +335,7 @@ const results = await triggerCustomWorkflow(payload, { data: { source: 'import' 
 
 `triggerCustomWorkflow` only starts workflows with a **Manual** trigger. Trigger types are fixed (collection hook, global hook, scheduled, webhook, manual); there are no custom trigger types. To give a group of workflows their own event, give them a manual trigger and tell them apart with a trigger `condition` on the data you pass, for example `trigger.data.source = "import"`.
 
-`triggerWorkflowById` throws, without creating a run, when the workflow doesn't exist, has no trigger of that type, or is disabled. Once a run exists it resolves to `{ status: 'triggered' | 'failed', runId, workflowId, workflowName, error? }` instead of throwing.
+`triggerWorkflowById` throws, without creating a run, when the workflow doesn't exist, has no trigger of that type, or is disabled. Once a run exists it resolves to `{ status: 'triggered' | 'failed', runId, workflowId, workflowName, error?, discarded? }` instead of throwing (`discarded` is explained under [Keeping Idle Runs Out of the History](#keeping-idle-runs-out-of-the-history)).
 
 ## Execution Tracking
 
@@ -347,6 +348,31 @@ const runs = await payload.find({
   sort: '-createdAt',
 })
 ```
+
+### Keeping Idle Runs Out of the History
+
+A workflow that polls for work, such as a scheduled workflow whose step usually finds nothing, stores a run on every tick. To keep only the runs that did something, give the workflow a `discardRunWhen` expression (the **Run History** section of the workflow in the admin panel, or `discardRunWhen` on a [seeded workflow](#seeding-template-workflows)):
+
+```typescript
+{
+  slug: 'release-unpaid-orders',
+  name: 'Release unpaid orders',
+  triggers: [{ type: 'scheduled', parameters: { schedule: '* * * * *' } }],
+  steps: [{ name: 'Release', slug: 'release', type: 'release-unpaid-orders' }],
+  // The custom step returns output: { released: <number of orders> }
+  discardRunWhen: 'steps.release.output.released = 0',
+}
+```
+
+It is a bare JSONata expression (no `{{ }}`) with the same [context](#available-context) as a step condition, evaluated once all steps have finished. When it is true, the run is deleted from `workflow-runs` instead of being stored as `completed`. With the built-in read step, `$count(steps.find.output.docs) = 0` does the same; `steps.notify.state = "skipped"` discards runs in which a conditional step did not run.
+
+- The default is empty: every run is kept.
+- A run that failed, and a run that completed with a failed step (`errorHandling: 'continue'`), is always kept.
+- An expression that fails to evaluate counts as false, so the run is kept.
+- The run exists while it is in progress, so it can show up in the history until it finishes. With `jobs.deleteJobOnComplete: false` the step jobs of a discarded run stay in `payload-jobs`.
+- `triggerWorkflowById`, `triggerCustomWorkflow` and `runScheduledTriggers` report a discarded run with `discarded: true`; its `runId` no longer refers to a stored run. In queue mode the run is discarded later, by the job that runs its steps, so the result of the call does not have the flag.
+- `retryWorkflowRun` always keeps the run it returns.
+- Postgres and SQLite need a migration for the `discard_run_when` column on the workflows table (and its versions table); MongoDB needs nothing.
 
 ### Retrying a Run
 
@@ -407,7 +433,7 @@ const seedWorkflows: SeedWorkflow[] = [
 workflowsPlugin({ seedWorkflows, steps: [SendEmailStepTask] })
 ```
 
-A step can declare `retryOnFailure`, `maxRetries` and `retryDelay`, a workflow `errorHandling`, `maxRetries`, `retryDelay` and `timeout` (see [Retries and Timeout](#retries-and-timeout)). A setting you leave out gets its default when the workflow is created and is not touched afterwards.
+A step can declare `retryOnFailure`, `maxRetries` and `retryDelay`, a workflow `errorHandling`, `maxRetries`, `retryDelay` and `timeout` (see [Retries and Timeout](#retries-and-timeout)) and `discardRunWhen` (see [Keeping Idle Runs Out of the History](#keeping-idle-runs-out-of-the-history)). A setting you leave out gets its default when the workflow is created and is not touched afterwards.
 
 On every startup a seeded workflow is matched by `slug` and, when its definition in code has changed, updated in place. Seeded workflows can't be updated or deleted through the admin UI or API. See [docs/SEEDING_WORKFLOWS.md](./docs/SEEDING_WORKFLOWS.md) for the full format.
 
