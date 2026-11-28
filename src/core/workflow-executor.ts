@@ -313,6 +313,36 @@ export interface ExecuteOptions {
   startMessage?: string
 }
 
+/**
+ * Short description of why a write to a run was rejected, for the run's
+ * `error` field and the log.
+ *
+ * The message alone is often not enough: a Payload ValidationError only names
+ * field labels, while its `data.errors` has the path and reason per field; a
+ * database adapter error is the full SQL statement with its parameters, while
+ * the reason (for example a foreign key violation) is in `cause`. The
+ * statement is cut short because it would otherwise bury the reason.
+ */
+const describeError = (error: unknown): string => {
+  if (!(error instanceof Error)) {
+    return 'Unknown error'
+  }
+  const fieldErrors = (error as { data?: { errors?: unknown } }).data?.errors
+  if (Array.isArray(fieldErrors) && fieldErrors.length > 0) {
+    const fields = fieldErrors
+      .map((fieldError: { message?: unknown; path?: unknown }) =>
+        `${String(fieldError.path ?? 'unknown field')}: ${String(fieldError.message ?? 'invalid')}`)
+      .join('; ')
+    return `${error.message} (${fields})`
+  }
+  if (error.cause instanceof Error && error.cause.message) {
+    const statement = error.message.split('\n')[0]
+    const shortened = statement.length > 200 ? `${statement.slice(0, 200)}...` : statement
+    return `${error.cause.message} (${shortened})`
+  }
+  return error.message
+}
+
 const relationId = (value: PreviousStepResult['step']): number | string | undefined => {
   if (value === null || value === undefined) {
     return undefined
@@ -1295,16 +1325,12 @@ export class WorkflowExecutor {
       if (!ownsRun) {
         throw error
       }
-      await this.payload.update({
-        collection: 'workflow-runs',
-        id: workflowRun.id,
-        data: {
-          status: 'failed',
-          completedAt: new Date().toISOString(),
-          error: `Could not start queued workflow run: ${errorMessage}`
-        },
+      await this.recordRunFailure(
+        workflowRun.id,
+        `Could not start queued workflow run: ${errorMessage}`,
+        {},
         req
-      })
+      )
       throw error
     }
 
@@ -1702,7 +1728,7 @@ export class WorkflowExecutor {
       run.closed = true
       run.abort.abort()
 
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      const errorMessage = describeError(error)
 
       // A step that was waiting for a deferred retry will not get it.
       for (const result of stepResults) {
@@ -1737,15 +1763,12 @@ export class WorkflowExecutor {
         }
       }
 
-      await this.payload.update({
-        id: workflowRun.id,
-        collection: 'workflow-runs',
-        data: {
-          status: 'failed',
-          completedAt: new Date().toISOString(),
+      await this.recordRunFailure(
+        workflowRun.id,
+        errorMessage,
+        {
           stepResults,
           context: this.safeSerialize(context),
-          error: errorMessage,
           logs: [
             ...(workflowRun.logs || []),
             ...run.logs,
@@ -1757,7 +1780,7 @@ export class WorkflowExecutor {
           ]
         },
         req
-      })
+      )
 
       this.logger.error({
         workflowRunId: workflowRun.id,
@@ -1768,6 +1791,80 @@ export class WorkflowExecutor {
       throw error
     } finally {
       clearTimeout(timeoutTimer)
+    }
+  }
+
+  /**
+   * Store a run as `failed`, falling back to smaller writes when the full one
+   * is rejected, and never throw.
+   *
+   * The write that records a failure can itself fail: the step results may no
+   * longer validate (for example a step document was deleted while the run
+   * was in progress), or a host hook on `workflow-runs` may reject the data.
+   * It is often the very write whose failure ended the run. If that error
+   * escaped, the run would stay `running` forever with nothing in the admin
+   * UI explaining why, and it would hide the error that actually failed the
+   * run from the caller. So, in order:
+   * 1. the full write with `details` (step results, context, logs);
+   * 2. only `status`, `completedAt` and `error` through the Local API, which
+   *    still runs hooks but does not send the data that was rejected;
+   * 3. the same three fields straight through the database adapter, which
+   *    skips validation and hooks, for when a hook rejects every update.
+   * The stored `error` then also says that the details are missing and why.
+   * If nothing can be written (the database is unreachable), that is logged
+   * and the caller carries on with the original error.
+   */
+  private async recordRunFailure(
+    workflowRunId: number | string,
+    errorMessage: string,
+    details: Record<string, unknown>,
+    req: PayloadRequest
+  ): Promise<void> {
+    const completedAt = new Date().toISOString()
+    let writeError: unknown
+    try {
+      await this.payload.update({
+        id: workflowRunId,
+        collection: 'workflow-runs',
+        data: { ...details, status: 'failed', completedAt, error: errorMessage },
+        req
+      })
+      return
+    } catch (error) {
+      writeError = error
+    }
+
+    const minimal = {
+      status: 'failed',
+      completedAt,
+      error: `${errorMessage}\n\nThe step results, context and logs of this run could not be stored: ${describeError(writeError)}`
+    }
+    this.logger.warn({
+      workflowRunId,
+      error: describeError(writeError)
+    }, 'Could not store the details of a failed workflow run; storing only its status and error')
+
+    try {
+      await this.payload.update({ id: workflowRunId, collection: 'workflow-runs', data: minimal, req })
+      return
+    } catch {
+      // Reported through the adapter write below, or its own failure.
+    }
+
+    try {
+      await this.payload.db.updateOne({
+        id: workflowRunId,
+        collection: 'workflow-runs',
+        data: minimal,
+        req,
+        returning: false
+      })
+    } catch (error) {
+      this.logger.error({
+        workflowRunId,
+        error: describeError(error),
+        runError: errorMessage
+      }, 'Could not mark a failed workflow run as failed; it keeps its previous status')
     }
   }
 
