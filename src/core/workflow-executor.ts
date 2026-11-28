@@ -1909,6 +1909,11 @@ export class WorkflowExecutor {
     workflowRunId: number | string,
     req: PayloadRequest
   ): Promise<boolean> {
+    // Looked up before the run is deleted: SQL adapters clear the jobs'
+    // relation to the run when the run goes, after which the jobs can no
+    // longer be found by it. Deleted only after the run is gone, so a run
+    // that could not be deleted keeps its jobs.
+    const stepJobIds = await this.findStepJobIds(workflowRunId, req)
     try {
       await this.payload.delete({ collection: 'workflow-runs', id: workflowRunId, req })
     } catch (error) {
@@ -1919,11 +1924,73 @@ export class WorkflowExecutor {
       }, 'Could not delete a workflow run selected by discardRunWhen; keeping it')
       return false
     }
+    await this.deleteStepJobs(workflowRunId, stepJobIds, req)
     this.logger.info({
       workflowRunId,
       workflowId: workflow.id
     }, 'Workflow execution completed; run discarded because discardRunWhen was true')
     return true
+  }
+
+  /**
+   * Ids of the step jobs of a run that are still in `payload-jobs`.
+   *
+   * Payload deletes a job when it completes, unless the host sets
+   * `jobs.deleteJobOnComplete: false`; jobs of failed attempts that were
+   * retried are kept either way. Only step jobs carry the
+   * `automationWorkflowRun` relation. The job that runs a queued run's steps
+   * does not, so the job this code may be running in is never included.
+   *
+   * Returns an empty list, after logging why, when the lookup fails: the
+   * jobs are then left behind, which is harmless.
+   */
+  private async findStepJobIds(workflowRunId: number | string, req: PayloadRequest): Promise<Array<number | string>> {
+    try {
+      const { docs } = await this.payload.find({
+        collection: 'payload-jobs',
+        depth: 0,
+        pagination: false,
+        req,
+        select: {},
+        where: { automationWorkflowRun: { equals: workflowRunId } }
+      })
+      return docs.map((job) => job.id)
+    } catch (error) {
+      this.logger.warn({
+        workflowRunId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Could not look up the step jobs of a workflow run that is being discarded')
+      return []
+    }
+  }
+
+  /**
+   * Delete the step jobs of a discarded run from `payload-jobs`.
+   *
+   * Left alone, a polling workflow would add jobs on every tick for runs
+   * that no longer exist, which defeats the purpose of discarding the run.
+   * Best effort: the run is gone already, so a failure is only logged.
+   */
+  private async deleteStepJobs(
+    workflowRunId: number | string,
+    jobIds: Array<number | string>,
+    req: PayloadRequest
+  ): Promise<void> {
+    if (jobIds.length === 0) {
+      return
+    }
+    try {
+      await this.payload.delete({
+        collection: 'payload-jobs',
+        req,
+        where: { id: { in: jobIds } }
+      })
+    } catch (error) {
+      this.logger.warn({
+        workflowRunId,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Could not delete the step jobs of a discarded workflow run')
+    }
   }
 
   /**

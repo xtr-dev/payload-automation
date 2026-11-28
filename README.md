@@ -371,7 +371,7 @@ It is a bare JSONata expression (no `{{ }}`) with the same [context](#available-
 - The default is empty: every run is kept.
 - A run that failed, and a run that completed with a failed step (`errorHandling: 'continue'`), is always kept.
 - An expression that fails to evaluate counts as false, so the run is kept.
-- The run exists while it is in progress, so it can show up in the history until it finishes. With `jobs.deleteJobOnComplete: false` the step jobs of a discarded run stay in `payload-jobs`.
+- The run exists while it is in progress, so it can show up in the history until it finishes. The step jobs of a discarded run that are still in `payload-jobs` (all of them with `jobs.deleteJobOnComplete: false`, otherwise only the jobs of failed attempts) are deleted with it.
 - `triggerWorkflowById`, `triggerCustomWorkflow` and `runScheduledTriggers` report a discarded run with `discarded: true`; its `runId` no longer refers to a stored run. In queue mode the run is discarded later, by the job that runs its steps, so the result of the call does not have the flag.
 - `retryWorkflowRun` always keeps the run it returns.
 - Postgres and SQLite need a migration for the `discard_run_when` column on the workflows table (and its versions table); MongoDB needs nothing.

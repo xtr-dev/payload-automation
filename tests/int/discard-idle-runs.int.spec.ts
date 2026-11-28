@@ -216,17 +216,41 @@ describe('discardRunWhen', () => {
     expect(await allRuns()).toHaveLength(0)
   })
 
-  it('discards the run when its step jobs are kept (jobs.deleteJobOnComplete: false)', async () => {
+  it('deletes the step jobs of a discarded run when jobs are kept (jobs.deleteJobOnComplete: false)', async () => {
     await init({ jobs: { deleteJobOnComplete: false, tasks: [] } })
     const { workflowId } = await createWorkflow({ discardRunWhen: IDLE })
 
+    // A run that is kept, so its step job must survive the discard below.
+    pendingItems = 2
+    const kept = await triggerWorkflowById(payload, workflowId, 'manual')
+    pendingItems = 0
     const result = await triggerWorkflowById(payload, workflowId, 'manual')
 
     expect(result.discarded).toBe(true)
-    expect(await allRuns()).toHaveLength(0)
-    // The job of the step is still there; only its link to the run is gone.
+    expect(await allRuns()).toMatchObject([{ status: 'completed' }])
     const jobs = await payload.find({ collection: 'payload-jobs', depth: 0 })
     expect(jobs.docs).toHaveLength(1)
+    expect(String((jobs.docs[0] as unknown as { automationWorkflowRun: unknown }).automationWorkflowRun)).toBe(
+      String(kept.runId),
+    )
+  })
+
+  it('deletes the step jobs of a discarded queued run without failing the job that ran it', async () => {
+    await init({
+      jobs: { deleteJobOnComplete: false, tasks: [] },
+      pluginOptions: { execution: { mode: 'queue' }, steps: [noopTask, releaseTask, failingTask] },
+    })
+    const { workflowId } = await createWorkflow({ discardRunWhen: IDLE })
+
+    await triggerWorkflowById(payload, workflowId, 'manual')
+    await payload.jobs.run()
+
+    expect(await allRuns()).toHaveLength(0)
+    // Only the job that ran the steps is left, and it completed normally.
+    const jobs = await payload.find({ collection: 'payload-jobs', depth: 0 })
+    expect(jobs.docs).toHaveLength(1)
+    expect(jobs.docs[0]).toMatchObject({ hasError: false, taskSlug: 'automation-workflow-run' })
+    expect(jobs.docs[0].completedAt).toBeTruthy()
   })
 
   it('keeps the run that retryWorkflowRun returns', async () => {
