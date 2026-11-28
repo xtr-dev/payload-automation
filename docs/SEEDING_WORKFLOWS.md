@@ -6,7 +6,7 @@
 
 - On each startup (`onInit`), every seed workflow whose `slug` doesn't exist yet is created, together with its triggers (in `automation-triggers`) and steps (in `automation-steps`).
 - A workflow whose `slug` already exists is compared with its definition: `name`, `description`, triggers, steps and the optional settings the definition declares. If nothing changed it is left alone. Otherwise it is updated in place: the workflow keeps its id, and triggers and steps that did not change keep theirs, so existing `workflow-runs` still point at them. Triggers are matched by position, steps by `slug`. A changed trigger or step is replaced by a new document and the old one is deleted, unless another workflow still uses it.
-- The optional settings are a workflow's `errorHandling`, `maxRetries`, `retryDelay` and `timeout`, and a step's `retryOnFailure`, `maxRetries` and `retryDelay`. A declared setting is written when the workflow is created and restored on startup when the stored value differs. A setting the definition leaves out gets the collection's default on create and is not compared or written afterwards, so removing a setting from the definition does not reset the stored value; declare the value you want instead (for example `retryOnFailure: false`).
+- The optional settings are a workflow's `errorHandling`, `maxRetries`, `retryDelay`, `timeout` and `discardRunWhen`, and a step's `retryOnFailure`, `maxRetries` and `retryDelay`. A declared setting is written when the workflow is created and restored on startup when the stored value differs. A setting the definition leaves out gets the collection's default on create and is not compared or written afterwards, so removing a setting from the definition does not reset the stored value; declare the value you want instead (for example `retryOnFailure: false`).
 - Step retry settings are stored on the step's `automation-steps` document, so changing one replaces that step document like any other step change.
 - Nothing else is written. Other settings on the stored workflow (such as `enabled`) are kept. Removing a workflow from `seedWorkflows` does not delete it.
 - If creating or updating a workflow fails partway, the triggers and steps created for that attempt are deleted again and an existing workflow stays as it was.
@@ -111,10 +111,11 @@ type SeedWorkflow = {
   maxRetries?: number   // Retries per step with errorHandling 'retry' (default 3)
   retryDelay?: number   // Milliseconds before each retry with errorHandling 'retry' (default 1000)
   timeout?: number      // Maximum run duration in milliseconds, 0 for no limit (default 300000)
+  discardRunWhen?: string // Bare JSONata; a finished run for which it is true is not stored (default: keep every run)
 }
 ```
 
-The retry and timeout settings work as described in the README's [Retries and Timeout](../README.md#retries-and-timeout) section.
+The retry and timeout settings work as described in the README's [Retries and Timeout](../README.md#retries-and-timeout) section. `discardRunWhen` is described under [Keeping Idle Runs Out of the History](../README.md#keeping-idle-runs-out-of-the-history).
 
 Trigger `parameters` by type:
 

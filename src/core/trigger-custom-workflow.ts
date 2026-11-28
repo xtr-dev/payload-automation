@@ -34,6 +34,12 @@ export interface CustomTriggerOptions {
 }
 
 export interface TriggerResult {
+  /**
+   * `true` when the run finished and was deleted from `workflow-runs`
+   * because the workflow's `discardRunWhen` expression was true. `runId` then
+   * refers to a run that is no longer stored.
+   */
+  discarded?: boolean
   error?: string
   runId: number | string
   status: 'failed' | 'triggered'
@@ -150,13 +156,18 @@ export async function triggerCustomWorkflow(
         }
 
         // Execute the workflow
+        let discarded = false
         const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq, undefined, {
           onRunCreated: (id) => {
             createdRunId = id
+          },
+          onRunDiscarded: () => {
+            discarded = true
           }
         })
 
         results.push({
+          ...(discarded ? { discarded } : {}),
           runId: runId.toString(),
           status: 'triggered',
           workflowId: workflow.id.toString(),
@@ -270,13 +281,18 @@ export async function triggerWorkflowById(
 
     // Create executor and execute
     const executor = new WorkflowExecutor(payload, logger)
+    let discarded = false
     const runId = await executor.execute(workflow as PayloadWorkflow, context, workflowReq, firedTrigger, {
       onRunCreated: (id) => {
         createdRunId = id
+      },
+      onRunDiscarded: () => {
+        discarded = true
       }
     })
 
     return {
+      ...(discarded ? { discarded } : {}),
       runId: runId.toString(),
       status: 'triggered',
       workflowId: workflow.id.toString(),

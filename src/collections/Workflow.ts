@@ -246,6 +246,23 @@ export const createWorkflowCollection = (
           },
         ],
       },
+      {
+        type: 'collapsible',
+        label: 'Run History',
+        admin: {
+          initCollapsed: true,
+        },
+        fields: [
+          {
+            name: 'discardRunWhen',
+            type: 'code',
+            admin: {
+              description: 'JSONata expression evaluated when a run finishes without a failed step. When it is true, the run is deleted instead of kept in the run history. Use it for workflows that often have nothing to do, such as a schedule that polls for work. Leave empty to keep every run. Failed runs, and runs with a failed step, are always kept. Example: $count(steps.find.output.docs) = 0',
+              language: 'javascript',
+            },
+          },
+        ],
+      },
     ],
     hooks: {
       afterChange: [

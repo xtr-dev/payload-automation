@@ -37,6 +37,12 @@ interface ScheduledTriggerDoc {
 }
 
 export interface ScheduledTriggerResult {
+  /**
+   * `true` when the run finished and was deleted from `workflow-runs`
+   * because the workflow's `discardRunWhen` expression was true. `runId` then
+   * refers to a run that is no longer stored.
+   */
+  discarded?: boolean
   error?: string
   /** Id of the `workflow-runs` record, when one was created. */
   runId?: number | string
@@ -343,13 +349,23 @@ export const runScheduledTriggers = async (
       }
 
       let runId: number | string | undefined
+      let discarded = false
       try {
         runId = await executor.execute(workflow as unknown as PayloadWorkflow, context, req, trigger, {
           onRunCreated: (id) => {
             runId = id
           },
+          onRunDiscarded: () => {
+            discarded = true
+          },
         })
-        results.push({ runId, status: 'triggered', triggerId: trigger.id, workflowId: workflow.id })
+        results.push({
+          ...(discarded ? { discarded } : {}),
+          runId,
+          status: 'triggered',
+          triggerId: trigger.id,
+          workflowId: workflow.id,
+        })
       } catch (error) {
         logger.error(
           {

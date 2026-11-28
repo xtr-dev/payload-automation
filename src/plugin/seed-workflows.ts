@@ -17,7 +17,7 @@ type WorkflowStepEntry = {
 
 // Optional workflow settings a seed definition may declare, stored under the
 // same names on the workflows document.
-const workflowSettingKeys = ['errorHandling', 'maxRetries', 'retryDelay', 'timeout'] as const
+const workflowSettingKeys = ['errorHandling', 'maxRetries', 'retryDelay', 'timeout', 'discardRunWhen'] as const
 
 // Optional retry settings a seed step may declare, stored under the same
 // names on the step's automation-steps document.
@@ -442,7 +442,7 @@ const reconcileSteps = async (
 /**
  * Creates configured seed workflows that don't exist yet, and brings existing
  * ones back in line with their current code definition (name, description,
- * triggers, steps, and the retry/timeout settings the definition declares)
+ * triggers, steps, and the optional settings the definition declares)
  * instead of leaving a stale copy in place forever.
  */
 export const seedWorkflows = async (

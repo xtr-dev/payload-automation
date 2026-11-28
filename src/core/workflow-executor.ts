@@ -32,6 +32,11 @@ export type PayloadWorkflow = {
   maxRetries?: number | null
   retryDelay?: number | null
   timeout?: number | null
+  /**
+   * JSONata expression deciding whether a finished run is deleted instead of
+   * kept in `workflow-runs` (see `WorkflowExecutor.shouldDiscardRun`).
+   */
+  discardRunWhen?: string | null
   [key: string]: unknown
 }
 
@@ -271,6 +276,22 @@ export interface ExecuteOptions {
    * `execute` later throws because a step failed.
    */
   onRunCreated?: (workflowRunId: number | string) => void
+
+  /**
+   * Called with the run's id when the workflow's `discardRunWhen` expression
+   * was true and the finished run was deleted from `workflow-runs`. The id
+   * `execute` returns then no longer refers to a stored document. Not called
+   * for a run that was only queued (`execution.mode: 'queue'`): whether that
+   * run is discarded is decided later, when a job runner has run its steps.
+   */
+  onRunDiscarded?: (workflowRunId: number | string) => void
+
+  /**
+   * Keep the run in `workflow-runs` even when the workflow's
+   * `discardRunWhen` expression is true. For callers that need the stored
+   * run afterwards; `retryWorkflowRun` uses it to return the new run.
+   */
+  keepRun?: boolean
 
   /**
    * Step results of an earlier run of the same workflow. A step whose earlier
@@ -1175,7 +1196,12 @@ export class WorkflowExecutor {
       workflowRun,
       resolvedSteps,
       firedTrigger?.id,
-      { reuseSucceededSteps: options.reuseSucceededSteps, startedAt }
+      {
+        keepRun: options.keepRun,
+        onRunDiscarded: options.onRunDiscarded,
+        reuseSucceededSteps: options.reuseSucceededSteps,
+        startedAt
+      }
     )
     return workflowRun.id
   }
@@ -1418,6 +1444,8 @@ export class WorkflowExecutor {
     firedTriggerId: number | string | undefined,
     options: {
       canDefer?: boolean
+      keepRun?: boolean
+      onRunDiscarded?: (workflowRunId: number | string) => void
       resumeFrom?: PreviousStepResult[]
       reuseSucceededSteps?: PreviousStepResult[]
       startedAt: number
@@ -1624,6 +1652,14 @@ export class WorkflowExecutor {
       // Nothing may change the results while the run is being completed.
       run.closed = true
 
+      if (!options.keepRun && await this.shouldDiscardRun(workflow, context, stepResults)) {
+        if (await this.discardRun(workflow, workflowRun.id, req)) {
+          options.onRunDiscarded?.(workflowRun.id)
+          return
+        }
+        // The run could not be deleted; store it as completed like any other.
+      }
+
       const outputs: Record<string, unknown> = {}
       for (const result of stepResults) {
         if (result.status === 'succeeded' && result.output) {
@@ -1733,6 +1769,64 @@ export class WorkflowExecutor {
     } finally {
       clearTimeout(timeoutTimer)
     }
+  }
+
+  /**
+   * Whether a run that reached its end should be deleted instead of stored,
+   * as decided by the workflow's `discardRunWhen` expression.
+   *
+   * A workflow that polls for work (a scheduled trigger whose step usually
+   * finds nothing) would otherwise add a run to the history on every tick and
+   * bury the runs that did something. The expression is evaluated against the
+   * finished run's context, so it can look at step outputs and states, which
+   * a trigger condition cannot: that runs before any step.
+   *
+   * A run with a failed step is never discarded, also when it completed
+   * because of `errorHandling: 'continue'`: failures must stay visible.
+   * An expression that cannot be evaluated counts as false, so a mistake in
+   * it keeps runs rather than losing them.
+   */
+  private async shouldDiscardRun(
+    workflow: PayloadWorkflow,
+    context: ExecutionContext,
+    stepResults: StepResult[]
+  ): Promise<boolean> {
+    const expression = typeof workflow.discardRunWhen === 'string' ? workflow.discardRunWhen.trim() : ''
+    if (!expression) {
+      return false
+    }
+    if (stepResults.some((result) => result.status === 'failed')) {
+      return false
+    }
+    return this.evaluateCondition(expression, context)
+  }
+
+  /**
+   * Delete a finished run that `shouldDiscardRun` selected. Returns false,
+   * after logging why, when the delete failed; the caller then stores the run
+   * normally, because a run stuck in `running` would be worse than an extra
+   * entry in the history.
+   */
+  private async discardRun(
+    workflow: PayloadWorkflow,
+    workflowRunId: number | string,
+    req: PayloadRequest
+  ): Promise<boolean> {
+    try {
+      await this.payload.delete({ collection: 'workflow-runs', id: workflowRunId, req })
+    } catch (error) {
+      this.logger.warn({
+        workflowRunId,
+        workflowId: workflow.id,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }, 'Could not delete a workflow run selected by discardRunWhen; keeping it')
+      return false
+    }
+    this.logger.info({
+      workflowRunId,
+      workflowId: workflow.id
+    }, 'Workflow execution completed; run discarded because discardRunWhen was true')
+    return true
   }
 
   /**

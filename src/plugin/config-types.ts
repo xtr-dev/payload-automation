@@ -5,7 +5,8 @@ import type {CollectionConfig, GlobalConfig, TaskConfig} from "payload"
  *
  * `slug`, `name`, `description`, `triggers` and `steps` are always written.
  * The optional settings (`errorHandling`, `maxRetries`, `retryDelay`,
- * `timeout`, and a step's `retryOnFailure`, `maxRetries`, `retryDelay`) are
+ * `timeout`, `discardRunWhen`, and a step's `retryOnFailure`, `maxRetries`,
+ * `retryDelay`) are
  * only managed when the definition declares them: a declared setting is
  * written on create and restored on startup when the stored value differs,
  * an omitted one gets the collection's default on create and is left as
@@ -66,6 +67,14 @@ export type SeedWorkflow = {
    * delays included; `0` for no limit. Collection default: 300000.
    */
   timeout?: number
+  /**
+   * JSONata expression (bare, no `{{ }}`) evaluated when a run finishes
+   * without a failed step. When true, the run is deleted instead of kept in
+   * `workflow-runs`. For workflows that often have nothing to do, e.g.
+   * `'steps.release.output.released = 0'` on a scheduled cleanup. Failed
+   * runs are always kept. Collection default: empty (keep every run).
+   */
+  discardRunWhen?: string
 }
 
 /**
