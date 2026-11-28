@@ -22,6 +22,7 @@ A workflow automation plugin for PayloadCMS 3.x. Workflows are configured in the
 - PayloadCMS ^3.79.1
 - Node.js ^18.20.2 || >=20.9.0
 - React ^19.0.0 (for client components; declared as a peer dependency)
+- Any Payload database adapter: MongoDB, Postgres or SQLite. Postgres needs no extension (versions up to 0.6.1 required PostGIS, see [Upgrading](#upgrading))
 
 ## Installation
 
@@ -514,6 +515,20 @@ workflowsPlugin({
 ```
 
 Read-only (seeded) workflows, and the triggers and steps they reference, can't be updated or deleted through the API. An `update` or `delete` override doesn't lift that lock: the plugin ANDs it with your function.
+
+## Upgrading
+
+### The `position` field on workflow steps was removed
+
+Each entry of `workflows.steps` had a hidden `position` field of type `point`, left over from a visual builder that no longer exists. Nothing read it. On Postgres a `point` field is a PostGIS `geometry` column, so the plugin could not create its schema on a server without the PostGIS extension.
+
+The field is gone, which changes the database schema:
+
+- **Postgres and SQLite with migrations:** run `payload migrate:create` and apply the result. It drops the `position` column from `workflows_steps` and `_workflows_v_version_steps`. Stored values are deleted with the column.
+- **Postgres and SQLite in push mode** (development): Payload drops the two columns on the next start and asks for confirmation because data is removed.
+- **MongoDB:** nothing to do. Values already stored stay in the documents and are ignored.
+
+Payload does not remove the PostGIS extension from a database that already has it. If nothing else in your project uses a `point` field, you can drop it yourself with `DROP EXTENSION postgis`.
 
 ## Logging
 

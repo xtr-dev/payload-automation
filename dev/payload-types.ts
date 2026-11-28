@@ -452,13 +452,6 @@ export interface Workflow {
               id?: string | null;
             }[]
           | null;
-        /**
-         * Position in the visual workflow builder
-         *
-         * @minItems 2
-         * @maxItems 2
-         */
-        position?: [number, number] | null;
         id?: string | null;
       }[]
     | null;
@@ -1011,7 +1004,6 @@ export interface WorkflowsSelect<T extends boolean = true> {
               slug?: T;
               id?: T;
             };
-        position?: T;
         id?: T;
       };
   errorHandling?: T;
