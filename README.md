@@ -349,6 +349,8 @@ const runs = await payload.find({
 })
 ```
 
+A run always ends as `failed` when it fails, even if the write that records the failure is rejected (a hook on `workflow-runs` throws, or a step result no longer fits the schema). The plugin then stores only `status`, `completedAt` and `error`, and `error` says that the step results, context and logs are missing and why. If a hook rejects that write too, the three fields are written through the database adapter, so `workflow-runs` hooks do not run for it.
+
 ### Keeping Idle Runs Out of the History
 
 A workflow that polls for work, such as a scheduled workflow whose step usually finds nothing, stores a run on every tick. To keep only the runs that did something, give the workflow a `discardRunWhen` expression (the **Run History** section of the workflow in the admin panel, or `discardRunWhen` on a [seeded workflow](#seeding-template-workflows)):

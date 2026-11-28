@@ -15,6 +15,8 @@ export const buildTestConfig = (options: {
   /** Database adapter to use instead of SQLite on `dbFile`. */
   db?: DatabaseAdapterObj
   dbFile: string
+  /** Plugins applied after the workflows plugin, e.g. to add host hooks to its collections. */
+  extraPlugins?: Config['plugins']
   /** Payload `jobs` config; Payload's defaults apply when omitted. */
   jobs?: Config['jobs']
   /** Extra plugin options, merged over the defaults below. */
@@ -57,6 +59,7 @@ export const buildTestConfig = (options: {
         steps: [noopTask],
         ...options.pluginOptions,
       }),
+      ...(options.extraPlugins ?? []),
     ],
     ...(options.jobs ? { jobs: options.jobs } : {}),
     secret: 'test-secret-key',
